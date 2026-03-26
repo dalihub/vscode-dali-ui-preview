@@ -6,9 +6,7 @@
 
 ### v0.1 Demo
 
-https://github.com/user-attachments/assets/demo-v0.1.webm
-
-<video src="images/demo-v0.1.webm" autoplay loop muted playsinline width="100%"></video>
+https://github.com/dalihub/vscode-dali-ui-preview/raw/main/images/demo-v0.1.webm
 
 ---
 
