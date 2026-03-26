@@ -1,0 +1,13 @@
+src/**
+test/**
+.github/**
+.vscode/**
+tsconfig.json
+.vscode-test.mjs
+*.md
+!README.md
+1.FEASIBILITY_REPORT.md
+2.DALi_Preview_PoC.md
+3.DALi_Preview_Phase1.md
+node_modules/**
+.gitignore

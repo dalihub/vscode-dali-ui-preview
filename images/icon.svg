@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a90d9"/>
+      <stop offset="100%" stop-color="#64b5f6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect x="4" y="4" width="120" height="120" rx="18" ry="18" fill="url(#bg)"/>
+  <rect x="4" y="4" width="120" height="120" rx="18" ry="18" fill="none" stroke="#4a90d9" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- "DALi" text - prominent -->
+  <text x="64" y="48" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="bold" fill="#ffffff" letter-spacing="2">DALi</text>
+
+  <!-- Thin accent line under text -->
+  <rect x="28" y="54" width="72" height="2" rx="1" fill="url(#accent)" opacity="0.8"/>
+
+  <!-- UI Layout mockup (small, below text) -->
+  <rect x="22" y="64" width="32" height="14" rx="2" fill="#4a90d9" opacity="0.6"/>
+  <rect x="58" y="64" width="18" height="14" rx="2" fill="#64b5f6" opacity="0.45"/>
+  <rect x="80" y="64" width="26" height="14" rx="2" fill="#4a90d9" opacity="0.35"/>
+
+  <!-- Second row of UI blocks -->
+  <rect x="22" y="82" width="50" height="10" rx="2" fill="#64b5f6" opacity="0.3"/>
+  <rect x="76" y="82" width="30" height="10" rx="2" fill="#4a90d9" opacity="0.25"/>
+
+  <!-- Text lines -->
+  <rect x="22" y="96" width="38" height="3" rx="1" fill="#ffffff" opacity="0.15"/>
+  <rect x="22" y="102" width="26" height="3" rx="1" fill="#ffffff" opacity="0.1"/>
+
+  <!-- Small preview eye icon bottom-right -->
+  <ellipse cx="100" cy="108" rx="11" ry="7" fill="none" stroke="#64b5f6" stroke-width="2" opacity="0.7"/>
+  <circle cx="100" cy="108" r="3.5" fill="#64b5f6" opacity="0.7"/>
+</svg>

@@ -1,0 +1,93 @@
+{
+    "name": "dali-preview",
+    "displayName": "DALi UI Preview",
+    "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
+    "version": "0.1.0",
+    "publisher": "dalihub",
+    "icon": "images/icon.png",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/nicejackg/generativeUI"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Visualization",
+        "Other"
+    ],
+    "keywords": [
+        "dali",
+        "tizen",
+        "preview",
+        "ui",
+        "native"
+    ],
+    "activationEvents": [
+        "onLanguage:cpp"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "dali.openPreview",
+                "title": "DALi: Open Preview",
+                "icon": {
+                    "light": "images/icon.svg",
+                    "dark": "images/icon.svg"
+                }
+            }
+        ],
+        "configuration": {
+            "title": "DALi Preview",
+            "properties": {
+                "daliPreview.daliPrefix": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the DALi installation prefix directory (containing lib/ and include/). Leave empty to use the system default."
+                },
+                "daliPreview.previewWidth": {
+                    "type": "number",
+                    "default": 1024,
+                    "description": "Preview canvas width in pixels."
+                },
+                "daliPreview.previewHeight": {
+                    "type": "number",
+                    "default": 600,
+                    "description": "Preview canvas height in pixels."
+                },
+                "daliPreview.background": {
+                    "type": "string",
+                    "enum": [
+                        "dark",
+                        "light",
+                        "checker"
+                    ],
+                    "default": "dark",
+                    "description": "Background style for the preview panel."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "vsce package",
+        "test": "npm run test:unit",
+        "test:unit": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+        "pretest": "npm run compile"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "@types/node": "^20.0.0",
+        "typescript": "^5.3.0",
+        "@vscode/vsce": "^3.0.0",
+        "mocha": "^10.2.0",
+        "@types/mocha": "^10.0.0",
+        "chai": "^4.3.0",
+        "@types/chai": "^4.3.0",
+        "sinon": "^17.0.0",
+        "@types/sinon": "^17.0.0"
+    }
+}

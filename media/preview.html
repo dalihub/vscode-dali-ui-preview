@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none'; img-src {{cspSource}} vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<title>DALi Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1e1e1e;
+    color: #cccccc;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #252526;
+    border-bottom: 1px solid #3c3c3c;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .toolbar label {
+    font-size: 11px;
+    color: #999;
+    margin-right: 2px;
+  }
+
+  .toolbar select,
+  .toolbar input[type="number"] {
+    background: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+    outline: none;
+  }
+
+  .toolbar select:focus,
+  .toolbar input[type="number"]:focus {
+    border-color: #007acc;
+  }
+
+  .toolbar input[type="number"] {
+    width: 70px;
+  }
+
+  .toolbar-separator {
+    width: 1px;
+    height: 20px;
+    background: #555;
+    margin: 0 4px;
+  }
+
+  .toolbar button {
+    background: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.15s;
+  }
+
+  .toolbar button:hover {
+    background: #505050;
+  }
+
+  .toolbar button:active {
+    background: #007acc;
+  }
+
+  .btn-refresh {
+    font-size: 15px;
+    padding: 2px 8px;
+  }
+
+  .custom-size-inputs {
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .custom-size-inputs.visible {
+    display: flex;
+  }
+
+  .dim-times {
+    color: #999;
+    font-size: 11px;
+  }
+
+  /* ── Main preview area ── */
+  .preview-area {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .preview-container {
+    position: relative;
+    display: inline-block;
+  }
+
+  .preview-container img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 90px);
+    object-fit: contain;
+    border: 1px solid #333;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.2s;
+  }
+
+  .preview-container.bg-dark { background: #1a1a2e; }
+  .preview-container.bg-light { background: #ffffff; }
+  .preview-container.bg-checker {
+    background-image:
+      linear-gradient(45deg, #444 25%, transparent 25%),
+      linear-gradient(-45deg, #444 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #444 75%),
+      linear-gradient(-45deg, transparent 75%, #444 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+
+  .dimensions-label {
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+  }
+
+  /* ── Resize handle ── */
+  .resize-handle {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    z-index: 10;
+  }
+
+  .resize-handle::before {
+    content: '';
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 0 10px 10px;
+    border-color: transparent transparent #888 transparent;
+  }
+
+  .resize-handle:hover::before {
+    border-color: transparent transparent #007acc transparent;
+  }
+
+  .resize-outline {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: 2px dashed #007acc;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .resize-outline.active {
+    display: block;
+  }
+
+  .resize-dimensions {
+    display: none;
+    position: absolute;
+    background: rgba(0, 122, 204, 0.85);
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 15;
+    white-space: nowrap;
+  }
+
+  .resize-dimensions.active {
+    display: block;
+  }
+
+  /* ── Overlays ── */
+  .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .overlay-loading {
+    background: rgba(30, 30, 30, 0.6);
+  }
+
+  .overlay-error {
+    background: rgba(120, 20, 20, 0.75);
+    pointer-events: auto;
+  }
+
+  .overlay-welcome {
+    pointer-events: auto;
+  }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #555;
+    border-top-color: #007acc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .error-box {
+    background: rgba(50, 10, 10, 0.9);
+    border: 1px solid #f44747;
+    border-radius: 6px;
+    padding: 16px 24px;
+    max-width: 80%;
+    max-height: 60%;
+    overflow: auto;
+    text-align: left;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  .error-box h3 {
+    color: #f44747;
+    margin-bottom: 8px;
+    font-size: 14px;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .error-box pre {
+    color: #f48771;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  .welcome-box {
+    text-align: center;
+    color: #888;
+  }
+
+  .welcome-box h2 {
+    color: #cccccc;
+    font-size: 18px;
+    margin-bottom: 10px;
+    font-weight: 500;
+  }
+
+  .welcome-box code {
+    background: #2d2d2d;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #4ec9b0;
+    font-size: 13px;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── Status bar ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    background: #252526;
+    border-top: 1px solid #3c3c3c;
+    font-size: 11px;
+    color: #888;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <label for="preset">Resolution:</label>
+    <select id="preset">
+      <option value="1024x600">1024 x 600</option>
+      <option value="720x1280">720 x 1280</option>
+      <option value="360x640">360 x 640</option>
+      <option value="1920x1080">1920 x 1080</option>
+      <option value="480x800">480 x 800</option>
+      <option value="custom">Custom</option>
+    </select>
+
+    <div class="toolbar-separator"></div>
+
+    <label for="inputWidth">W:</label>
+    <input type="number" id="inputWidth" min="1" max="7680" value="1024">
+    <span class="dim-times">&times;</span>
+    <label for="inputHeight">H:</label>
+    <input type="number" id="inputHeight" min="1" max="4320" value="600">
+
+    <div id="customSizeInputs" class="custom-size-inputs">
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <button id="btnRefresh" class="btn-refresh" title="Refresh preview">&#x21bb;</button>
+  </div>
+
+  <!-- Main preview area -->
+  <div class="preview-area" id="previewArea">
+    <!-- Image container -->
+    <div class="preview-container bg-dark" id="previewContainer">
+      <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
+      <div class="resize-handle" id="resizeHandle"></div>
+      <div class="resize-outline" id="resizeOutline"></div>
+      <div class="resize-dimensions" id="resizeDimensions"></div>
+      <div class="dimensions-label hidden" id="dimensionsLabel"></div>
+    </div>
+
+    <!-- Overlays -->
+    <div class="overlay overlay-loading hidden" id="overlayLoading">
+      <div class="spinner"></div>
+    </div>
+
+    <div class="overlay overlay-error hidden" id="overlayError">
+      <div class="error-box">
+        <h3>Preview Error</h3>
+        <pre id="errorText"></pre>
+      </div>
+    </div>
+
+    <div class="overlay overlay-welcome" id="overlayWelcome">
+      <div class="welcome-box">
+        <h2>DALi Preview</h2>
+        <p>Save a <code>.preview.dali.cpp</code> file to see preview</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <span id="buildTimeText"></span>
+    <span id="timestampText"></span>
+  </div>
+
+<script>
+(function () {
+  var vscode = acquireVsCodeApi();
+
+  // ── Elements ──
+  var preset = document.getElementById('preset');
+  var inputWidth = document.getElementById('inputWidth');
+  var inputHeight = document.getElementById('inputHeight');
+  var btnRefresh = document.getElementById('btnRefresh');
+  var previewArea = document.getElementById('previewArea');
+  var previewContainer = document.getElementById('previewContainer');
+  var previewImage = document.getElementById('previewImage');
+  var resizeHandle = document.getElementById('resizeHandle');
+  var resizeOutline = document.getElementById('resizeOutline');
+  var resizeDimensions = document.getElementById('resizeDimensions');
+  var dimensionsLabel = document.getElementById('dimensionsLabel');
+  var overlayLoading = document.getElementById('overlayLoading');
+  var overlayError = document.getElementById('overlayError');
+  var overlayWelcome = document.getElementById('overlayWelcome');
+  var errorText = document.getElementById('errorText');
+  var buildTimeText = document.getElementById('buildTimeText');
+  var timestampText = document.getElementById('timestampText');
+
+  // ── State ──
+  var currentBg = 'dark';
+  var bgCycle = ['dark', 'light', 'checker'];
+  var resizeDebounceTimer = null;
+  var currentWidth = 1024;
+  var currentHeight = 600;
+
+  // ── Presets ──
+  var presets = {
+    '1024x600': [1024, 600],
+    '720x1280': [720, 1280],
+    '360x640': [360, 640],
+    '1920x1080': [1920, 1080],
+    '480x800': [480, 800]
+  };
+
+  function applyPreset() {
+    var val = preset.value;
+    if (val !== 'custom' && presets[val]) {
+      currentWidth = presets[val][0];
+      currentHeight = presets[val][1];
+      inputWidth.value = currentWidth;
+      inputHeight.value = currentHeight;
+    }
+  }
+
+  preset.addEventListener('change', function () {
+    applyPreset();
+    sendResize(currentWidth, currentHeight);
+  });
+
+  function onManualSizeChange() {
+    var w = parseInt(inputWidth.value, 10);
+    var h = parseInt(inputHeight.value, 10);
+    if (w > 0 && h > 0) {
+      currentWidth = w;
+      currentHeight = h;
+      // Check if matches a preset
+      var matched = false;
+      var keys = Object.keys(presets);
+      for (var i = 0; i < keys.length; i++) {
+        if (presets[keys[i]][0] === w && presets[keys[i]][1] === h) {
+          preset.value = keys[i];
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        preset.value = 'custom';
+      }
+      sendResize(w, h);
+    }
+  }
+
+  inputWidth.addEventListener('change', onManualSizeChange);
+  inputHeight.addEventListener('change', onManualSizeChange);
+
+  // ── Refresh ──
+  btnRefresh.addEventListener('click', function () {
+    vscode.postMessage({ command: 'refresh' });
+  });
+
+  // ── Resize via debounced postMessage ──
+  function sendResize(w, h) {
+    if (resizeDebounceTimer) {
+      clearTimeout(resizeDebounceTimer);
+    }
+    resizeDebounceTimer = setTimeout(function () {
+      vscode.postMessage({ command: 'resize', width: w, height: h });
+    }, 300);
+  }
+
+  // ── Drag resize handle ──
+  var isDragging = false;
+  var dragStartX = 0;
+  var dragStartY = 0;
+  var dragStartW = 0;
+  var dragStartH = 0;
+
+  resizeHandle.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    var rect = previewImage.getBoundingClientRect();
+    dragStartW = rect.width;
+    dragStartH = rect.height;
+    resizeOutline.classList.add('active');
+    resizeDimensions.classList.add('active');
+    document.body.style.cursor = 'nwse-resize';
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!isDragging) { return; }
+    var dx = e.clientX - dragStartX;
+    var dy = e.clientY - dragStartY;
+    var newW = Math.max(32, Math.round(dragStartW + dx));
+    var newH = Math.max(32, Math.round(dragStartH + dy));
+
+    resizeOutline.style.width = newW + 'px';
+    resizeOutline.style.height = newH + 'px';
+
+    resizeDimensions.textContent = newW + ' x ' + newH;
+    resizeDimensions.style.left = (newW + 8) + 'px';
+    resizeDimensions.style.top = (newH - 4) + 'px';
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!isDragging) { return; }
+    isDragging = false;
+    document.body.style.cursor = '';
+    resizeOutline.classList.remove('active');
+    resizeDimensions.classList.remove('active');
+
+    var outlineW = parseInt(resizeOutline.style.width, 10);
+    var outlineH = parseInt(resizeOutline.style.height, 10);
+    if (outlineW > 0 && outlineH > 0) {
+      currentWidth = outlineW;
+      currentHeight = outlineH;
+      inputWidth.value = currentWidth;
+      inputHeight.value = currentHeight;
+      preset.value = 'custom';
+      sendResize(currentWidth, currentHeight);
+    }
+  });
+
+  // ── Message handling ──
+  window.addEventListener('message', function (event) {
+    var msg = event.data;
+    switch (msg.command) {
+      case 'updateImage':
+        overlayWelcome.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        overlayLoading.classList.add('hidden');
+        previewImage.classList.remove('hidden');
+        dimensionsLabel.classList.remove('hidden');
+        previewImage.src = msg.uri + '?t=' + Date.now();
+        previewImage.onload = function () {
+          dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
+        };
+        var buildSec = (msg.buildTime / 1000).toFixed(1);
+        buildTimeText.textContent = 'Built in ' + buildSec + 's';
+        timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        break;
+
+      case 'showLoading':
+        overlayWelcome.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        overlayLoading.classList.remove('hidden');
+        break;
+
+      case 'showError':
+        overlayWelcome.classList.add('hidden');
+        overlayLoading.classList.add('hidden');
+        overlayError.classList.remove('hidden');
+        errorText.textContent = msg.message || 'Unknown error';
+        break;
+
+      case 'showWelcome':
+        overlayLoading.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        previewImage.classList.add('hidden');
+        dimensionsLabel.classList.add('hidden');
+        overlayWelcome.classList.remove('hidden');
+        buildTimeText.textContent = '';
+        timestampText.textContent = '';
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>

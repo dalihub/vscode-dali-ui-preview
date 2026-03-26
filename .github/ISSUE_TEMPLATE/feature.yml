@@ -1,0 +1,28 @@
+name: Feature Request
+description: Request a new feature for DALi Preview
+labels: ["enhancement", "ai-task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the feature you would like.
+      placeholder: Describe the feature...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: Describe what you expect to happen when this feature is implemented.
+      placeholder: What should happen...
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or examples about the feature request here.
+      placeholder: Any additional information...
+    validations:
+      required: false

@@ -1,0 +1,179 @@
+import * as vscode from 'vscode';
+import { PreviewManager } from './previewManager';
+import { BuildRunner } from './buildRunner';
+import { XvfbManager } from './xvfbManager';
+import { StatusBarManager } from './statusBar';
+import { extractPreviewCode, isPreviewable } from './codeExtractor';
+import { parseGccErrors, getHarnessCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
+import { runSetupWizard, isDaliConfigured } from './setupWizard';
+import * as fs from 'fs';
+import * as path from 'path';
+
+let previewManager: PreviewManager | undefined;
+let buildRunner: BuildRunner | undefined;
+let xvfbManager: XvfbManager | undefined;
+let statusBar: StatusBarManager | undefined;
+let diagnosticCollection: vscode.DiagnosticCollection;
+let building = false;
+let outputChannel: vscode.OutputChannel;
+
+// Current preview dimensions (managed directly, not via settings)
+let currentWidth = 1024;
+let currentHeight = 600;
+
+export async function activate(context: vscode.ExtensionContext) {
+    outputChannel = vscode.window.createOutputChannel('DALi Preview');
+    outputChannel.appendLine('DALi Preview extension activating...');
+
+    // Load initial size from settings
+    const config = vscode.workspace.getConfiguration('daliPreview');
+    currentWidth = config.get('previewWidth', 1024);
+    currentHeight = config.get('previewHeight', 600);
+
+    diagnosticCollection = vscode.languages.createDiagnosticCollection('dali-preview');
+    context.subscriptions.push(diagnosticCollection);
+
+    // Status bar (always visible)
+    statusBar = new StatusBarManager(context);
+    statusBar.showReady();
+
+    // Xvfb (start in background)
+    xvfbManager = new XvfbManager();
+    const xvfbStarted = await xvfbManager.start();
+    if (xvfbStarted) {
+        outputChannel.appendLine(`Xvfb started on display ${xvfbManager.getDisplay()}`);
+    } else {
+        outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
+    }
+
+    // Check DALi configuration on first run
+    try {
+        if (!isDaliConfigured(context)) {
+            const daliPath = await runSetupWizard(context);
+            if (!daliPath) {
+                outputChannel.appendLine('DALi not configured. Preview will not work until configured.');
+            }
+        }
+    } catch (err: any) {
+        outputChannel.appendLine(`Setup wizard error: ${err.message || err}`);
+    }
+
+    // Build runner
+    buildRunner = new BuildRunner(context, xvfbManager, outputChannel);
+
+    // Command: DALi: Open Preview
+    const openCmd = vscode.commands.registerCommand('dali.openPreview', () => {
+        ensurePreviewManager(context);
+        previewManager!.show();
+    });
+
+    // Auto-preview on save
+    const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
+        if (!isPreviewable(doc)) {
+            return;
+        }
+        ensurePreviewManager(context);
+        previewManager!.show();
+        await runPreview(doc);
+    });
+
+    // Auto-open preview panel when opening a previewable file
+    const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (editor && isPreviewable(editor.document)) {
+            ensurePreviewManager(context);
+            previewManager!.show();
+        }
+    });
+
+    context.subscriptions.push(openCmd, onSave, onOpen, outputChannel);
+
+    outputChannel.appendLine('DALi Preview extension activated.');
+}
+
+function ensurePreviewManager(context: vscode.ExtensionContext) {
+    if (!previewManager) {
+        previewManager = new PreviewManager(context);
+
+        // Handle resize from webview
+        previewManager.onResize((width, height) => {
+            outputChannel.appendLine(`Resize requested: ${width}x${height}`);
+            currentWidth = width;
+            currentHeight = height;
+            // Re-run preview with new size
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isPreviewable(editor.document)) {
+                runPreview(editor.document);
+            }
+        });
+
+        // Handle refresh from webview
+        previewManager.onRefresh(() => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isPreviewable(editor.document)) {
+                runPreview(editor.document);
+            }
+        });
+    }
+}
+
+async function runPreview(doc: vscode.TextDocument) {
+    if (!buildRunner || !previewManager || building) {
+        return;
+    }
+
+    // Extract code
+    const extraction = extractPreviewCode(doc);
+    if (!extraction) {
+        return;
+    }
+
+    building = true;
+    statusBar?.showBuilding();
+    previewManager.showLoading();
+    diagnosticCollection.delete(doc.uri);
+
+    const startTime = Date.now();
+
+    try {
+        // Pass current dimensions directly
+        const result = await buildRunner.buildAndRun(extraction.code, currentWidth, currentHeight);
+        const buildTimeMs = Date.now() - startTime;
+
+        if (result.success && result.pngPath) {
+            previewManager.updateImage(result.pngPath, buildTimeMs);
+            statusBar?.showSuccess(buildTimeMs);
+            outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s (${currentWidth}x${currentHeight})`);
+        } else {
+            // Parse errors and show in editor
+            const templatePath = path.join(
+                buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
+            let template = '';
+            try { template = fs.readFileSync(templatePath, 'utf-8'); } catch { /* ignore */ }
+            const offset = getHarnessCodeOffset(template);
+            const errors = parseGccErrors(result.error || '', offset);
+
+            if (errors.length > 0) {
+                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
+                diagnosticCollection.set(doc.uri, diagnostics);
+                previewManager.showError(formatErrorsForDisplay(errors));
+            } else {
+                previewManager.showError(result.error || 'Unknown error');
+            }
+
+            statusBar?.showError(result.error?.split('\n')[0] || 'Build failed');
+            outputChannel.appendLine(`Preview failed: ${result.error?.substring(0, 200)}`);
+        }
+    } catch (err: any) {
+        previewManager.showError(`Unexpected error: ${err.message || err}`);
+        statusBar?.showError(err.message || 'Error');
+    } finally {
+        building = false;
+    }
+}
+
+export function deactivate() {
+    previewManager?.dispose();
+    buildRunner?.dispose();
+    xvfbManager?.stop();
+    statusBar?.dispose();
+}

@@ -1,0 +1,49 @@
+name: Bug Report
+description: Report a bug in DALi Preview
+labels: ["bug", "ai-task"]
+body:
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Provide detailed steps to reproduce the bug.
+      placeholder: |
+        1. Open a .cpp file with @dali-preview-begin markers
+        2. Run the "DALi: Show Preview" command
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-vs-actual
+    attributes:
+      label: Expected vs Actual Behavior
+      description: What did you expect to happen, and what actually happened?
+      placeholder: |
+        Expected: The preview panel shows the rendered UI.
+        Actual: The preview panel shows a compilation error.
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension Version
+      description: The version of the DALi Preview extension (from the Extensions panel).
+      placeholder: "0.1.0"
+    validations:
+      required: false
+  - type: input
+    id: dali-version
+    attributes:
+      label: DALi Version
+      description: The version of DALi Toolkit installed on your system.
+      placeholder: "2.3.x"
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here (logs, screenshots, OS info, etc.).
+      placeholder: Any additional information...
+    validations:
+      required: false
