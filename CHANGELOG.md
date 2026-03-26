@@ -24,4 +24,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI-Driven Development infrastructure: `claude.yml` workflow, `CLAUDE.md` project rules, issue templates (`feature.yml`, `bug.yml`).
 - One-line installer script (`install.sh`).
 
-[0.1.0]: https://github.com/dalihub/dali-preview/releases/tag/v0.1.0
+[0.1.0]: https://github.com/dalihub/vscode-dali-ui-preview/releases/tag/v0.1.0

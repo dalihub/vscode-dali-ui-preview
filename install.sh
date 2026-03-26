@@ -3,7 +3,7 @@
 # DALi UI Preview for VS Code — one-line installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/dalihub/dali-preview/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
 #
 # Or with a custom repo:
 #   DALI_PREVIEW_REPO="nicejackg/generativeUI" bash install.sh
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # Configurable repository (owner/repo)
-PRIMARY_REPO="${DALI_PREVIEW_REPO:-dalihub/dali-preview}"
+PRIMARY_REPO="${DALI_PREVIEW_REPO:-dalihub/vscode-dali-ui-preview}"
 FALLBACK_REPO="nicejackg/generativeUI"
 
 TMPDIR="$(mktemp -d)"

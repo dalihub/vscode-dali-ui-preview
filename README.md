@@ -39,12 +39,12 @@ A DALi Ubuntu backend build environment is required. An automated one-command se
 ### Option 1 -- One-line script (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dalihub/dali-preview/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
 ```
 
 ### Option 2 -- Download from GitHub Releases
 
-1. Go to the [Releases](https://github.com/dalihub/dali-preview/releases) page.
+1. Go to the [Releases](https://github.com/dalihub/vscode-dali-ui-preview/releases) page.
 2. Download the latest `.vsix` file.
 3. Install:
    ```bash
@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/dalihub/dali-preview/main/install.s
 ### Option 3 -- Build from source
 
 ```bash
-git clone https://github.com/dalihub/dali-preview.git
+git clone https://github.com/dalihub/vscode-dali-ui-preview.git
 cd dali-preview
 npm install
 npm run compile
