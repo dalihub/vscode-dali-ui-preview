@@ -4,8 +4,11 @@
 
 **DALi UI 코드를 작성하고 Ctrl+S만 누르면 바로 옆에서 렌더링 결과를 확인하세요.** dali-ui의 C++ 체이닝 API 코드를 컴파일하고 렌더링하여 VS Code 안에서 프리뷰를 보여주는 Extension입니다.
 
-<!-- TODO: 스크린샷 / 데모 GIF 추가 -->
-<!-- ![DALi Preview 데모](images/demo.gif) -->
+### v0.1 데모
+
+https://github.com/user-attachments/assets/demo-v0.1.webm
+
+<video src="images/demo-v0.1.webm" autoplay loop muted playsinline width="100%"></video>
 
 ---
 

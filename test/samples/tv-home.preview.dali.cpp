@@ -28,9 +28,9 @@ return StackLayout::New(StackOrientation::VERTICAL)
             .SetRequestedHeight(180.0f)
             .SetViewMargin(Extents(40, 40, 12, 0))
             .SetViewPadding(Extents(24, 24, 0, 16))
-            .SetBackgroundColor(UiColor(0x1a2744))
+            .SetBackgroundColor(UiColor(0x1a27EE))
             .Children({
-                Label::New("Nature Documentary").SetFontSize(24).SetTextColor(UiColor(0xFFFFFF)),
+                Label::New("Nature").SetFontSize(24).SetTextColor(UiColor(0xFFFFFF)),
                 Label::New("Explore the wonders of the natural world").SetFontSize(12).SetTextColor(UiColor(0x8888AA)),
             }),
 

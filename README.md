@@ -4,8 +4,11 @@
 
 **See your Tizen DALi UI as you code.** This extension compiles and renders dali-ui C++ chaining API code on save, showing a live preview right inside VS Code.
 
-<!-- TODO: Add screenshot / demo GIF -->
-<!-- ![DALi Preview demo](images/demo.gif) -->
+### v0.1 Demo
+
+https://github.com/user-attachments/assets/demo-v0.1.webm
+
+<video src="images/demo-v0.1.webm" autoplay loop muted playsinline width="100%"></video>
 
 ---
 

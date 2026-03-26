@@ -28,7 +28,7 @@ public:
             .Children({
                 Label::New("Marker Test")
                     .SetFontSize(32)
-                    .SetTextColor(UiColor(0xFFFFFF)),
+                    .SetTextColor(UiColor(0xFFFF00)),
                 View::New()
                     .SetBackgroundColor(UiColor(0x4a90d9))
                     .SetRequestedWidth(MATCH_PARENT)
@@ -40,7 +40,7 @@ public:
                     .Children({
                         View::New()
                             .SetBackgroundColor(UiColor(0x555555))
-                            .SetRequestedWidth(120.0f)
+                            .SetRequestedWidth(240.0f)
                             .SetRequestedHeight(48.0f),
                         View::New()
                             .SetBackgroundColor(UiColor(0x4488ff))
