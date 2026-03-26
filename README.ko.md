@@ -123,17 +123,11 @@ void MyApp::CreateUI() {
 | `daliPreview.previewWidth` | `number` | `1024` | 프리뷰 너비 (px) |
 | `daliPreview.previewHeight` | `number` | `600` | 프리뷰 높이 (px) |
 
-## AI-Driven Development
+## AI-Driven Development (준비 중)
 
-이 프로젝트는 AI-Driven Development Process로 개발됩니다. GitHub Issue로 등록된 기능 요청과 버그 리포트를 Claude AI가 자동으로 분석, 구현, 테스트, 릴리즈합니다.
+이 프로젝트는 AI-Driven Development를 위해 설계되었습니다. GitHub Issue가 등록되면 AI가 자동으로 분석, 구현, 릴리즈하는 프로세스입니다. 이 기능은 Anthropic API 키가 필요하며 **아직 활성화되지 않았습니다**.
 
-**개발 프로세스:**
-1. GitHub Issue 등록 (기능 요청 또는 버그 리포트)
-2. Claude가 코드베이스를 분석하고 구현 계획을 코멘트
-3. `@claude implement`로 승인
-4. Claude가 구현 후 **테스트 릴리즈** (pre-release `.vsix`) 생성
-5. 개발자가 테스트 릴리즈를 설치하고 확인
-6. 승인하면 **정식 릴리즈**로 반영
+기능 요청과 버그 리포트는 GitHub Issue로 등록해 주세요. 현재는 수동으로 처리합니다.
 
 ## 테스트
 

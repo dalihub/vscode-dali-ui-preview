@@ -124,17 +124,11 @@ void MyApp::CreateUI() {
 | `daliPreview.previewWidth` | `number` | `1024` | Preview canvas width in pixels |
 | `daliPreview.previewHeight` | `number` | `600` | Preview canvas height in pixels |
 
-## AI-Driven Development
+## AI-Driven Development (Coming Soon)
 
-This project is developed using an AI-Driven Development Process. Feature requests and bug reports submitted as GitHub Issues are automatically analyzed, implemented, tested, and released by Claude AI.
+This project is designed for AI-Driven Development, where GitHub Issues are automatically analyzed, implemented, and released by AI. This feature requires an Anthropic API key and is **not yet active**.
 
-**Development Process:**
-1. Open a GitHub Issue (feature request or bug report)
-2. Claude analyzes the codebase and comments an implementation plan
-3. You approve with `@claude implement`
-4. Claude implements and creates a **test release** (pre-release `.vsix`)
-5. You install the test release and verify
-6. If approved, the change is promoted to an **official release**
+Feature requests and bug reports can be submitted as GitHub Issues and will be handled manually for now.
 
 ## Testing
 
