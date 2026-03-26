@@ -26,9 +26,9 @@ public:
             .SetViewPadding(Extents(20, 20, 20, 20))
             .SetBackgroundColor(UiColor(0x2d2d3f))
             .Children({
-                Label::New("Marker Test")
+                Label::New("Marke")
                     .SetFontSize(32)
-                    .SetTextColor(UiColor(0xFFFF00)),
+                    .SetTextColor(UiColor(0xFFFFFF)),
                 View::New()
                     .SetBackgroundColor(UiColor(0x4a90d9))
                     .SetRequestedWidth(MATCH_PARENT)
