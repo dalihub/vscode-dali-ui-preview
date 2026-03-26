@@ -6,7 +6,7 @@
 
 ### v0.1 Demo
 
-<img src="images/demo-v0.1.gif" alt="DALi Preview Demo" width="960">
+[vscode-dali-ui-preview_v0.1.webm](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
 
 ---
 
