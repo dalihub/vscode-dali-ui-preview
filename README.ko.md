@@ -25,14 +25,14 @@
 | 항목 | 설치 방법 | 비고 |
 |------|----------|------|
 | **Ubuntu 22.04+** | -- | 다른 Linux 배포판도 가능할 수 있음 |
-| **DALi 빌드 환경** | 필수 | `dali-env/opt` (dali-core, dali-adaptor, dali-ui) |
+| **DALi 빌드 환경 (dali-ui 포함)** | 필수 | `dali-env/opt` (dali-core, dali-adaptor, **dali-ui** (dali-ui-foundation, dali-ui-components)) |
 | **g++, Xvfb, ccache** | 자동 설치 | Extension 첫 실행 시 누락된 도구를 감지하고 자동 설치합니다 |
 
 ## DALi 환경
 
 Extension은 환경변수 (`DESKTOP_PREFIX`) 또는 `setenv` 파일에서 `dali-env/opt`를 자동으로 찾습니다.
 
-DALi Ubuntu 백엔드 빌드 환경이 필요합니다. 향후 릴리즈에서 원커맨드 자동 설치를 제공할 예정입니다.
+**dali-ui를 포함한** DALi Ubuntu 백엔드 빌드 환경이 필요합니다. 기본 DALi만 설치된 환경으로는 동작하지 않으며, dali-ui (dali-ui-foundation, dali-ui-components)도 빌드 및 설치되어 있어야 합니다. 향후 릴리즈에서 원커맨드 자동 설치를 제공할 예정입니다.
 
 ## 설치
 

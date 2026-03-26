@@ -25,14 +25,14 @@
 | Requirement | Install | Notes |
 |---|---|---|
 | **Ubuntu 22.04+** | -- | Other Linux distros may work |
-| **DALi build environment** | Required | `dali-env/opt` with dali-core, dali-adaptor, dali-ui |
+| **DALi build environment (including dali-ui)** | Required | `dali-env/opt` with dali-core, dali-adaptor, **dali-ui** (dali-ui-foundation, dali-ui-components) |
 | **g++, Xvfb, ccache** | Auto-installed | The extension detects missing tools and installs them on first run |
 
 ## DALi Environment
 
 The extension auto-detects `dali-env/opt` from your environment variables (`DESKTOP_PREFIX`) or `setenv` files.
 
-A DALi Ubuntu backend build environment is required. An automated one-command setup will be provided in a future release.
+A DALi Ubuntu backend build environment **including dali-ui** is required. The standard DALi-only environment is not sufficient -- dali-ui (dali-ui-foundation, dali-ui-components) must also be built and installed. An automated one-command setup will be provided in a future release.
 
 ## Installation
 
