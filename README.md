@@ -6,7 +6,7 @@
 
 ### v0.1 Demo
 
-https://github.com/dalihub/vscode-dali-ui-preview/raw/main/images/demo-v0.1.webm
+![DALi Preview Demo](images/demo-v0.1.gif)
 
 ---
 
