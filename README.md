@@ -6,7 +6,7 @@
 
 ### v0.1 Demo
 
-![DALi Preview Demo](images/demo-v0.1.gif)
+<img src="images/demo-v0.1.gif" alt="DALi Preview Demo" width="960">
 
 ---
 
