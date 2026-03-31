@@ -5,6 +5,19 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-31 — Phase 2-4 UX: 다크/라이트 모드 전환 발견가능성 개선
+
+### Added
+
+- **테마 전환 상태 바 버튼** (`src/statusBar.ts`): `ThemeStatusBarItem` 클래스 추가. 상태 바 오른쪽 Secondary zone에 `$(moon)` / `$(sun)` 아이콘으로 현재 테마 표시. 클릭 시 즉시 라이트 ↔ 다크 전환. 현재 테마 상태 툴팁으로 표시.
+- **커맨드 팔레트 명령** (`package.json`, `src/extension.ts`): `DALi Preview: Toggle Theme` 명령 등록. 커맨드 팔레트에서 "DALi Preview: Toggle Theme"으로 접근 가능.
+- **High Contrast 테마 CSS** (`media/preview.html`): `body.vscode-high-contrast` / `body.vscode-high-contrast-light` CSS 규칙 추가. VS Code 고대비 테마 사용 시 툴바, 버튼, 텍스트가 올바르게 표시.
+
+### Changed
+
+- **테마 상태 바 동기화** (`src/extension.ts`): 웹뷰 내 테마 버튼 클릭과 커맨드 팔레트 명령 모두 `themeStatusBar`를 동기화하여 일관된 상태 표시.
+- **`package.json` 버전**: `0.8.0` → `0.9.0`.
+
 ## [0.8.0] - 2026-03-31 — Phase 2-2 UX: 실시간 프리뷰 사용성 개선
 
 ### Added

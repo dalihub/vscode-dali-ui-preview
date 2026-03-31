@@ -3,7 +3,7 @@ import { PreviewManager } from './previewManager';
 import { BuildRunner } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { XvfbManager } from './xvfbManager';
-import { StatusBarManager } from './statusBar';
+import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
@@ -17,6 +17,7 @@ let buildRunner: BuildRunner | undefined;
 let previewServer: PreviewServer | undefined;
 let xvfbManager: XvfbManager | undefined;
 let statusBar: StatusBarManager | undefined;
+let themeStatusBar: ThemeStatusBarItem | undefined;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let building = false;
 let outputChannel: vscode.OutputChannel;
@@ -64,6 +65,10 @@ export async function activate(context: vscode.ExtensionContext) {
     statusBar = new StatusBarManager(context);
     statusBar.showReady();
 
+    // Theme status bar button (Secondary zone, right side)
+    themeStatusBar = new ThemeStatusBarItem(context);
+    themeStatusBar.update(currentTheme);
+
     // Xvfb (start in background)
     xvfbManager = new XvfbManager();
     const xvfbStarted = await xvfbManager.start();
@@ -108,6 +113,20 @@ export async function activate(context: vscode.ExtensionContext) {
     initPreviewServer().catch(err =>
         outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
     );
+
+    // Command: DALi Preview: Toggle Theme
+    const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        context.workspaceState.update('daliPreview.theme', currentTheme);
+        themeStatusBar?.update(currentTheme);
+        if (previewManager) {
+            previewManager.setTheme(currentTheme);
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isPreviewable(editor.document)) {
+                runPreview(editor.document);
+            }
+        }
+    });
 
     // Command: DALi: Open Preview
     const openCmd = vscode.commands.registerCommand('dali.openPreview', () => {
@@ -176,7 +195,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(openCmd, onSave, onOpen, onTextChange, onConfigChange, outputChannel);
+    context.subscriptions.push(toggleThemeCmd, openCmd, onSave, onOpen, onTextChange, onConfigChange, outputChannel);
 
     outputChannel.appendLine('DALi Preview extension activated.');
 }
@@ -209,6 +228,7 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         previewManager.onThemeToggle(() => {
             currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
             context.workspaceState.update('daliPreview.theme', currentTheme);
+            themeStatusBar?.update(currentTheme);
             previewManager!.setTheme(currentTheme);
             // Rebuild with new theme
             const editor = vscode.window.activeTextEditor;
@@ -516,4 +536,5 @@ export function deactivate() {
     buildRunner?.dispose();
     xvfbManager?.stop();
     statusBar?.dispose();
+    themeStatusBar?.dispose();
 }
