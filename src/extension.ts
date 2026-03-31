@@ -24,6 +24,7 @@ let lastPreviewedDoc: vscode.TextDocument | undefined;
 let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
 let buildGeneration = 0;
 let pendingRebuildDoc: vscode.TextDocument | undefined;
+let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -124,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
         ensurePreviewManager(context);
-        previewManager!.show();
+        previewManager!.show(true);
         previewManager!.setTheme(currentTheme);
         if (currentBgColor) {
             previewManager!.setBackgroundColor(currentBgColor);
@@ -136,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor && isPreviewable(editor.document)) {
             ensurePreviewManager(context);
-            previewManager!.show();
+            previewManager!.show(true);
             previewManager!.setTheme(currentTheme);
             if (currentBgColor) {
                 previewManager!.setBackgroundColor(currentBgColor);
@@ -158,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!liveDebouncer) {
             liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
                 ensurePreviewManager(context);
-                previewManager!.show();
+                previewManager!.show(true);
                 runPreview(doc, true);
             });
         }
@@ -258,6 +259,24 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
     }
 }
 
+function scheduleShowError(message: string): void {
+    if (errorDebounceTimer !== undefined) {
+        clearTimeout(errorDebounceTimer);
+    }
+    errorDebounceTimer = setTimeout(() => {
+        errorDebounceTimer = undefined;
+        previewManager?.showError(message);
+    }, 500);
+}
+
+function cancelErrorDebounce(): void {
+    if (errorDebounceTimer !== undefined) {
+        clearTimeout(errorDebounceTimer);
+        errorDebounceTimer = undefined;
+    }
+    previewManager?.clearError();
+}
+
 async function runPreview(doc: vscode.TextDocument, livePreview = false) {
     if (!buildRunner || !previewManager) {
         return;
@@ -329,9 +348,9 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 if (errors.length > 0) {
                     const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
                     diagnosticCollection.set(doc.uri, diagnostics);
-                    previewManager.showError(formatErrorsForDisplay(errors));
+                    scheduleShowError(formatErrorsForDisplay(errors));
                 } else {
-                    previewManager.showError(pluginResult.error || 'Plugin compile failed');
+                    scheduleShowError(pluginResult.error || 'Plugin compile failed');
                 }
                 statusBar?.showError(pluginResult.error?.split('\n')[0] || 'Build failed');
                 outputChannel.appendLine(`Plugin compile failed in ${(buildTimeMs / 1000).toFixed(1)}s`);
@@ -359,6 +378,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                     metadata = JSON.parse(fs.readFileSync(result!.metadataPath, 'utf-8'));
                 } catch { /* metadata is optional */ }
             }
+            cancelErrorDebounce();
             previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
             const modeLabel = usedServerMode ? '⚡ server' : '🔨 compile';
             statusBar?.showSuccess(buildTimeMs);
@@ -375,9 +395,9 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             if (errors.length > 0) {
                 const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
                 diagnosticCollection.set(doc.uri, diagnostics);
-                previewManager.showError(formatErrorsForDisplay(errors));
+                scheduleShowError(formatErrorsForDisplay(errors));
             } else {
-                previewManager.showError(result!.error || 'Unknown error');
+                scheduleShowError(result!.error || 'Unknown error');
             }
 
             statusBar?.showError(result!.error?.split('\n')[0] || 'Build failed');
@@ -385,7 +405,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
         }
     } catch (err: any) {
         if (myGeneration === buildGeneration) {
-            previewManager.showError(`Unexpected error: ${err.message || err}`);
+            scheduleShowError(`Unexpected error: ${err.message || err}`);
             statusBar?.showError(err.message || 'Error');
         }
     } finally {

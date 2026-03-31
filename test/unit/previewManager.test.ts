@@ -114,3 +114,86 @@ describe('PreviewManager — onBackgroundChange()', () => {
         expect(received).to.have.length(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// clearError
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — clearError()', () => {
+    it('sends clearError postMessage', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.clearError();
+        const msg = postedMessages.find(m => m.command === 'clearError');
+        expect(msg).to.exist;
+    });
+
+    it('does nothing when panel is not open', () => {
+        const ctx = {
+            extensionPath: __dirname,
+            subscriptions: [],
+            workspaceState: { get: () => undefined, update: () => {} },
+        } as any;
+        const mgr = new PreviewManager(ctx);
+        expect(() => mgr.clearError()).to.not.throw();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// show(preserveFocus)
+// ---------------------------------------------------------------------------
+
+function makeManagerWithRevealSpy() {
+    const revealCalls: Array<{ col: unknown; preserveFocus: boolean | undefined }> = [];
+    const postedMessages: Array<{ command: string; [key: string]: unknown }> = [];
+
+    const webview = {
+        html: '',
+        cspSource: 'vscode-resource:',
+        postMessage: (msg: unknown) => { postedMessages.push(msg as { command: string }); },
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        asWebviewUri: (uri: any) => uri,
+    };
+
+    const panel = {
+        webview,
+        reveal: (col: unknown, preserveFocus?: boolean) => {
+            revealCalls.push({ col, preserveFocus });
+        },
+        onDidDispose: (_cb: () => void) => ({ dispose: () => {} }),
+        dispose: () => {},
+        visible: true,
+    };
+
+    const vscode = require('vscode');
+    const savedCreate = vscode.window.createWebviewPanel;
+    vscode.window.createWebviewPanel = () => panel;
+
+    const ctx = {
+        extensionPath: __dirname,
+        subscriptions: [],
+        workspaceState: { get: () => undefined, update: () => {} },
+    } as any;
+
+    const mgr = new PreviewManager(ctx);
+    mgr.show(); // Creates the panel (first call does not trigger reveal)
+
+    vscode.window.createWebviewPanel = savedCreate;
+
+    return { mgr, revealCalls, postedMessages };
+}
+
+describe('PreviewManager — show(preserveFocus)', () => {
+    it('passes preserveFocus=true to panel.reveal() when called with true', () => {
+        const { mgr, revealCalls } = makeManagerWithRevealSpy();
+        mgr.show(true);
+        expect(revealCalls).to.have.length(1);
+        expect(revealCalls[0].preserveFocus).to.equal(true);
+    });
+
+    it('passes preserveFocus=false to panel.reveal() by default', () => {
+        const { mgr, revealCalls } = makeManagerWithRevealSpy();
+        mgr.show();
+        expect(revealCalls).to.have.length(1);
+        expect(revealCalls[0].preserveFocus).to.equal(false);
+    });
+});
