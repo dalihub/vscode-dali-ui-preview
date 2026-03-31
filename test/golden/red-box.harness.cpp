@@ -7,6 +7,8 @@
 #include <dali-ui-foundation/dali-ui-foundation.h>
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
 using namespace Dali;
 using namespace Dali::Ui;
@@ -14,6 +16,14 @@ using Dali::Ui::View;
 
 static const float PREVIEW_WIDTH  = 1024.0f;
 static const float PREVIEW_HEIGHT = 600.0f;
+
+// === Click-to-code helper: tags an actor with a source line name ===
+template<typename T>
+T __tag(T obj, const char* name)
+{
+    obj.SetProperty(Dali::Actor::Property::NAME, Dali::String(name));
+    return obj;
+}
 
 // === User preview code ===
 View CreatePreviewUI()
@@ -23,6 +33,69 @@ return View::New()
     .SetRequestedWidth(200.0f)
     .SetRequestedHeight(200.0f);
 
+}
+
+// === Scene graph metadata export for click-to-code ===
+void CollectActorMetadata(Actor actor, std::ostringstream& json,
+                          float pX, float pY, float pW, float pH,
+                          bool isFirst = true)
+{
+    if(!isFirst) json << ",";
+
+    Dali::String name = actor.GetProperty<Dali::String>(Actor::Property::NAME);
+    Vector3 pos = actor.GetCurrentProperty<Vector3>(Actor::Property::POSITION);
+    Vector3 size = actor.GetCurrentProperty<Vector3>(Actor::Property::SIZE);
+    Vector3 anchor = actor.GetCurrentProperty<Vector3>(Actor::Property::ANCHOR_POINT);
+    Vector3 parentOrigin = actor.GetCurrentProperty<Vector3>(Actor::Property::PARENT_ORIGIN);
+
+    float w = size.x;
+    float h = size.y;
+    // Screen position = parent top-left + parent size * parentOrigin + local position - size * anchor
+    float x = pX + pW * parentOrigin.x + pos.x - w * anchor.x;
+    float y = pY + pH * parentOrigin.y + pos.y - h * anchor.y;
+
+    json << "{\"name\":\"" << name.CStr() << "\","
+         << "\"x\":" << x << ",\"y\":" << y << ","
+         << "\"w\":" << w << ",\"h\":" << h;
+
+    uint32_t childCount = actor.GetChildCount();
+    if(childCount > 0)
+    {
+        json << ",\"children\":[";
+        for(uint32_t i = 0; i < childCount; i++)
+        {
+            CollectActorMetadata(actor.GetChildAt(i), json, x, y, w, h, (i == 0));
+        }
+        json << "]";
+    }
+    json << "}";
+}
+
+void ExportSceneMetadata(Actor root, const char* metadataPath, float winW, float winH)
+{
+    // RootLayer uses center-origin coords; skip it and start children at (0,0)
+    Vector3 rootSize = root.GetCurrentProperty<Vector3>(Actor::Property::SIZE);
+    float rW = rootSize.x;
+    float rH = rootSize.y;
+
+    std::ostringstream json;
+    json << "{\"root\":{\"name\":\"RootLayer\","
+         << "\"x\":0,\"y\":0,\"w\":" << rW << ",\"h\":" << rH;
+
+    uint32_t childCount = root.GetChildCount();
+    if(childCount > 0)
+    {
+        json << ",\"children\":[";
+        for(uint32_t i = 0; i < childCount; i++)
+        {
+            CollectActorMetadata(root.GetChildAt(i), json, 0.0f, 0.0f, rW, rH, (i == 0));
+        }
+        json << "]";
+    }
+    json << "}}";
+
+    std::ofstream out(metadataPath);
+    out << json.str();
 }
 
 class PreviewApp : public ConnectionTracker
@@ -62,7 +135,12 @@ public:
   void OnCaptured(Capture capture, Capture::FinishState state)
   {
     if(state == Capture::FinishState::SUCCEEDED)
+    {
+      // Export metadata AFTER capture — layout positions are now fully computed
+      Window window = mApp.GetWindow();
+      ExportSceneMetadata(Actor(window.GetRootLayer()), "/tmp/preview_metadata.json", PREVIEW_WIDTH, PREVIEW_HEIGHT);
       std::cout << "OK:/tmp/preview.png" << std::endl;
+    }
     else
       std::cerr << "CAPTURE_FAILED" << std::endl;
     mApp.Quit();

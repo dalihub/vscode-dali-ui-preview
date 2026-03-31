@@ -5,9 +5,5 @@ out/
 .vscode-test/
 
 # Internal planning documents (not for public)
-1.FEASIBILITY_REPORT.md
-2.DALi_Preview_PoC.md
-3.DALi_Preview_Phase1.md
-4.AI_Driven_Development_Process.md
-5.DALi_Preview_Test.md
-6.FRAMEWORK_COMPARISON.md
+Docs/
+7.CLICK_TO_CODE.md

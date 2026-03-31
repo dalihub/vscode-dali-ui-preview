@@ -14,12 +14,14 @@ function substituteTemplate(
     width: number,
     height: number,
     outputPath: string,
+    metadataPath: string = '/tmp/preview_metadata.json',
 ): string {
     return template
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-        .replace(/\{\{OUTPUT_PATH\}\}/g, outputPath);
+        .replace(/\{\{OUTPUT_PATH\}\}/g, outputPath)
+        .replace(/\{\{METADATA_PATH\}\}/g, metadataPath);
 }
 
 describe('harnessGeneration', () => {
@@ -38,6 +40,7 @@ describe('harnessGeneration', () => {
         expect(template).to.include('{{PREVIEW_WIDTH}}');
         expect(template).to.include('{{PREVIEW_HEIGHT}}');
         expect(template).to.include('{{OUTPUT_PATH}}');
+        expect(template).to.include('{{METADATA_PATH}}');
     });
 
     it('substitution replaces all placeholders', () => {

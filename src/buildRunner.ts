@@ -8,6 +8,7 @@ import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 export interface BuildResult {
     success: boolean;
     pngPath?: string;
+    metadataPath?: string;
     error?: string;
 }
 
@@ -85,6 +86,7 @@ export class BuildRunner {
             height = config.get('previewHeight', 600);
         }
         const pngPath = path.join(this.tmpDir, 'preview.png');
+        const metadataPath = path.join(this.tmpDir, 'preview_metadata.json');
         const harnessPath = path.join(this.tmpDir, 'preview_harness.cpp');
         const binPath = path.join(this.tmpDir, 'preview_bin');
 
@@ -93,7 +95,8 @@ export class BuildRunner {
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{OUTPUT_PATH\}\}/g, pngPath);
+            .replace(/\{\{OUTPUT_PATH\}\}/g, pngPath)
+            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath);
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -104,7 +107,7 @@ export class BuildRunner {
         }
 
         // 3. Execute
-        return this.execute(binPath, pngPath, width, height);
+        return this.execute(binPath, pngPath, metadataPath, width, height);
     }
 
     private compile(source: string, output: string): Promise<BuildResult> {
@@ -117,6 +120,7 @@ export class BuildRunner {
             `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
             `"${source}"`,
             `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `-L"${this.daliPrefix}/lib" -Wl,-rpath-link,"${this.daliPrefix}/lib"`,
             `-o "${output}"`
         ].join(' ');
 
@@ -131,7 +135,7 @@ export class BuildRunner {
         });
     }
 
-    private execute(binPath: string, pngPath: string, width: number, height: number): Promise<BuildResult> {
+    private execute(binPath: string, pngPath: string, metadataPath: string, width: number, height: number): Promise<BuildResult> {
         const display = this.xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
 
         const env: NodeJS.ProcessEnv = {
@@ -150,7 +154,7 @@ export class BuildRunner {
         return new Promise((resolve) => {
             exec(binPath, { env, timeout: 10000 }, (error, stdout, stderr) => {
                 if (stdout.includes('OK:')) {
-                    resolve({ success: true, pngPath });
+                    resolve({ success: true, pngPath, metadataPath });
                 } else if (error) {
                     resolve({ success: false, error: `Runtime error:\n${stderr || error.message}` });
                 } else {

@@ -64,6 +64,8 @@
     height: 20px;
     background: #555;
     margin: 0 4px;
+    display: inline-block;
+    vertical-align: middle;
   }
 
   .toolbar button {
@@ -306,6 +308,50 @@
 
   .hidden { display: none !important; }
 
+  /* ── Click-to-code inspect mode ── */
+  .element-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 8;
+  }
+  .element-overlay.interactive {
+    pointer-events: auto;
+    cursor: crosshair;
+  }
+  .element-bbox {
+    position: absolute;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  .element-bbox:hover {
+    border-color: rgba(0, 122, 204, 0.8);
+    background-color: rgba(0, 122, 204, 0.1);
+  }
+  .element-bbox.selected {
+    border-color: #007acc;
+    background-color: rgba(0, 122, 204, 0.15);
+  }
+  .element-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    transform: translateY(-100%) translateY(-4px);
+  }
+
   /* ── Status bar ── */
   .status-bar {
     display: flex;
@@ -355,6 +401,7 @@
     <!-- Image container -->
     <div class="preview-container bg-dark" id="previewContainer">
       <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
+      <div id="elementOverlay" class="element-overlay"></div>
       <div class="resize-handle" id="resizeHandle"></div>
       <div class="resize-outline" id="resizeOutline"></div>
       <div class="resize-dimensions" id="resizeDimensions"></div>
@@ -537,6 +584,111 @@
     }
   });
 
+  // ── Click-to-Code ──
+  var elementOverlay = document.getElementById('elementOverlay');
+  var currentMetadata = null;
+  var selectedBbox = null;
+  var activeTooltip = null;
+  elementOverlay.classList.add('interactive');
+
+  function clearInspectSelection() {
+    if (selectedBbox) {
+      selectedBbox.classList.remove('selected');
+      selectedBbox = null;
+    }
+    hideInspectTooltip();
+  }
+
+  function hideInspectTooltip() {
+    if (activeTooltip) {
+      activeTooltip.remove();
+      activeTooltip = null;
+    }
+  }
+
+  function showInspectTooltip(bboxDiv, text) {
+    hideInspectTooltip();
+    activeTooltip = document.createElement('div');
+    activeTooltip.className = 'element-tooltip';
+    activeTooltip.textContent = text;
+    activeTooltip.style.left = bboxDiv.style.left;
+    activeTooltip.style.top = bboxDiv.style.top;
+    elementOverlay.appendChild(activeTooltip);
+  }
+
+  function renderMetadataOverlay(metadata) {
+    currentMetadata = metadata;
+    elementOverlay.innerHTML = '';
+    if (!metadata || !metadata.root) return;
+
+    var img = previewImage;
+    if (!img || !img.naturalWidth) return;
+
+    var scaleX = img.clientWidth / img.naturalWidth;
+    var scaleY = img.clientHeight / img.naturalHeight;
+
+    // Calculate image offset within container (if image is centered)
+    var containerRect = elementOverlay.parentElement.getBoundingClientRect();
+    var imgRect = img.getBoundingClientRect();
+    var offsetX = imgRect.left - containerRect.left;
+    var offsetY = imgRect.top - containerRect.top;
+
+    function renderActor(actor) {
+      if (actor.name && actor.name.indexOf('__L') === 0) {
+        var lineNum = parseInt(actor.name.substring(3), 10);
+        var div = document.createElement('div');
+        div.className = 'element-bbox';
+        div.style.left = (actor.x * scaleX + offsetX) + 'px';
+        div.style.top = (actor.y * scaleY + offsetY) + 'px';
+        div.style.width = (actor.w * scaleX) + 'px';
+        div.style.height = (actor.h * scaleY) + 'px';
+        div.dataset.line = lineNum;
+
+        div.addEventListener('click', function (e) {
+          e.stopPropagation();
+          clearInspectSelection();
+          selectedBbox = div;
+          div.classList.add('selected');
+          vscode.postMessage({ command: 'selectElement', line: lineNum });
+        });
+
+        div.addEventListener('mouseenter', function () {
+          showInspectTooltip(div, 'Line ' + (lineNum + 1));
+        });
+
+        div.addEventListener('mouseleave', function () {
+          hideInspectTooltip();
+        });
+
+        elementOverlay.appendChild(div);
+      }
+
+      if (actor.children) {
+        for (var i = 0; i < actor.children.length; i++) {
+          renderActor(actor.children[i]);
+        }
+      }
+    }
+
+    renderActor(metadata.root);
+
+    // Z-order: smaller elements on top for easier clicking
+    var boxes = Array.from(elementOverlay.querySelectorAll('.element-bbox'));
+    boxes.sort(function (a, b) {
+      return (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight);
+    });
+    boxes.forEach(function (box) { elementOverlay.appendChild(box); });
+  }
+
+  // Re-render overlay when image resizes
+  if (previewImage && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(function () {
+      if (currentMetadata) {
+        renderMetadataOverlay(currentMetadata);
+      }
+    }).observe(previewImage);
+  }
+
   // ── Message handling ──
   window.addEventListener('message', function (event) {
     var msg = event.data;
@@ -550,6 +702,11 @@
         previewImage.src = msg.uri + '?t=' + Date.now();
         previewImage.onload = function () {
           dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
+          if (msg.metadata) {
+            renderMetadataOverlay(msg.metadata);
+          } else {
+            elementOverlay.innerHTML = '';
+          }
         };
         var buildSec = (msg.buildTime / 1000).toFixed(1);
         buildTimeText.textContent = 'Built in ' + buildSec + 's';

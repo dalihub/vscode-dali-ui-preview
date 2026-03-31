@@ -18,6 +18,7 @@
 - **Resizable canvas** -- change preview resolution via presets, manual input, or drag-resize
 - **Headless rendering** -- uses Xvfb so no DALi window appears on screen
 - **Fast rebuilds** -- optional ccache integration for sub-second recompilation
+- **Click-to-Code** -- click any element in the preview to jump to its source code line (with highlight)
 - **Smart error display** -- g++ errors are mapped to your code line numbers with in-editor diagnostics
 - **Auto-detect DALi** -- automatically finds your DALi installation from environment variables or setenv files
 
@@ -143,7 +144,9 @@ No code is released without passing all tests.
 
 ## Roadmap
 
+- ~~Click-to-Code (preview element → source code)~~ **Done in v0.2.0**
 - Real-time preview (live as you type)
+- Bidirectional selection (source code → preview element)
 - Component Tree viewer and Property Editor
 - Automated DALi environment one-command setup
 - VS Code Marketplace publishing

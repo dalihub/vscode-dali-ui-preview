@@ -101,3 +101,32 @@ export function isPreviewable(document: vscode.TextDocument): boolean {
 
     return false;
 }
+
+/**
+ * Instrument preview code by wrapping each ::New() call with __tag() for click-to-code.
+ * __tag() is a template helper defined in the harness that sets Actor::Property::NAME
+ * and returns the same handle, preserving the builder pattern chain.
+ *
+ * Example: FlexLayout::New() → __tag(FlexLayout::New(), "__L5")
+ *
+ * The original user file is never modified — only the temporary build harness uses this.
+ */
+export function instrumentCode(code: string, startLine: number): string {
+    const NEW_CALL_RE = /(\w+::New\([^)]*\))/g;
+    let result = '';
+    let lastIndex = 0;
+    let match;
+
+    while ((match = NEW_CALL_RE.exec(code)) !== null) {
+        const before = code.substring(0, match.index);
+        const codeLine = before.split('\n').length - 1;
+        const absoluteLine = codeLine + startLine;
+
+        // Wrap: Foo::New(...) → __tag(Foo::New(...), "__L{line}")
+        result += code.substring(lastIndex, match.index);
+        result += `__tag(${match[0]}, "__L${absoluteLine}")`;
+        lastIndex = match.index + match[0].length;
+    }
+    result += code.substring(lastIndex);
+    return result;
+}

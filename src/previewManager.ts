@@ -6,6 +6,7 @@ export class PreviewManager {
     private panel: vscode.WebviewPanel | undefined;
     private resizeCallbacks: Array<(width: number, height: number) => void> = [];
     private refreshCallbacks: Array<() => void> = [];
+    private selectElementCallbacks: Array<(line: number) => void> = [];
     private disposables: vscode.Disposable[] = [];
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -52,7 +53,7 @@ export class PreviewManager {
         return this.panel !== undefined;
     }
 
-    updateImage(pngPath: string, buildTimeMs: number): void {
+    updateImage(pngPath: string, buildTimeMs: number, metadata?: object | null): void {
         if (!this.panel) {
             return;
         }
@@ -63,6 +64,7 @@ export class PreviewManager {
             command: 'updateImage',
             uri: pngUri.toString(),
             buildTime: buildTimeMs,
+            metadata: metadata || null,
         });
     }
 
@@ -107,6 +109,16 @@ export class PreviewManager {
         });
     }
 
+    onSelectElement(callback: (line: number) => void): vscode.Disposable {
+        this.selectElementCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.selectElementCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.selectElementCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     dispose(): void {
         this.panel?.dispose();
         this.panel = undefined;
@@ -117,6 +129,7 @@ export class PreviewManager {
         this.disposables = [];
         this.resizeCallbacks = [];
         this.refreshCallbacks = [];
+        this.selectElementCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -134,6 +147,15 @@ export class PreviewManager {
             case 'refresh': {
                 for (const cb of this.refreshCallbacks) {
                     cb();
+                }
+                break;
+            }
+            case 'selectElement': {
+                const line = message.line as number;
+                if (typeof line === 'number') {
+                    for (const cb of this.selectElementCallbacks) {
+                        cb(line);
+                    }
                 }
                 break;
             }

@@ -3,7 +3,7 @@ import { PreviewManager } from './previewManager';
 import { BuildRunner } from './buildRunner';
 import { XvfbManager } from './xvfbManager';
 import { StatusBarManager } from './statusBar';
-import { extractPreviewCode, isPreviewable } from './codeExtractor';
+import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseGccErrors, getHarnessCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import * as fs from 'fs';
@@ -16,6 +16,7 @@ let statusBar: StatusBarManager | undefined;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let building = false;
 let outputChannel: vscode.OutputChannel;
+let lastPreviewedDoc: vscode.TextDocument | undefined;
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -113,6 +114,40 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
                 runPreview(editor.document);
             }
         });
+
+        // Handle click-to-code from webview
+        previewManager.onSelectElement((line: number) => {
+            if (!lastPreviewedDoc) {
+                return;
+            }
+            if (line < 0 || line >= lastPreviewedDoc.lineCount) {
+                return;
+            }
+
+            const editor = vscode.window.visibleTextEditors.find(
+                e => e.document.uri.toString() === lastPreviewedDoc!.uri.toString()
+            );
+
+            if (editor) {
+                const range = new vscode.Range(line, 0, line, 0);
+                editor.selection = new vscode.Selection(line, 0, line, 0);
+                editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+
+                // Briefly highlight the line
+                const decoration = vscode.window.createTextEditorDecorationType({
+                    backgroundColor: 'rgba(0, 122, 204, 0.3)',
+                    isWholeLine: true,
+                });
+                const lineRange = new vscode.Range(line, 0, line, lastPreviewedDoc.lineAt(line).text.length);
+                editor.setDecorations(decoration, [lineRange]);
+                setTimeout(() => decoration.dispose(), 2000);
+            } else {
+                vscode.window.showTextDocument(lastPreviewedDoc.uri, {
+                    viewColumn: vscode.ViewColumn.One,
+                    selection: new vscode.Range(line, 0, line, 0),
+                });
+            }
+        });
     }
 }
 
@@ -127,6 +162,8 @@ async function runPreview(doc: vscode.TextDocument) {
         return;
     }
 
+    lastPreviewedDoc = doc;
+
     building = true;
     statusBar?.showBuilding();
     previewManager.showLoading();
@@ -134,13 +171,23 @@ async function runPreview(doc: vscode.TextDocument) {
 
     const startTime = Date.now();
 
+    // Instrument code with line annotations for click-to-code
+    const instrumented = instrumentCode(extraction.code, extraction.startLine);
+
     try {
         // Pass current dimensions directly
-        const result = await buildRunner.buildAndRun(extraction.code, currentWidth, currentHeight);
+        const result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight);
         const buildTimeMs = Date.now() - startTime;
 
         if (result.success && result.pngPath) {
-            previewManager.updateImage(result.pngPath, buildTimeMs);
+            // Load scene graph metadata for click-to-code overlay
+            let metadata: object | null = null;
+            if (result.metadataPath) {
+                try {
+                    metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
+                } catch { /* metadata is optional */ }
+            }
+            previewManager.updateImage(result.pngPath, buildTimeMs, metadata);
             statusBar?.showSuccess(buildTimeMs);
             outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s (${currentWidth}x${currentHeight})`);
         } else {
