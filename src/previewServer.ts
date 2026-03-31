@@ -1,19 +1,28 @@
-import { ChildProcess, spawn, execSync } from 'child_process';
+import { ChildProcess, spawn, exec } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildResult } from './buildRunner';
 
+const execAsync = promisify(exec);
+
 const SERVER_BIN = '/tmp/dali_preview/preview_server';
 const MAX_RESTARTS = 3;
 const READY_TIMEOUT_MS = 15000;
+
+interface PendingRequest {
+    resolve: (result: BuildResult) => void;
+    metadataPath: string;
+}
 
 export class PreviewServer {
     private serverProcess: ChildProcess | undefined;
     private ready = false;
     private restartCount = 0;
-    private pendingResolve: ((result: BuildResult) => void) | undefined;
+    private pendingRequest: PendingRequest | undefined;
     private stdoutBuffer = '';
+    private restartTimer: NodeJS.Timeout | undefined;
 
     constructor(
         private readonly extensionPath: string,
@@ -50,9 +59,8 @@ export class PreviewServer {
 
         this.outputChannel.appendLine('[PreviewServer] Compiling server binary (one-time)...');
         try {
-            execSync(`bash "${buildScript}" "${this.daliPrefix}"`, {
+            await execAsync(`bash "${buildScript}" "${this.daliPrefix}"`, {
                 timeout: 60000,
-                stdio: ['ignore', 'pipe', 'pipe'],
                 env: {
                     ...process.env,
                     LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
@@ -94,7 +102,20 @@ export class PreviewServer {
                 return;
             }
 
-            this.pendingResolve = resolve;
+            // H2: Reject paths containing whitespace or newlines (IPC injection)
+            if (/[\s\n]/.test(soPath) || /[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath)) {
+                resolve({ success: false, error: 'path contains invalid characters' });
+                return;
+            }
+
+            // H1: Reject any in-flight reload before starting a new one
+            if (this.pendingRequest) {
+                this.pendingRequest.resolve({ success: false, error: 'reload already in progress' });
+                this.pendingRequest = undefined;
+            }
+
+            // H5: Store metadataPath in pendingRequest to avoid .png → _metadata.json derivation
+            this.pendingRequest = { resolve, metadataPath };
 
             const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height}\n`;
             this.serverProcess.stdin!.write(cmd);
@@ -104,6 +125,11 @@ export class PreviewServer {
     /** Terminate the server process. */
     stop(): void {
         this.ready = false;
+        // H3: Cancel any pending restart timer to avoid ghost processes
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = undefined;
+        }
         if (this.serverProcess) {
             try {
                 this.serverProcess.kill('SIGTERM');
@@ -118,6 +144,11 @@ export class PreviewServer {
     // Internal — process management
     // -----------------------------------------------------------------------
 
+    /** Overridable in tests to inject a fake child process. */
+    protected _spawn(cmd: string, args: string[], opts: object): ChildProcess {
+        return spawn(cmd, args, opts as any);
+    }
+
     private spawnServer(): Promise<boolean> {
         return new Promise((resolve) => {
             const env: NodeJS.ProcessEnv = {
@@ -128,7 +159,7 @@ export class PreviewServer {
                 DALI_WINDOW_HEIGHT: '600',
             };
 
-            const proc = spawn(SERVER_BIN, [], {
+            const proc = this._spawn(SERVER_BIN, [], {
                 env,
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
@@ -159,24 +190,30 @@ export class PreviewServer {
                 this.serverProcess = undefined;
 
                 // Reject any in-flight request
-                if (this.pendingResolve) {
-                    this.pendingResolve({ success: false, error: 'Server process exited unexpectedly' });
-                    this.pendingResolve = undefined;
+                if (this.pendingRequest) {
+                    this.pendingRequest.resolve({ success: false, error: 'Server process exited unexpectedly' });
+                    this.pendingRequest = undefined;
                 }
 
-                // Auto-restart unless explicitly stopped
+                // Auto-restart unless explicitly stopped or max restarts exceeded
                 if (this.restartCount < MAX_RESTARTS) {
                     this.restartCount++;
                     this.outputChannel.appendLine(
                         `[PreviewServer] Restarting (attempt ${this.restartCount}/${MAX_RESTARTS})...`
                     );
-                    setTimeout(() => this.spawnServer(), 500);
+                    // H3: Store handle so stop() can cancel this timer
+                    this.restartTimer = setTimeout(() => {
+                        this.restartTimer = undefined;
+                        this.spawnServer().catch(() => {});
+                    }, 500);
                 } else {
                     this.outputChannel.appendLine('[PreviewServer] Max restarts reached, giving up');
                 }
             });
 
             proc.on('error', (err) => {
+                // H4: Clear ready timer to avoid duplicate resolve(false) calls
+                clearTimeout(readyTimer);
                 this.outputChannel.appendLine(`[PreviewServer] Spawn error: ${err.message}`);
                 resolve(false);
             });
@@ -198,17 +235,18 @@ export class PreviewServer {
 
             } else if (line.startsWith('OK:')) {
                 const pngPath = line.slice(3);
-                const metadataPath = pngPath.replace(/\.png$/, '_metadata.json');
-                if (this.pendingResolve) {
-                    this.pendingResolve({ success: true, pngPath, metadataPath });
-                    this.pendingResolve = undefined;
+                if (this.pendingRequest) {
+                    const { resolve, metadataPath } = this.pendingRequest;
+                    this.pendingRequest = undefined;
+                    resolve({ success: true, pngPath, metadataPath });
                 }
 
             } else if (line.startsWith('ERROR:')) {
                 const msg = line.slice(6);
-                if (this.pendingResolve) {
-                    this.pendingResolve({ success: false, error: msg });
-                    this.pendingResolve = undefined;
+                if (this.pendingRequest) {
+                    const { resolve } = this.pendingRequest;
+                    this.pendingRequest = undefined;
+                    resolve({ success: false, error: msg });
                 } else {
                     this.outputChannel.appendLine(`[PreviewServer] Error: ${msg}`);
                 }

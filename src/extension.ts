@@ -81,7 +81,9 @@ export async function activate(context: vscode.ExtensionContext) {
             previewServer = undefined;
         }
     };
-    initPreviewServer();
+    initPreviewServer().catch(err =>
+        outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
+    );
 
     // Command: DALi: Open Preview
     const openCmd = vscode.commands.registerCommand('dali.openPreview', () => {

@@ -152,34 +152,41 @@ public:
     bool OnPollStdin()
     {
         std::string line;
-        if (!ReadLine(line))
+        while (ReadLine(line))
         {
-            return true; // keep timer running
-        }
+            // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height>
+            if (line.size() >= 6 && line.substr(0, 6) == "RELOAD")
+            {
+                std::string rest = (line.size() > 6) ? line.substr(7) : "";
+                std::istringstream iss(rest);
+                ReloadRequest req;
+                std::string wStr, hStr;
+                if (!(iss >> req.soPath >> req.pngPath >> req.metadataPath >> wStr >> hStr))
+                {
+                    std::cout << "ERROR:malformed RELOAD command" << std::endl;
+                    continue;
+                }
+                try
+                {
+                    req.width  = std::stof(wStr);
+                    req.height = std::stof(hStr);
+                }
+                catch (...)
+                {
+                    std::cout << "ERROR:malformed RELOAD command" << std::endl;
+                    continue;
+                }
 
-        // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height>
-        if (line.substr(0, 6) == "RELOAD")
-        {
-            std::istringstream iss(line.substr(7));
-            ReloadRequest req;
-            std::string wStr, hStr;
-            if (!(iss >> req.soPath >> req.pngPath >> req.metadataPath >> wStr >> hStr))
-            {
-                std::cout << "ERROR:malformed RELOAD command" << std::endl;
-                return true;
-            }
-            req.width  = std::stof(wStr);
-            req.height = std::stof(hStr);
-
-            if (!mCaptureBusy)
-            {
-                DoReload(req);
-            }
-            else
-            {
-                // Queue latest request; discard any older pending one
-                mPendingRequest = req;
-                mHasPending     = true;
+                if (!mCaptureBusy)
+                {
+                    DoReload(req);
+                }
+                else
+                {
+                    // Queue latest request; discard any older pending one
+                    mPendingRequest = req;
+                    mHasPending     = true;
+                }
             }
         }
 
@@ -223,7 +230,8 @@ public:
         mPluginHandle = dlopen(req.soPath.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!mPluginHandle)
         {
-            std::string dlErr = dlerror() ? dlerror() : "unknown dlopen error";
+            const char* dlErrPtr = dlerror();
+            std::string dlErr = dlErrPtr ? dlErrPtr : "unknown dlopen error";
             std::cout << "ERROR:" << dlErr << std::endl;
             mCaptureBusy = false;
             FlushPending();
@@ -312,22 +320,35 @@ public:
 
 private:
     // -----------------------------------------------------------------------
-    // Non-blocking line read from stdin
+    // Non-blocking line read from stdin with internal line buffer.
+    // Drains all available bytes from stdin into mStdinBuf, then returns the
+    // first complete line (trimmed of \r\n). Returns false when no complete
+    // line is available yet.
     // -----------------------------------------------------------------------
 
     bool ReadLine(std::string& out)
     {
+        // Drain all currently available bytes into the line buffer
         char buf[4096];
-        ssize_t n = read(STDIN_FILENO, buf, sizeof(buf) - 1);
-        if (n <= 0)
+        ssize_t n;
+        while ((n = read(STDIN_FILENO, buf, sizeof(buf) - 1)) > 0)
+        {
+            mStdinBuf.append(buf, static_cast<size_t>(n));
+        }
+
+        // Extract the first complete line
+        size_t nl = mStdinBuf.find('\n');
+        if (nl == std::string::npos)
         {
             return false;
         }
-        buf[n] = '\0';
-        // Trim trailing newline
-        std::string raw(buf, n);
-        size_t end = raw.find_first_of("\r\n");
-        out = (end != std::string::npos) ? raw.substr(0, end) : raw;
+
+        out = mStdinBuf.substr(0, nl);
+        if (!out.empty() && out.back() == '\r')
+        {
+            out.pop_back();
+        }
+        mStdinBuf.erase(0, nl + 1);
         return !out.empty();
     }
 
@@ -340,6 +361,7 @@ private:
     void*        mPluginHandle;
     bool         mHasPending;
     bool         mCaptureBusy;
+    std::string  mStdinBuf;
     ReloadRequest mCurrentReq;
     ReloadRequest mPendingRequest;
 };

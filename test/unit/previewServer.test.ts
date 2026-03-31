@@ -1,7 +1,11 @@
 import { expect } from 'chai';
+import * as sinon from 'sinon';
+import { EventEmitter } from 'events';
+import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getPluginCodeOffset, getHarnessCodeOffset, parseGccErrors } from '../../src/errorParser';
+import { PreviewServer } from '../../src/previewServer';
 
 const PLUGIN_TEMPLATE_PATH  = path.resolve(__dirname, '../../../server/preview_plugin.cpp.template');
 const HARNESS_TEMPLATE_PATH = path.resolve(__dirname, '../../../server/preview_harness.cpp.template');
@@ -71,7 +75,11 @@ describe('previewServer — getPluginCodeOffset()', () => {
 // ---------------------------------------------------------------------------
 
 describe('previewServer — parseGccErrors() in plugin mode', () => {
-    const PLUGIN_OFFSET = 24; // approximate; actual value comes from template
+    // M5: Derive PLUGIN_OFFSET dynamically from the real template
+    const PLUGIN_OFFSET = (() => {
+        const template = fs.readFileSync(PLUGIN_TEMPLATE_PATH, 'utf-8');
+        return getPluginCodeOffset(template);
+    })();
 
     it('parses errors from preview_plugin.cpp', () => {
         const stderr = [
@@ -102,8 +110,8 @@ describe('previewServer — parseGccErrors() in plugin mode', () => {
     });
 
     it('maps plugin line numbers back to user code (subtracts offset)', () => {
-        const offset = 24;
-        const gccLine = 30; // line 30 in generated plugin == user line 30 - offset
+        const offset = PLUGIN_OFFSET;
+        const gccLine = offset + 6; // a line clearly inside user code
         const stderr = `/tmp/dali_preview/preview_plugin.cpp:${gccLine}:1: error: bad code`;
 
         const errors = parseGccErrors(stderr, offset, true);
@@ -112,7 +120,7 @@ describe('previewServer — parseGccErrors() in plugin mode', () => {
     });
 
     it('skips errors above the user code region (negative mapped line)', () => {
-        const offset = 24;
+        const offset = PLUGIN_OFFSET;
         const gccLine = 5; // before user code starts
         const stderr = `/tmp/dali_preview/preview_plugin.cpp:${gccLine}:1: error: preamble error`;
 
@@ -192,5 +200,185 @@ describe('previewServer — preview_server.cpp', () => {
     it('uses non-blocking stdin polling', () => {
         const content = fs.readFileSync(SERVER_CPP, 'utf-8');
         expect(content).to.include('O_NONBLOCK');
+    });
+
+    it('preview_server.cpp buffers stdin to avoid IPC line loss', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('mStdinBuf');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// PreviewServer TypeScript class — IPC behavior (C6)
+// ---------------------------------------------------------------------------
+
+const fakeOutputChannel = {
+    appendLine: () => {},
+    append: () => {},
+    show: () => {},
+    dispose: () => {},
+} as any;
+
+function makeProc() {
+    const proc = new EventEmitter() as any;
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.stdin  = { write: sinon.stub() };
+    proc.killed = false;
+    proc.kill   = sinon.stub().callsFake(() => { proc.killed = true; });
+    return proc;
+}
+
+/** Creates a PreviewServer with a controllable fake child process. */
+function makeServer(proc?: any) {
+    const fakeProc = proc ?? makeProc();
+    const server = new PreviewServer('/ext', '/dali', ':99', fakeOutputChannel);
+    // Bypass binary compilation — not relevant to IPC behavior tests
+    (server as any).ensureServerBinary = async () => {};
+    // Inject fake process via overridable _spawn hook
+    (server as any)._spawn = () => fakeProc;
+    return { server, proc: fakeProc };
+}
+
+/** Creates a server, starts it, and emits READY so the server is ready to use. */
+async function startedServer(proc?: any) {
+    const { server, proc: fakeProc } = makeServer(proc);
+    const startPromise = server.start();
+    // ensureServerBinary() is an async no-op; one microtask tick lets
+    // spawnServer() run and register stdout/exit handlers before we emit.
+    await Promise.resolve();
+    fakeProc.stdout.emit('data', Buffer.from('READY\n'));
+    await startPromise;
+    return { server, proc: fakeProc };
+}
+
+describe('PreviewServer — IPC behavior', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('start() resolves true after READY signal', async () => {
+        const { server } = await startedServer();
+        expect(server.isRunning).to.equal(true);
+    });
+
+    it('processStdoutBuffer: OK: response resolves reload() with pngPath and stored metadataPath', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_metadata.json', 1024, 600
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+
+        const result = await reloadPromise;
+        expect(result.success).to.equal(true);
+        expect(result.pngPath).to.equal('/tmp/a.png');
+        // metadataPath comes from stored pendingRequest, not derived from pngPath
+        expect(result.metadataPath).to.equal('/tmp/a_metadata.json');
+    });
+
+    it('processStdoutBuffer: ERROR: response resolves reload() with {success:false}', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_metadata.json', 1024, 600
+        );
+        proc.stdout.emit('data', Buffer.from('ERROR:dlopen failed\n'));
+
+        const result = await reloadPromise;
+        expect(result.success).to.equal(false);
+        expect(result.error).to.equal('dlopen failed');
+    });
+
+    it('concurrent reload() — first caller receives "already in progress" error', async () => {
+        const { server, proc } = await startedServer();
+
+        const first  = server.reload('/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        const second = server.reload('/tmp/b.so', '/tmp/b.png', '/tmp/b_meta.json', 1024, 600);
+
+        const firstResult = await first;
+        expect(firstResult.success).to.equal(false);
+        expect(firstResult.error).to.include('already in progress');
+
+        // Resolve second to avoid test hanging
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/b.png\n'));
+        const secondResult = await second;
+        expect(secondResult.success).to.equal(true);
+    });
+
+    it('server crash resolves pending reload() with {success:false}', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600
+        );
+        proc.emit('exit', 1);
+
+        const result = await reloadPromise;
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('exited');
+    });
+
+    it('MAX_RESTARTS exceeded — no further _spawn after 3 consecutive crashes', async () => {
+        const procs: any[] = [];
+        let spawnCount = 0;
+
+        const server = new PreviewServer('/ext', '/dali', ':99', fakeOutputChannel);
+        (server as any).ensureServerBinary = async () => {};
+        (server as any)._spawn = () => {
+            spawnCount++;
+            const p = makeProc();
+            procs.push(p);
+            return p;
+        };
+
+        const clock = sinon.useFakeTimers();
+
+        // Start and let server become READY (restartCount resets to 0)
+        const startPromise = server.start();
+        await Promise.resolve();
+        procs[0].stdout.emit('data', Buffer.from('READY\n'));
+        await startPromise;
+
+        // Crash 3 times WITHOUT emitting READY so restartCount accumulates: 0→1→2→3
+        procs[0].emit('exit', 1);
+        await clock.tickAsync(501); // proc[1] spawned, restartCount=1
+
+        procs[1].emit('exit', 1);
+        await clock.tickAsync(501); // proc[2] spawned, restartCount=2
+
+        procs[2].emit('exit', 1);
+        await clock.tickAsync(501); // proc[3] spawned, restartCount=3
+
+        const countAfter3Restarts = spawnCount; // 4 (1 initial + 3 restarts)
+
+        // Fourth crash: restartCount=3, 3 < MAX_RESTARTS(3) is false → NO restart
+        procs[3].emit('exit', 1);
+        await clock.tickAsync(501);
+
+        expect(spawnCount).to.equal(countAfter3Restarts);
+        clock.restore();
+    });
+
+    it('start() returns false on READY_TIMEOUT', async () => {
+        const clock = sinon.useFakeTimers();
+        const { server } = makeServer();
+        const startPromise = server.start();
+
+        await clock.tickAsync(15001);
+
+        const result = await startPromise;
+        expect(result).to.equal(false);
+        clock.restore();
+    });
+
+    it('reload() rejects paths containing whitespace', async () => {
+        const { server } = await startedServer();
+
+        const result = await server.reload(
+            '/tmp/a b.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600
+        );
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('invalid characters');
     });
 });
