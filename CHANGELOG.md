@@ -5,6 +5,28 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-31 — Phase 2-4: 다크/라이트 모드 전환
+
+### Added
+
+- **테마 토글 버튼** (`media/preview.html`): 툴바에 🌙/☀️ 버튼 추가. 클릭 시 `toggleTheme` 메시지를 Extension으로 전송하고 버튼 아이콘이 즉시 전환됨.
+- **`setTheme(theme)` 메서드** (`src/previewManager.ts`): Extension이 webview에 현재 테마 상태를 동기화하는 `setTheme` postMessage API.
+- **`onThemeToggle` 콜백** (`src/previewManager.ts`): webview에서 수신한 `toggleTheme` 명령을 Extension 쪽에서 구독하는 콜백 시스템.
+- **`currentTheme` 상태 + `workspaceState` 저장** (`src/extension.ts`): 마지막 선택 테마를 `daliPreview.theme` 키로 VS Code workspaceState에 자동 저장/복원.
+- **빌드 파이프라인 theme 연결** (`src/extension.ts`): 단일 프리뷰와 멀티 프리뷰 모두 `currentTheme`을 buildAndRun/previewServer.reload에 전달. 멀티 프리뷰 시 `config.theme`이 설정되면 우선 적용.
+- **`{{BACKGROUND_COLOR}}` 템플릿 플레이스홀더** (`server/preview_harness.cpp.template`): 하드코딩된 배경색을 치환 가능한 플레이스홀더로 교체.
+- **`BuildRunner.themeToBackgroundColor()`** (`src/buildRunner.ts`): 테마 문자열을 DALi `Vector4` 색상 리터럴로 변환하는 정적 헬퍼. `buildAndRun()`에 `theme` 파라미터 추가.
+- **서버 모드 theme 지원** (`server/preview_server.cpp`, `src/previewServer.ts`): RELOAD IPC 프로토콜에 옵셔널 7번째 인자 `theme`(`dark`|`light`) 추가. `ThemeToColor()` 정적 함수로 배경색 전환.
+- **신규 단위 테스트 4개**:
+  - `buildRunner.test.ts`: `themeToBackgroundColor('dark')`, `themeToBackgroundColor('light')` 검증 2개.
+  - `harnessGeneration.test.ts`: dark/light 테마 배경색 치환 검증 2개. `{{BACKGROUND_COLOR}}` 플레이스홀더 존재 확인 추가.
+
+### Changed
+
+- `src/buildRunner.ts`: `buildAndRun()` 시그니처에 `theme: 'light' | 'dark' = 'dark'` 파라미터 추가 (기본값 dark, 하위 호환).
+- `src/previewServer.ts`: `reload()` 시그니처에 `theme: 'light' | 'dark' = 'dark'` 파라미터 추가.
+- `server/preview_harness.cpp.template`: 배경색 `Vector4(0.1f, 0.1f, 0.12f, 1.0f)` → `{{BACKGROUND_COLOR}}` 치환.
+
 ## [0.5.0] - 2026-03-31 — Phase 2-3: 멀티 프리뷰 (여러 해상도/테마 동시 표시)
 
 ### Added

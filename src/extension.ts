@@ -29,6 +29,9 @@ let pendingRebuildDoc: vscode.TextDocument | undefined;
 let currentWidth = 1024;
 let currentHeight = 600;
 
+// Current theme (persisted in workspaceState)
+let currentTheme: 'light' | 'dark' = 'dark';
+
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
     outputChannel.appendLine('DALi Preview extension activating...');
@@ -37,6 +40,12 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('daliPreview');
     currentWidth = config.get('previewWidth', 1024);
     currentHeight = config.get('previewHeight', 600);
+
+    // Load persisted theme
+    const savedTheme = context.workspaceState.get<string>('daliPreview.theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+        currentTheme = savedTheme;
+    }
 
     diagnosticCollection = vscode.languages.createDiagnosticCollection('dali-preview');
     context.subscriptions.push(diagnosticCollection);
@@ -94,6 +103,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const openCmd = vscode.commands.registerCommand('dali.openPreview', () => {
         ensurePreviewManager(context);
         previewManager!.show();
+        previewManager!.setTheme(currentTheme);
     });
 
     // Auto-preview on save
@@ -103,6 +113,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         ensurePreviewManager(context);
         previewManager!.show();
+        previewManager!.setTheme(currentTheme);
         await runPreview(doc);
     });
 
@@ -111,6 +122,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (editor && isPreviewable(editor.document)) {
             ensurePreviewManager(context);
             previewManager!.show();
+            previewManager!.setTheme(currentTheme);
         }
     });
 
@@ -168,6 +180,18 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
 
         // Handle refresh from webview
         previewManager.onRefresh(() => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isPreviewable(editor.document)) {
+                runPreview(editor.document);
+            }
+        });
+
+        // Handle theme toggle from webview
+        previewManager.onThemeToggle(() => {
+            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            context.workspaceState.update('daliPreview.theme', currentTheme);
+            previewManager!.setTheme(currentTheme);
+            // Rebuild with new theme
             const editor = vscode.window.activeTextEditor;
             if (editor && isPreviewable(editor.document)) {
                 runPreview(editor.document);
@@ -269,7 +293,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 const pngPath      = '/tmp/dali_preview/preview.png';
                 const metadataPath = '/tmp/dali_preview/preview_metadata.json';
                 result = await previewServer.reload(
-                    pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight
+                    pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight, currentTheme
                 );
                 usedServerMode = true;
             } else {
@@ -293,7 +317,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         // Phase 1 fallback: full harness compile + run
         if (!usedServerMode) {
-            result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight);
+            result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight, currentTheme);
         }
 
         // Discard stale result if a newer build was queued
@@ -373,6 +397,7 @@ async function runMultiPreview(
         const configStart = Date.now();
         const width  = config.width  ?? currentWidth;
         const height = config.height ?? currentHeight;
+        const theme  = config.theme  ?? currentTheme;
 
         try {
             if (previewServer?.isRunning) {
@@ -386,7 +411,7 @@ async function runMultiPreview(
                     const pngPath      = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}.png`;
                     const metadataPath = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}_metadata.json`;
                     const reloadResult = await previewServer.reload(
-                        pluginResult.soPath, pngPath, metadataPath, width, height
+                        pluginResult.soPath, pngPath, metadataPath, width, height, theme
                     );
                     results.push({
                         config,
@@ -407,7 +432,7 @@ async function runMultiPreview(
                 }
             } else {
                 // Phase 1 fallback
-                const result = await buildRunner.buildAndRun(instrumented, width, height);
+                const result = await buildRunner.buildAndRun(instrumented, width, height, theme);
                 results.push({
                     config,
                     success: result.success,

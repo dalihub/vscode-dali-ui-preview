@@ -8,6 +8,7 @@ export class PreviewManager {
     private resizeCallbacks: Array<(width: number, height: number) => void> = [];
     private refreshCallbacks: Array<() => void> = [];
     private selectElementCallbacks: Array<(line: number) => void> = [];
+    private themeToggleCallbacks: Array<() => void> = [];
     private disposables: vscode.Disposable[] = [];
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -154,6 +155,23 @@ export class PreviewManager {
         });
     }
 
+    setTheme(theme: 'light' | 'dark'): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'setTheme', theme });
+    }
+
+    onThemeToggle(callback: () => void): vscode.Disposable {
+        this.themeToggleCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.themeToggleCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.themeToggleCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     onSelectElement(callback: (line: number) => void): vscode.Disposable {
         this.selectElementCallbacks.push(callback);
         return new vscode.Disposable(() => {
@@ -175,6 +193,7 @@ export class PreviewManager {
         this.resizeCallbacks = [];
         this.refreshCallbacks = [];
         this.selectElementCallbacks = [];
+        this.themeToggleCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -207,6 +226,12 @@ export class PreviewManager {
             case 'changeBackground': {
                 // Background changes are handled entirely in the webview.
                 // This message is available for extensions that want to persist the preference.
+                break;
+            }
+            case 'toggleTheme': {
+                for (const cb of this.themeToggleCallbacks) {
+                    cb();
+                }
                 break;
             }
         }

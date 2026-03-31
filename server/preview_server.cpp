@@ -107,6 +107,7 @@ struct ReloadRequest {
     std::string metadataPath;
     float       width  = 0.0f;
     float       height = 0.0f;
+    std::string theme  = "dark";  // "light" | "dark"
 };
 
 // ---------------------------------------------------------------------------
@@ -154,7 +155,7 @@ public:
         std::string line;
         while (ReadLine(line))
         {
-            // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height>
+            // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height> [theme]
             if (line.size() >= 6 && line.substr(0, 6) == "RELOAD")
             {
                 std::string rest = (line.size() > 6) ? line.substr(7) : "";
@@ -175,6 +176,12 @@ public:
                 {
                     std::cout << "ERROR:malformed RELOAD command" << std::endl;
                     continue;
+                }
+                // Optional theme parameter (default: dark)
+                std::string themeStr;
+                if (iss >> themeStr)
+                {
+                    req.theme = themeStr;
                 }
 
                 if (!mCaptureBusy)
@@ -197,10 +204,20 @@ public:
     // dlopen + render cycle
     // -----------------------------------------------------------------------
 
+    static Vector4 ThemeToColor(const std::string& theme)
+    {
+        if (theme == "light")
+            return Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+        return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // dark (default)
+    }
+
     void DoReload(const ReloadRequest& req)
     {
         mCaptureBusy = true;
         mCurrentReq  = req;
+
+        // Apply background color for current theme
+        mWindow.SetBackgroundColor(ThemeToColor(req.theme));
 
         // Resize window if dimensions changed
         Vector2 winSize = mWindow.GetSize();
@@ -283,7 +300,7 @@ public:
         capture.Start(Actor(mWindow.GetRootLayer()),
                       Vector2(mCurrentReq.width, mCurrentReq.height),
                       Dali::String(mCurrentReq.pngPath.c_str()),
-                      Vector4(0.1f, 0.1f, 0.12f, 1.0f));
+                      ThemeToColor(mCurrentReq.theme));
         return false; // one-shot timer
     }
 

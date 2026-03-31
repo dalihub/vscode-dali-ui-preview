@@ -105,7 +105,7 @@ public:
   void OnInit(Application& app)
   {
     Window window = app.GetWindow();
-    window.SetBackgroundColor(Vector4(0.1f, 0.1f, 0.12f, 1.0f));
+    window.SetBackgroundColor({{BACKGROUND_COLOR}});
 
     View root = CreatePreviewUI();
     window.Add(root);
@@ -124,7 +124,7 @@ public:
     capture.Start(Actor(window.GetRootLayer()),
                   Vector2(PREVIEW_WIDTH, PREVIEW_HEIGHT),
                   Dali::String("{{OUTPUT_PATH}}"),
-                  Vector4(0.1f, 0.1f, 0.12f, 1.0f));
+                  {{BACKGROUND_COLOR}});
     return false;
   }
 
