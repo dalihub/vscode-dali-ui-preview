@@ -69,3 +69,35 @@ export class StatusBarManager {
         }
     }
 }
+
+export class ThemeStatusBarItem {
+    private item: vscode.StatusBarItem;
+
+    constructor(context: vscode.ExtensionContext) {
+        this.item = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            99  // just to the left of the main DALi status item (priority 100)
+        );
+        this.item.command = 'dali.toggleTheme';
+        context.subscriptions.push(this.item);
+    }
+
+    update(theme: 'light' | 'dark'): void {
+        if (theme === 'light') {
+            this.item.text = '$(sun)';
+            this.item.tooltip = 'DALi Preview: 라이트 테마 — 클릭하여 다크 테마로 전환';
+        } else {
+            this.item.text = '$(moon)';
+            this.item.tooltip = 'DALi Preview: 다크 테마 — 클릭하여 라이트 테마로 전환';
+        }
+        this.item.show();
+    }
+
+    hide(): void {
+        this.item.hide();
+    }
+
+    dispose(): void {
+        this.item.dispose();
+    }
+}
