@@ -5,7 +5,7 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Phase 2-2: 실시간 프리뷰 (debounce)
+## [0.4.0] - 2026-03-31 — Phase 2-2: 실시간 프리뷰 (debounce)
 
 ### Added
 
