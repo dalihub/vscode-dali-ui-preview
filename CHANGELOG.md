@@ -5,6 +5,22 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-31 — Phase 2-2 UX: 실시간 프리뷰 사용성 개선
+
+### Added
+
+- **마지막 성공 이미지 유지** (`media/preview.html`): 빌드 에러 발생 시 이전 성공 스크린샷을 지우지 않고 이미지 위에 상단 배너만 표시.
+- **에러 배너 CSS** (`media/preview.html`): `.overlay-error`를 전체 커버에서 상단 고정 배너로 변경. 불투명 빨간 배경(`rgba(200,30,30,0.95)`), `max-height: 40%`, 스크롤 가능.
+- **`clearError` 메시지 핸들러** (`media/preview.html`): `clearError` 명령 수신 시 에러 배너만 숨기고 나머지 상태 유지.
+- **`clearError()` 메서드** (`src/previewManager.ts`): Extension에서 Webview로 `clearError` 명령을 전달하는 메서드 추가.
+- **에러 표시 500ms debounce** (`src/extension.ts`): `scheduleShowError()` / `cancelErrorDebounce()` 헬퍼 함수 추가. 빌드 실패 후 500ms 이상 지속될 때만 에러 배너 표시하여 타이핑 중 깜빡임 방지.
+- **포커스 보호** (`src/previewManager.ts`, `src/extension.ts`): `show(preserveFocus = false)` 파라미터 추가. 자동 트리거(save, text change, file open)에서 `show(true)` 호출로 에디터 포커스 이탈 방지. 사용자가 명시적으로 `DALi: Open Preview` 커맨드를 실행할 때만 포커스 이동.
+
+### Changed
+
+- `PreviewManager.show()` 시그니처: `show()` → `show(preserveFocus = false)`. `panel.reveal()` 및 `createWebviewPanel`에 `preserveFocus` 전달.
+- 빌드 성공 시 `cancelErrorDebounce()` 호출로 대기 중인 에러 타이머 취소 + 에러 배너 즉시 제거.
+
 ## [0.7.0] - 2026-03-31 — Phase 2-5: 배경색 컬러 피커
 
 ### Added

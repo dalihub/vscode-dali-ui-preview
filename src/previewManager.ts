@@ -14,9 +14,9 @@ export class PreviewManager {
 
     constructor(private context: vscode.ExtensionContext) {}
 
-    show(): void {
+    show(preserveFocus = false): void {
         if (this.panel) {
-            this.panel.reveal(vscode.ViewColumn.Two);
+            this.panel.reveal(vscode.ViewColumn.Two, preserveFocus);
             return;
         }
 
@@ -25,7 +25,7 @@ export class PreviewManager {
         this.panel = vscode.window.createWebviewPanel(
             'daliPreview',
             'DALi Preview',
-            vscode.ViewColumn.Two,
+            { viewColumn: vscode.ViewColumn.Two, preserveFocus },
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
@@ -134,6 +134,13 @@ export class PreviewManager {
             return;
         }
         this.panel.webview.postMessage({ command: 'showWelcome' });
+    }
+
+    clearError(): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'clearError' });
     }
 
     onResize(callback: (width: number, height: number) => void): vscode.Disposable {
