@@ -9,6 +9,7 @@ export class PreviewManager {
     private refreshCallbacks: Array<() => void> = [];
     private selectElementCallbacks: Array<(line: number) => void> = [];
     private themeToggleCallbacks: Array<() => void> = [];
+    private bgChangeCallbacks: Array<(color: string) => void> = [];
     private disposables: vscode.Disposable[] = [];
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -162,6 +163,23 @@ export class PreviewManager {
         this.panel.webview.postMessage({ command: 'setTheme', theme });
     }
 
+    setBackgroundColor(color: string): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'setBackgroundColor', color });
+    }
+
+    onBackgroundChange(callback: (color: string) => void): vscode.Disposable {
+        this.bgChangeCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.bgChangeCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.bgChangeCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     onThemeToggle(callback: () => void): vscode.Disposable {
         this.themeToggleCallbacks.push(callback);
         return new vscode.Disposable(() => {
@@ -194,6 +212,7 @@ export class PreviewManager {
         this.refreshCallbacks = [];
         this.selectElementCallbacks = [];
         this.themeToggleCallbacks = [];
+        this.bgChangeCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -224,8 +243,12 @@ export class PreviewManager {
                 break;
             }
             case 'changeBackground': {
-                // Background changes are handled entirely in the webview.
-                // This message is available for extensions that want to persist the preference.
+                const color = message.color as string;
+                if (typeof color === 'string') {
+                    for (const cb of this.bgChangeCallbacks) {
+                        cb(color);
+                    }
+                }
                 break;
             }
             case 'toggleTheme': {

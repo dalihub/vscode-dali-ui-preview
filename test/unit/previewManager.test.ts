@@ -1,0 +1,116 @@
+import { expect } from 'chai';
+import { PreviewManager } from '../../src/previewManager';
+
+// ---------------------------------------------------------------------------
+// Minimal stub for the VS Code API used by PreviewManager
+// ---------------------------------------------------------------------------
+
+function makeManagerWithSpy() {
+    const postedMessages: Array<{ command: string; [key: string]: unknown }> = [];
+
+    const webview = {
+        html: '',
+        cspSource: 'vscode-resource:',
+        postMessage: (msg: unknown) => { postedMessages.push(msg as { command: string }); },
+        onDidReceiveMessage: (handler: (msg: unknown) => void) => {
+            // Expose the handler so tests can simulate incoming messages
+            (webview as any)._handler = handler;
+            return { dispose: () => {} };
+        },
+        asWebviewUri: (uri: any) => uri,
+    };
+
+    const panel = {
+        webview,
+        reveal: () => {},
+        onDidDispose: (_cb: () => void) => ({ dispose: () => {} }),
+        dispose: () => {},
+        visible: true,
+    };
+
+    const vscode = require('vscode');
+    const savedCreate = vscode.window.createWebviewPanel;
+    vscode.window.createWebviewPanel = () => panel;
+
+    const ctx = {
+        extensionPath: __dirname,
+        subscriptions: [],
+        workspaceState: { get: () => undefined, update: () => {} },
+    } as any;
+
+    const mgr = new PreviewManager(ctx);
+    // Trigger show() BEFORE restoring the mock so our spy panel is used
+    mgr.show();
+
+    vscode.window.createWebviewPanel = savedCreate;
+
+    function simulate(msg: { command: string; [key: string]: unknown }) {
+        (webview as any)._handler?.(msg);
+    }
+
+    return { mgr, postedMessages, simulate };
+}
+
+// ---------------------------------------------------------------------------
+// setBackgroundColor
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — setBackgroundColor()', () => {
+    it('sends setBackgroundColor postMessage with the given color', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.setBackgroundColor('#ff0000');
+        const msg = postedMessages.find(m => m.command === 'setBackgroundColor');
+        expect(msg).to.exist;
+        expect(msg!.color).to.equal('#ff0000');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// onBackgroundChange
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — onBackgroundChange()', () => {
+    it('fires registered callback when changeBackground message is received', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const received: string[] = [];
+        mgr.onBackgroundChange((color) => received.push(color));
+
+        simulate({ command: 'changeBackground', color: '#aabbcc' });
+
+        expect(received).to.deep.equal(['#aabbcc']);
+    });
+
+    it('fires multiple registered callbacks', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const a: string[] = [];
+        const b: string[] = [];
+        mgr.onBackgroundChange(c => a.push(c));
+        mgr.onBackgroundChange(c => b.push(c));
+
+        simulate({ command: 'changeBackground', color: '#112233' });
+
+        expect(a).to.deep.equal(['#112233']);
+        expect(b).to.deep.equal(['#112233']);
+    });
+
+    it('does not fire callback after dispose', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const received: string[] = [];
+        const disposable = mgr.onBackgroundChange(c => received.push(c));
+        disposable.dispose();
+
+        simulate({ command: 'changeBackground', color: '#ffffff' });
+
+        expect(received).to.have.length(0);
+    });
+
+    it('does not call callback when changeBackground message has no color', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const received: string[] = [];
+        mgr.onBackgroundChange(c => received.push(c));
+
+        simulate({ command: 'changeBackground' });
+
+        expect(received).to.have.length(0);
+    });
+});

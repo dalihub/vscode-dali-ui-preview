@@ -69,10 +69,39 @@ const vscodeMock = {
             hide: () => {},
             dispose: () => {},
         }),
+        createWebviewPanel: (_viewType: string, _title: string, _viewColumn: number, _options?: any) => ({
+            webview: {
+                html: '',
+                cspSource: 'vscode-resource:',
+                postMessage: () => {},
+                onDidReceiveMessage: () => ({ dispose: () => {} }),
+                asWebviewUri: (uri: any) => uri,
+            },
+            reveal: () => {},
+            onDidDispose: () => ({ dispose: () => {} }),
+            dispose: () => {},
+            visible: true,
+        }),
+    },
+    ViewColumn: {
+        One: 1,
+        Two: 2,
+        Three: 3,
+        Active: -1,
+        Beside: -2,
     },
     commands: {
         registerCommand: () => ({ dispose: () => {} }),
         executeCommand: () => Promise.resolve(undefined),
+    },
+    Disposable: class Disposable {
+        constructor(private _fn: () => void) {}
+        dispose() { this._fn(); }
+        static from(...disposables: { dispose(): void }[]) {
+            return new (vscodeMock as any).Disposable(() => {
+                for (const d of disposables) { d.dispose(); }
+            });
+        }
     },
     EventEmitter: class EventEmitter {
         event = () => ({ dispose: () => {} });

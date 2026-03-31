@@ -32,6 +32,9 @@ let currentHeight = 600;
 // Current theme (persisted in workspaceState)
 let currentTheme: 'light' | 'dark' = 'dark';
 
+// Current background color (persisted in workspaceState)
+let currentBgColor: string | undefined;
+
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
     outputChannel.appendLine('DALi Preview extension activating...');
@@ -45,6 +48,12 @@ export async function activate(context: vscode.ExtensionContext) {
     const savedTheme = context.workspaceState.get<string>('daliPreview.theme');
     if (savedTheme === 'light' || savedTheme === 'dark') {
         currentTheme = savedTheme;
+    }
+
+    // Load persisted background color
+    const savedBgColor = context.workspaceState.get<string>('daliPreview.backgroundColor');
+    if (savedBgColor && /^#[0-9a-fA-F]{6}$/.test(savedBgColor)) {
+        currentBgColor = savedBgColor;
     }
 
     diagnosticCollection = vscode.languages.createDiagnosticCollection('dali-preview');
@@ -104,6 +113,9 @@ export async function activate(context: vscode.ExtensionContext) {
         ensurePreviewManager(context);
         previewManager!.show();
         previewManager!.setTheme(currentTheme);
+        if (currentBgColor) {
+            previewManager!.setBackgroundColor(currentBgColor);
+        }
     });
 
     // Auto-preview on save
@@ -114,6 +126,9 @@ export async function activate(context: vscode.ExtensionContext) {
         ensurePreviewManager(context);
         previewManager!.show();
         previewManager!.setTheme(currentTheme);
+        if (currentBgColor) {
+            previewManager!.setBackgroundColor(currentBgColor);
+        }
         await runPreview(doc);
     });
 
@@ -123,6 +138,9 @@ export async function activate(context: vscode.ExtensionContext) {
             ensurePreviewManager(context);
             previewManager!.show();
             previewManager!.setTheme(currentTheme);
+            if (currentBgColor) {
+                previewManager!.setBackgroundColor(currentBgColor);
+            }
         }
     });
 
@@ -196,6 +214,12 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             if (editor && isPreviewable(editor.document)) {
                 runPreview(editor.document);
             }
+        });
+
+        // Handle background color change from webview
+        previewManager.onBackgroundChange((color: string) => {
+            currentBgColor = color;
+            context.workspaceState.update('daliPreview.backgroundColor', color);
         });
 
         // Handle click-to-code from webview
