@@ -15,6 +15,7 @@ export interface BuildResult {
 export class BuildRunner {
     private daliPrefix: string = '';
     private templateContent: string;
+    private pluginTemplateContent: string;
     private tmpDir: string;
     private hasCcache: boolean = false;
     private extensionPath: string;
@@ -27,6 +28,9 @@ export class BuildRunner {
         this.extensionPath = context.extensionPath;
         const templatePath = path.join(context.extensionPath, 'server', 'preview_harness.cpp.template');
         this.templateContent = fs.readFileSync(templatePath, 'utf-8');
+
+        const pluginTemplatePath = path.join(context.extensionPath, 'server', 'preview_plugin.cpp.template');
+        this.pluginTemplateContent = fs.readFileSync(pluginTemplatePath, 'utf-8');
 
         this.tmpDir = '/tmp/dali_preview';
         if (!fs.existsSync(this.tmpDir)) {
@@ -48,6 +52,44 @@ export class BuildRunner {
 
     getExtensionPath(): string {
         return this.extensionPath;
+    }
+
+    getPluginTemplateContent(): string {
+        return this.pluginTemplateContent;
+    }
+
+    async getDaliPrefix(): Promise<string> {
+        if (!(await this.ensureDaliPrefix())) {
+            return '';
+        }
+        return this.daliPrefix;
+    }
+
+    /**
+     * Compile user code into a shared library (.so) for dlopen.
+     * Returns the path to the .so on success.
+     */
+    async compilePlugin(userCode: string): Promise<BuildResult & { soPath?: string }> {
+        if (!(await this.ensureDaliPrefix())) {
+            return {
+                success: false,
+                error: 'DALi installation not found.\nUse "DALi: Open Preview" command and configure the DALi path in settings.'
+            };
+        }
+
+        const pluginSrc = path.join(this.tmpDir, 'preview_plugin.cpp');
+        const soPath    = path.join(this.tmpDir, 'preview_plugin.so');
+
+        const pluginCode = this.pluginTemplateContent
+            .replace(/\{\{USER_CODE\}\}/g, userCode);
+
+        fs.writeFileSync(pluginSrc, pluginCode);
+
+        const result = await this.compileShared(pluginSrc, soPath);
+        if (!result.success) {
+            return result;
+        }
+        return { success: true, soPath };
     }
 
     private loadDaliPrefix() {
@@ -108,6 +150,31 @@ export class BuildRunner {
 
         // 3. Execute
         return this.execute(binPath, pngPath, metadataPath, width, height);
+    }
+
+    private compileShared(source: string, output: string): Promise<BuildResult> {
+        const pkgConfigPath = `${this.daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
+        const compiler = this.hasCcache ? 'ccache g++' : 'g++';
+
+        const cmd = [
+            `PKG_CONFIG_PATH="${pkgConfigPath}"`,
+            `${compiler} -std=c++17 -O0 -shared -fPIC`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `"${source}"`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `-L"${this.daliPrefix}/lib" -Wl,-rpath-link,"${this.daliPrefix}/lib"`,
+            `-o "${output}"`
+        ].join(' ');
+
+        return new Promise((resolve) => {
+            exec(cmd, { timeout: 30000, shell: '/bin/bash' }, (error, _stdout, stderr) => {
+                if (error) {
+                    resolve({ success: false, error: stderr || error.message });
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
     }
 
     private compile(source: string, output: string): Promise<BuildResult> {

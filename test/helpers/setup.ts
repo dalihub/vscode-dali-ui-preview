@@ -46,6 +46,10 @@ const vscodeMock = {
         Information: 2,
         Hint: 3,
     },
+    StatusBarAlignment: {
+        Left: 1,
+        Right: 2,
+    },
     window: {
         showInformationMessage: () => Promise.resolve(undefined),
         showWarningMessage: () => Promise.resolve(undefined),
@@ -54,6 +58,15 @@ const vscodeMock = {
             appendLine: () => {},
             append: () => {},
             show: () => {},
+            dispose: () => {},
+        }),
+        createStatusBarItem: (_alignment?: number, _priority?: number) => ({
+            text: '',
+            tooltip: undefined,
+            command: undefined,
+            color: undefined,
+            show: () => {},
+            hide: () => {},
             dispose: () => {},
         }),
     },

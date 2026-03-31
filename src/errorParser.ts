@@ -24,7 +24,11 @@ const GCC_DIAG_RE = /^(.+?):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/;
  *                           `getHarnessCodeOffset()`.
  * @returns An array of errors whose line numbers are relative to user code (0-based).
  */
-export function parseGccErrors(stderr: string, harnessCodeOffset: number): ParsedError[] {
+export function parseGccErrors(
+    stderr: string,
+    harnessCodeOffset: number,
+    isPlugin = false,
+): ParsedError[] {
     const results: ParsedError[] = [];
     const lines = stderr.split('\n');
 
@@ -36,8 +40,10 @@ export function parseGccErrors(stderr: string, harnessCodeOffset: number): Parse
 
         const [, filePath, lineStr, colStr, severity, message] = m;
 
-        // Only include errors originating from the harness file
-        if (!filePath.includes('preview_harness')) {
+        // Accept errors from either the harness file or the plugin file
+        const isHarness = filePath.includes('preview_harness');
+        const isPluginFile = filePath.includes('preview_plugin');
+        if (isPlugin ? !isPluginFile : !isHarness) {
             continue;
         }
 
@@ -61,6 +67,14 @@ export function parseGccErrors(stderr: string, harnessCodeOffset: number): Parse
     }
 
     return results;
+}
+
+/**
+ * Determine on which line (1-based) the `{{USER_CODE}}` placeholder appears
+ * in the plugin template.
+ */
+export function getPluginCodeOffset(templateContent: string): number {
+    return getHarnessCodeOffset(templateContent);
 }
 
 /**

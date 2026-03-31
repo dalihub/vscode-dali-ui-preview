@@ -144,6 +144,7 @@ void MyApp::CreateUI() {
 ## 로드맵
 
 - ~~Click-to-Code (프리뷰 요소 → 소스코드)~~ **v0.2.0에서 완료**
+- ~~dlopen 상주 서버 (전체 재컴파일 없이 ~0.5초 프리뷰 갱신)~~ **v0.3.0에서 완료**
 - 실시간 프리뷰 (타이핑 중 자동 갱신)
 - 양방향 선택 (소스코드 → 프리뷰 요소)
 - Component Tree 뷰어 및 Property Editor
