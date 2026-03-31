@@ -95,7 +95,7 @@ export class PreviewServer {
      * Send a RELOAD command. Resolves with BuildResult when server responds.
      */
     reload(soPath: string, pngPath: string, metadataPath: string,
-           width: number, height: number): Promise<BuildResult> {
+           width: number, height: number, theme: 'light' | 'dark' = 'dark'): Promise<BuildResult> {
         return new Promise((resolve) => {
             if (!this.isRunning || !this.serverProcess) {
                 resolve({ success: false, error: 'Preview server is not running' });
@@ -117,7 +117,7 @@ export class PreviewServer {
             // H5: Store metadataPath in pendingRequest to avoid .png → _metadata.json derivation
             this.pendingRequest = { resolve, metadataPath };
 
-            const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height}\n`;
+            const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme}\n`;
             this.serverProcess.stdin!.write(cmd);
         });
     }

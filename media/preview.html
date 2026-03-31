@@ -93,6 +93,15 @@
     padding: 2px 8px;
   }
 
+  .btn-theme {
+    font-size: 14px;
+    padding: 2px 8px;
+  }
+
+  .btn-theme.theme-light {
+    background: #505050;
+  }
+
   .custom-size-inputs {
     display: none;
     align-items: center;
@@ -445,6 +454,10 @@
     <div class="toolbar-separator"></div>
 
     <button id="btnRefresh" class="btn-refresh" title="Refresh preview">&#x21bb;</button>
+
+    <div class="toolbar-separator"></div>
+
+    <button id="btnTheme" class="btn-theme" title="Toggle dark/light theme">&#x1F319;</button>
   </div>
 
   <!-- Multi-preview grid (hidden when unused) -->
@@ -497,6 +510,7 @@
   var inputWidth = document.getElementById('inputWidth');
   var inputHeight = document.getElementById('inputHeight');
   var btnRefresh = document.getElementById('btnRefresh');
+  var btnTheme = document.getElementById('btnTheme');
   var previewArea = document.getElementById('previewArea');
   var previewContainer = document.getElementById('previewContainer');
   var previewImage = document.getElementById('previewImage');
@@ -515,6 +529,7 @@
   // ── State ──
   var currentBg = 'dark';
   var bgCycle = ['dark', 'light', 'checker'];
+  var currentTheme = 'dark';
   var resizeDebounceTimer = null;
   var currentWidth = 1024;
   var currentHeight = 600;
@@ -572,6 +587,24 @@
   // ── Refresh ──
   btnRefresh.addEventListener('click', function () {
     vscode.postMessage({ command: 'refresh' });
+  });
+
+  // ── Theme toggle ──
+  function applyThemeButton(theme) {
+    currentTheme = theme;
+    if (theme === 'light') {
+      btnTheme.textContent = '\u2600\uFE0F'; // ☀️
+      btnTheme.classList.add('theme-light');
+      btnTheme.title = 'Switch to dark theme';
+    } else {
+      btnTheme.textContent = '\uD83C\uDF19'; // 🌙
+      btnTheme.classList.remove('theme-light');
+      btnTheme.title = 'Switch to light theme';
+    }
+  }
+
+  btnTheme.addEventListener('click', function () {
+    vscode.postMessage({ command: 'toggleTheme' });
   });
 
   // ── Resize via debounced postMessage ──
@@ -843,6 +876,10 @@
         previewGrid.classList.add('hidden');
         buildTimeText.textContent = '';
         timestampText.textContent = '';
+        break;
+
+      case 'setTheme':
+        applyThemeButton(msg.theme === 'light' ? 'light' : 'dark');
         break;
     }
   });

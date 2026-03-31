@@ -111,6 +111,16 @@ describe('BuildRunner — compilePlugin()', () => {
     });
 });
 
+describe('BuildRunner.themeToBackgroundColor()', () => {
+    it('returns dark color for dark theme', () => {
+        expect(BuildRunner.themeToBackgroundColor('dark')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+
+    it('returns white color for light theme', () => {
+        expect(BuildRunner.themeToBackgroundColor('light')).to.equal('Vector4(1.0f, 1.0f, 1.0f, 1.0f)');
+    });
+});
+
 describe('BuildRunner.sanitizeConfigName()', () => {
     it('lowercases the name', () => {
         expect(BuildRunner.sanitizeConfigName('Phone Light')).to.equal('phone_light');

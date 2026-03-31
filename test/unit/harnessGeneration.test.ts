@@ -15,13 +15,18 @@ function substituteTemplate(
     height: number,
     outputPath: string,
     metadataPath: string = '/tmp/preview_metadata.json',
+    theme: 'light' | 'dark' = 'dark',
 ): string {
+    const bgColor = theme === 'light'
+        ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
+        : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
     return template
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, outputPath)
-        .replace(/\{\{METADATA_PATH\}\}/g, metadataPath);
+        .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
+        .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColor);
 }
 
 describe('harnessGeneration', () => {
@@ -41,6 +46,7 @@ describe('harnessGeneration', () => {
         expect(template).to.include('{{PREVIEW_HEIGHT}}');
         expect(template).to.include('{{OUTPUT_PATH}}');
         expect(template).to.include('{{METADATA_PATH}}');
+        expect(template).to.include('{{BACKGROUND_COLOR}}');
     });
 
     it('substitution replaces all placeholders', () => {
@@ -81,6 +87,18 @@ describe('harnessGeneration', () => {
         // OUTPUT_PATH appears twice in template (capture start and OK: message)
         const count = (result.match(/\/tmp\/my_preview\.png/g) || []).length;
         expect(count).to.be.greaterThanOrEqual(2);
+    });
+
+    it('dark theme uses correct background color', () => {
+        const result = substituteTemplate(template, 'return View::New();', 1024, 600, '/tmp/out.png', '/tmp/meta.json', 'dark');
+        expect(result).to.include('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+        expect(result).to.not.include('Vector4(1.0f, 1.0f, 1.0f, 1.0f)');
+    });
+
+    it('light theme uses correct background color', () => {
+        const result = substituteTemplate(template, 'return View::New();', 1024, 600, '/tmp/out.png', '/tmp/meta.json', 'light');
+        expect(result).to.include('Vector4(1.0f, 1.0f, 1.0f, 1.0f)');
+        expect(result).to.not.include('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
     });
 
     it('golden file matches expected output for red-box sample', () => {

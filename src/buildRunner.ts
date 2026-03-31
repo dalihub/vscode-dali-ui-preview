@@ -74,6 +74,15 @@ export class BuildRunner {
     }
 
     /**
+     * Returns the DALi Vector4 background color literal for the given theme.
+     */
+    static themeToBackgroundColor(theme: 'light' | 'dark'): string {
+        return theme === 'light'
+            ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
+            : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
+    }
+
+    /**
      * Compile user code into a shared library (.so) for dlopen.
      * When configName is provided, the .so is named preview_plugin_{configName}.so.
      * Returns the path to the .so on success.
@@ -123,7 +132,7 @@ export class BuildRunner {
         return false;
     }
 
-    async buildAndRun(userCode: string, width?: number, height?: number): Promise<BuildResult> {
+    async buildAndRun(userCode: string, width?: number, height?: number, theme: 'light' | 'dark' = 'dark'): Promise<BuildResult> {
         // Ensure DALi prefix is available
         if (!(await this.ensureDaliPrefix())) {
             return {
@@ -143,12 +152,14 @@ export class BuildRunner {
         const binPath = path.join(this.tmpDir, 'preview_bin');
 
         // 1. Generate harness
+        const bgColor = BuildRunner.themeToBackgroundColor(theme);
         const harness = this.templateContent
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
             .replace(/\{\{OUTPUT_PATH\}\}/g, pngPath)
-            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath);
+            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColor);
 
         fs.writeFileSync(harnessPath, harness);
 
