@@ -4,9 +4,13 @@
 
 **See your Tizen DALi UI as you code.** This extension compiles and renders dali-ui C++ chaining API code on save, showing a live preview right inside VS Code.
 
-### v0.1 Demo
+### v0.1 Demo (live preview)
 
 [vscode-dali-ui-preview_v0.1.webm](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
+
+### v0.2 Demo (click to code)
+
+[vscode-dali-ui-preview-click-to-code.webm](https://github.com/user-attachments/assets/0ea057ab-d494-4b48-9124-522bc3024801)
 
 ---
 
