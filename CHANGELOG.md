@@ -5,6 +5,31 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-31 — Phase 2-5: 배경색 컬러 피커
+
+### Added
+
+- **컬러 피커 버튼** (`media/preview.html`): 툴바에 현재 배경색을 표시하는 색상 사각형 버튼 추가. 클릭 시 팝업 패널 열림.
+- **컬러 피커 팝업** (`media/preview.html`): 세 가지 입력 방식 지원.
+  - 네이티브 `<input type="color">` (브라우저 색상 휠)
+  - HEX 텍스트 입력 (`#rrggbb` 포맷) — 유효성 검사 포함, blur 시 이전 값으로 복원
+  - R / G / B 개별 숫자 입력 (0–255)
+  - 세 입력 간 양방향 동기화
+  - "기본값으로 초기화" 버튼 — 기본 배경색 `#1a1a2e`로 복원
+- **배경색 즉시 반영**: 색상 변경 시 `previewContainer.style.background`에 즉시 적용.
+- **`changeBackground` 메시지**: 색상 변경 시 Webview → Extension으로 선택된 HEX 값 전송.
+- **`setBackgroundColor(color)` 메서드** (`src/previewManager.ts`): Extension이 Webview에 현재 배경색을 동기화하는 postMessage API.
+- **`onBackgroundChange` 콜백** (`src/previewManager.ts`): Webview에서 수신한 `changeBackground` 명령을 Extension 쪽에서 구독하는 콜백 시스템.
+- **`currentBgColor` 상태 + `workspaceState` 저장** (`src/extension.ts`): 선택된 배경색을 `daliPreview.backgroundColor` 키로 workspaceState에 자동 저장/복원.
+- **신규 단위 테스트 5개** (`test/unit/previewManager.test.ts`):
+  - `setBackgroundColor()` postMessage 전송 검증
+  - `onBackgroundChange()` 콜백 호출 검증 (단일/다중/dispose 후/color 없음 케이스)
+- **vscode 테스트 목 보강** (`test/helpers/setup.ts`): `ViewColumn`, `Disposable`, `createWebviewPanel` 추가.
+
+### Changed
+
+- 기존 다크/라이트 테마 토글 동작에 영향 없음 — 컬러 피커는 HTML 영역 배경색만 제어.
+
 ## [0.6.0] - 2026-03-31 — Phase 2-4: 다크/라이트 모드 전환
 
 ### Added
