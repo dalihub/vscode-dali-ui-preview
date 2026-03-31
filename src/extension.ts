@@ -7,6 +7,7 @@ import { StatusBarManager } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
+import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,6 +20,9 @@ let diagnosticCollection: vscode.DiagnosticCollection;
 let building = false;
 let outputChannel: vscode.OutputChannel;
 let lastPreviewedDoc: vscode.TextDocument | undefined;
+let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
+let buildGeneration = 0;
+let pendingRebuildDoc: vscode.TextDocument | undefined;
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -109,7 +113,38 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(openCmd, onSave, onOpen, outputChannel);
+    // Live preview: auto-refresh on text change with debounce
+    const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
+        if (!isPreviewable(event.document)) {
+            return;
+        }
+        const config = vscode.workspace.getConfiguration('daliPreview');
+        if (!config.get<boolean>('livePreview', true)) {
+            liveDebouncer?.cancel();
+            return;
+        }
+        const debounceMs = config.get<number>('livePreviewDebounce', 300);
+        if (!liveDebouncer) {
+            liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
+                ensurePreviewManager(context);
+                previewManager!.show();
+                runPreview(doc, true);
+            });
+        }
+        liveDebouncer.setDebounceMs(debounceMs);
+        liveDebouncer.schedule(event.document);
+    });
+
+    // Recreate debouncer if live preview settings change
+    const onConfigChange = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('daliPreview.livePreviewDebounce') ||
+            e.affectsConfiguration('daliPreview.livePreview')) {
+            liveDebouncer?.dispose();
+            liveDebouncer = undefined;
+        }
+    });
+
+    context.subscriptions.push(openCmd, onSave, onOpen, onTextChange, onConfigChange, outputChannel);
 
     outputChannel.appendLine('DALi Preview extension activated.');
 }
@@ -174,8 +209,16 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
     }
 }
 
-async function runPreview(doc: vscode.TextDocument) {
-    if (!buildRunner || !previewManager || building) {
+async function runPreview(doc: vscode.TextDocument, livePreview = false) {
+    if (!buildRunner || !previewManager) {
+        return;
+    }
+
+    // If a build is already in progress, queue this doc and return
+    if (building) {
+        if (livePreview) {
+            pendingRebuildDoc = doc;
+        }
         return;
     }
 
@@ -187,9 +230,14 @@ async function runPreview(doc: vscode.TextDocument) {
 
     lastPreviewedDoc = doc;
 
+    const myGeneration = ++buildGeneration;
     building = true;
-    statusBar?.showBuilding();
-    previewManager.showLoading();
+
+    // For save-triggered builds show the loading overlay; live preview builds are silent
+    if (!livePreview) {
+        statusBar?.showBuilding();
+        previewManager.showLoading();
+    }
     diagnosticCollection.delete(doc.uri);
 
     const startTime = Date.now();
@@ -204,6 +252,12 @@ async function runPreview(doc: vscode.TextDocument) {
         // Phase 2: dlopen server mode
         if (previewServer?.isRunning) {
             const pluginResult = await buildRunner.compilePlugin(instrumented);
+
+            // Discard stale result if a newer build was queued during this compile
+            if (myGeneration !== buildGeneration) {
+                return;
+            }
+
             if (pluginResult.success && pluginResult.soPath) {
                 const pngPath      = '/tmp/dali_preview/preview.png';
                 const metadataPath = '/tmp/dali_preview/preview_metadata.json';
@@ -233,6 +287,11 @@ async function runPreview(doc: vscode.TextDocument) {
         // Phase 1 fallback: full harness compile + run
         if (!usedServerMode) {
             result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight);
+        }
+
+        // Discard stale result if a newer build was queued
+        if (myGeneration !== buildGeneration) {
+            return;
         }
 
         const buildTimeMs = Date.now() - startTime;
@@ -270,14 +329,23 @@ async function runPreview(doc: vscode.TextDocument) {
             outputChannel.appendLine(`Preview failed: ${result!.error?.substring(0, 200)}`);
         }
     } catch (err: any) {
-        previewManager.showError(`Unexpected error: ${err.message || err}`);
-        statusBar?.showError(err.message || 'Error');
+        if (myGeneration === buildGeneration) {
+            previewManager.showError(`Unexpected error: ${err.message || err}`);
+            statusBar?.showError(err.message || 'Error');
+        }
     } finally {
         building = false;
+        // Process pending rebuild queued during this build
+        if (pendingRebuildDoc) {
+            const nextDoc = pendingRebuildDoc;
+            pendingRebuildDoc = undefined;
+            setImmediate(() => runPreview(nextDoc, true));
+        }
     }
 }
 
 export function deactivate() {
+    liveDebouncer?.dispose();
     previewServer?.stop();
     previewManager?.dispose();
     buildRunner?.dispose();

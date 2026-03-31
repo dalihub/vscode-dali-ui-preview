@@ -65,6 +65,18 @@
                     ],
                     "default": "dark",
                     "description": "Background style for the preview panel."
+                },
+                "daliPreview.livePreview": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable live preview: automatically re-render as you type using a debounce interval."
+                },
+                "daliPreview.livePreviewDebounce": {
+                    "type": "number",
+                    "default": 300,
+                    "minimum": 100,
+                    "maximum": 5000,
+                    "description": "Debounce interval in milliseconds for live preview. Lower values update more frequently. (default: 300)"
                 }
             }
         }
