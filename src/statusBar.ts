@@ -44,6 +44,11 @@ export class StatusBarManager {
         }, 5000);
     }
 
+    showMode(mode: 'server' | 'compile'): void {
+        const label = mode === 'server' ? '⚡ Server' : '🔨 Compile';
+        this.statusBarItem.tooltip = `DALi Preview mode: ${label}`;
+    }
+
     showError(message: string): void {
         this.clearRevertTimer();
         this.statusBarItem.text = '$(error) DALi: Error';
