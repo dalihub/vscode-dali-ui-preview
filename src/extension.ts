@@ -437,7 +437,7 @@ async function runMultiPreview(
 }
 
 function sanitizeForPath(name: string): string {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return BuildRunner.sanitizeConfigName(name);
 }
 
 export function deactivate() {
