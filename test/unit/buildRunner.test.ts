@@ -5,6 +5,8 @@ import * as fs from 'fs';
 import { BuildRunner } from '../../src/buildRunner';
 import * as daliEnv from '../../src/daliEnvironment';
 
+const PROJECT_ROOT_FOR_SANITIZE = path.resolve(__dirname, '../../..');
+
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 
 function makeContext(extensionPath = PROJECT_ROOT) {
@@ -73,5 +75,60 @@ describe('BuildRunner — compilePlugin()', () => {
         const result = await runner.compilePlugin('return foo();');
         expect(result.success).to.equal(false);
         expect(result.error).to.include('foo');
+    });
+
+    it('uses config-named .so path when configName is provided', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedSoPath = '';
+        (runner as any).compileShared = async (_srcPath: string, soPath: string) => {
+            capturedSoPath = soPath;
+            return { success: true };
+        };
+
+        const result = await runner.compilePlugin('return View::New();', 'Phone Light');
+        expect(result.soPath).to.include('phone_light');
+        expect(capturedSoPath).to.include('phone_light');
+    });
+
+    it('uses default preview_plugin.so when no configName is provided', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedSoPath = '';
+        (runner as any).compileShared = async (_srcPath: string, soPath: string) => {
+            capturedSoPath = soPath;
+            return { success: true };
+        };
+
+        await runner.compilePlugin('return View::New();');
+        expect(capturedSoPath).to.match(/preview_plugin\.so$/);
+    });
+});
+
+describe('BuildRunner.sanitizeConfigName()', () => {
+    it('lowercases the name', () => {
+        expect(BuildRunner.sanitizeConfigName('Phone Light')).to.equal('phone_light');
+    });
+
+    it('replaces spaces with underscores', () => {
+        expect(BuildRunner.sanitizeConfigName('My Config Name')).to.equal('my_config_name');
+    });
+
+    it('replaces special characters with underscores', () => {
+        expect(BuildRunner.sanitizeConfigName('1080p/60fps')).to.equal('1080p_60fps');
+    });
+
+    it('collapses multiple separators into one underscore', () => {
+        expect(BuildRunner.sanitizeConfigName('Phone  --  Light')).to.equal('phone_light');
+    });
+
+    it('strips leading and trailing underscores', () => {
+        expect(BuildRunner.sanitizeConfigName('_test_')).to.equal('test');
     });
 });

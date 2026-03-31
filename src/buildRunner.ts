@@ -66,10 +66,19 @@ export class BuildRunner {
     }
 
     /**
+     * Sanitize a config name to a safe filename segment.
+     * Replaces spaces and special chars with underscores, lowercases.
+     */
+    static sanitizeConfigName(name: string): string {
+        return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    }
+
+    /**
      * Compile user code into a shared library (.so) for dlopen.
+     * When configName is provided, the .so is named preview_plugin_{configName}.so.
      * Returns the path to the .so on success.
      */
-    async compilePlugin(userCode: string): Promise<BuildResult & { soPath?: string }> {
+    async compilePlugin(userCode: string, configName?: string): Promise<BuildResult & { soPath?: string }> {
         if (!(await this.ensureDaliPrefix())) {
             return {
                 success: false,
@@ -77,8 +86,9 @@ export class BuildRunner {
             };
         }
 
-        const pluginSrc = path.join(this.tmpDir, 'preview_plugin.cpp');
-        const soPath    = path.join(this.tmpDir, 'preview_plugin.so');
+        const suffix = configName ? `_${BuildRunner.sanitizeConfigName(configName)}` : '';
+        const pluginSrc = path.join(this.tmpDir, `preview_plugin${suffix}.cpp`);
+        const soPath    = path.join(this.tmpDir, `preview_plugin${suffix}.so`);
 
         const pluginCode = this.pluginTemplateContent
             .replace(/\{\{USER_CODE\}\}/g, userCode);

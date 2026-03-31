@@ -6,6 +6,7 @@ import { XvfbManager } from './xvfbManager';
 import { StatusBarManager } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
+import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import * as fs from 'fs';
@@ -246,6 +247,12 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
     const instrumented = instrumentCode(extraction.code, extraction.startLine);
 
     try {
+        // Multi-config path: build each config independently
+        if (extraction.configs && extraction.configs.length > 0) {
+            await runMultiPreview(doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime);
+            return;
+        }
+
         let result;
         let usedServerMode = false;
 
@@ -342,6 +349,95 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             setImmediate(() => runPreview(nextDoc, true));
         }
     }
+}
+
+async function runMultiPreview(
+    doc: vscode.TextDocument,
+    configs: PreviewConfig[],
+    instrumented: string,
+    startLine: number,
+    myGeneration: number,
+    startTime: number
+) {
+    if (!buildRunner || !previewManager) {
+        return;
+    }
+
+    const results: MultiPreviewResult[] = [];
+
+    for (const config of configs) {
+        if (myGeneration !== buildGeneration) {
+            return; // stale — a newer build was triggered
+        }
+
+        const configStart = Date.now();
+        const width  = config.width  ?? currentWidth;
+        const height = config.height ?? currentHeight;
+
+        try {
+            if (previewServer?.isRunning) {
+                const pluginResult = await buildRunner.compilePlugin(instrumented, config.name);
+
+                if (myGeneration !== buildGeneration) {
+                    return;
+                }
+
+                if (pluginResult.success && pluginResult.soPath) {
+                    const pngPath      = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}.png`;
+                    const metadataPath = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}_metadata.json`;
+                    const reloadResult = await previewServer.reload(
+                        pluginResult.soPath, pngPath, metadataPath, width, height
+                    );
+                    results.push({
+                        config,
+                        success: reloadResult.success,
+                        pngPath: reloadResult.success ? pngPath : undefined,
+                        metadataPath: reloadResult.success ? metadataPath : undefined,
+                        buildTimeMs: Date.now() - configStart,
+                        error: reloadResult.success ? undefined : (reloadResult.error || 'Reload failed'),
+                    });
+                } else {
+                    const pluginTemplate = buildRunner.getPluginTemplateContent();
+                    const offset = getPluginCodeOffset(pluginTemplate);
+                    const errors = parseGccErrors(pluginResult.error || '', offset, true);
+                    const errorMsg = errors.length > 0
+                        ? formatErrorsForDisplay(errors)
+                        : (pluginResult.error || 'Plugin compile failed');
+                    results.push({ config, success: false, buildTimeMs: Date.now() - configStart, error: errorMsg });
+                }
+            } else {
+                // Phase 1 fallback
+                const result = await buildRunner.buildAndRun(instrumented, width, height);
+                results.push({
+                    config,
+                    success: result.success,
+                    pngPath: result.pngPath,
+                    metadataPath: result.metadataPath,
+                    buildTimeMs: Date.now() - configStart,
+                    error: result.error,
+                });
+            }
+        } catch (err: any) {
+            results.push({ config, success: false, buildTimeMs: Date.now() - configStart, error: err.message || String(err) });
+        }
+    }
+
+    if (myGeneration !== buildGeneration) {
+        return;
+    }
+
+    previewManager.updateMultiImage(results);
+
+    const totalMs = Date.now() - startTime;
+    const successCount = results.filter(r => r.success).length;
+    statusBar?.showSuccess(totalMs);
+    outputChannel.appendLine(
+        `Multi-preview: ${successCount}/${results.length} succeeded in ${(totalMs / 1000).toFixed(1)}s`
+    );
+}
+
+function sanitizeForPath(name: string): string {
+    return BuildRunner.sanitizeConfigName(name);
 }
 
 export function deactivate() {

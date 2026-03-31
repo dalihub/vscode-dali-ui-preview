@@ -5,6 +5,26 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-31 — Phase 2-3: 멀티 프리뷰 (여러 해상도/테마 동시 표시)
+
+### Added
+
+- **`@preview-config` 주석 파싱** (`src/codeExtractor.ts`): `@dali-preview-begin` 블록 또는 `.preview.dali.cpp` 파일 상단에 `// @preview-config: name="...", width=N, height=N, theme=light|dark` 주석을 선언하면 여러 설정을 동시에 프리뷰할 수 있음.
+- **`PreviewConfig` / `MultiPreviewResult` 타입** (`src/previewConfig.ts`): 멀티 프리뷰 설정 및 빌드 결과를 담는 공유 인터페이스 파일.
+- **config별 독립 `.so` 생성** (`src/buildRunner.ts`): `compilePlugin(userCode, configName?)` — configName 제공 시 `preview_plugin_{sanitized_name}.so`로 명명. 정적 메서드 `sanitizeConfigName()` 추가.
+- **`updateMultiImage(results)` 메서드** (`src/previewManager.ts`): `MultiPreviewResult[]`를 받아 webview에 `updateMultiImage` 메시지 전송. 각 결과에서 PNG URI와 metadata JSON을 로드하여 포함.
+- **그리드 레이아웃** (`media/preview.html`): `updateMultiImage` 메시지 수신 시 auto-fit 그리드로 여러 PNG를 동시에 표시. config 이름·해상도 라벨 및 실패 시 에러 메시지 표시. 각 프리뷰 아이템에 click-to-code 오버레이 독립 적용.
+- **멀티 config 오케스트레이션** (`src/extension.ts`): `extraction.configs`가 있으면 `runMultiPreview()` 경로로 분기. configs가 없으면 기존 단일 프리뷰 동작 유지 (하위 호환). Phase 2 서버 모드와 Phase 1 폴백 모두 지원.
+- **신규 단위 테스트 22개**:
+  - `codeExtractor.test.ts`: `@preview-config` 단일/복수 파싱, name/width/height/theme 추출, 코드 제외, 하위 호환, `.preview.dali.cpp` 파싱, malformed 무시, optional 필드 등 7개.
+  - `buildRunner.test.ts`: config별 `.so` 파일명, 기본 파일명, `sanitizeConfigName()` 동작 5종 (소문자, 공백, 특수문자, 연속 구분자, 앞뒤 제거) 등 7개.
+- **샘플 파일** (`test/samples/`): `multi-config.preview.dali.cpp`, `multi-config-marker.cpp` 추가.
+
+### Changed
+
+- `src/codeExtractor.ts`: `ExtractionResult`에 `configs?: PreviewConfig[]` 필드 추가 (optional, 하위 호환).
+- `media/preview.html`: 단일 이미지 업데이트 시 그리드 영역을 숨기고 previewArea를 표시하도록 보강.
+
 ## [0.4.0] - 2026-03-31 — Phase 2-2: 실시간 프리뷰 (debounce)
 
 ### Added

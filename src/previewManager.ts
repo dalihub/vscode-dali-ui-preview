@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { MultiPreviewResult } from './previewConfig';
 
 export class PreviewManager {
     private panel: vscode.WebviewPanel | undefined;
@@ -66,6 +67,50 @@ export class PreviewManager {
             buildTime: buildTimeMs,
             metadata: metadata || null,
         });
+    }
+
+    updateMultiImage(results: MultiPreviewResult[]): void {
+        if (!this.panel) {
+            return;
+        }
+
+        const images = results.map(r => {
+            const item: {
+                name: string;
+                width?: number;
+                height?: number;
+                buildTime: number;
+                success: boolean;
+                error?: string;
+                uri?: string;
+                metadata?: object | null;
+            } = {
+                name: r.config.name,
+                width: r.config.width,
+                height: r.config.height,
+                buildTime: r.buildTimeMs,
+                success: r.success,
+            };
+
+            if (!r.success) {
+                item.error = r.error;
+                return item;
+            }
+
+            if (r.pngPath) {
+                item.uri = this.panel!.webview.asWebviewUri(vscode.Uri.file(r.pngPath)).toString();
+            }
+
+            if (r.metadataPath) {
+                try {
+                    item.metadata = JSON.parse(fs.readFileSync(r.metadataPath, 'utf-8'));
+                } catch { /* metadata is optional */ }
+            }
+
+            return item;
+        });
+
+        this.panel.webview.postMessage({ command: 'updateMultiImage', images });
     }
 
     showLoading(): void {
