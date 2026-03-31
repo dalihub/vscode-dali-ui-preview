@@ -145,6 +145,7 @@ No code is released without passing all tests.
 ## Roadmap
 
 - ~~Click-to-Code (preview element → source code)~~ **Done in v0.2.0**
+- ~~dlopen persistent server (~0.5s preview update, no full recompile)~~ **Done in v0.3.0**
 - Real-time preview (live as you type)
 - Bidirectional selection (source code → preview element)
 - Component Tree viewer and Property Editor
