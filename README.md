@@ -2,29 +2,55 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
-**See your Tizen DALi UI as you code.** This extension compiles and renders dali-ui C++ chaining API code on save, showing a live preview right inside VS Code.
+**Live UI preview for Tizen DALi C++ applications, bringing the same preview experience as SwiftUI, Jetpack Compose, and Flutter to the DALi ecosystem.**
 
-### v0.1 Demo (live preview)
+### v0.1 Demo
 
 [vscode-dali-ui-preview_v0.1.webm](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
 
-### v0.2 Demo (click to code)
-
-[vscode-dali-ui-preview-click-to-code.webm](https://github.com/user-attachments/assets/0ea057ab-d494-4b48-9124-522bc3024801)
-
 ---
 
-## Features
+## Key Features
 
-- **Live preview panel** -- renders your DALi scene inside a VS Code webview on every Ctrl+S
-- **Dedicated preview files** -- create `.preview.dali.cpp` files for isolated UI experiments
-- **Inline markers** -- add `@dali-preview-begin` / `@dali-preview-end` in any `.cpp` to preview a specific block
-- **Resizable canvas** -- change preview resolution via presets, manual input, or drag-resize
-- **Headless rendering** -- uses Xvfb so no DALi window appears on screen
-- **Fast rebuilds** -- optional ccache integration for sub-second recompilation
-- **Click-to-Code** -- click any element in the preview to jump to its source code line (with highlight)
-- **Smart error display** -- g++ errors are mapped to your code line numbers with in-editor diagnostics
-- **Auto-detect DALi** -- automatically finds your DALi installation from environment variables or setenv files
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Live preview** | **Done** | Preview renders automatically as you type (debounce 300ms) |
+| **dlopen hot-reload** | **Done** | Resident server reloads only the changed `.so` -- no full recompilation |
+| **Click-to-Code** | **Done** | Click any element in the preview to jump to its source line |
+| **Resizable canvas** | **Done** | Change resolution via presets, manual input, or drag-resize |
+| **Error mapping** | **Done** | g++ errors mapped to your code line numbers with in-editor diagnostics |
+| **Auto-detect DALi** | **Done** | Finds DALi installation from environment variables or setenv files |
+| **Multi-preview** | Phase 2 | View multiple resolutions/themes side by side |
+| **Dark/Light mode** | Phase 2 | Toggle dark/light theme for preview |
+| **Custom fonts** | Phase 3 | Upload TTF/OTF fonts and apply to preview |
+| **Locale switching** | Phase 3 | Preview with different language/locale settings |
+| **Widget Inspector** | Phase 3 | Component tree view with property inspection |
+| **Code-to-Preview** | Phase 3 | Click code to highlight the corresponding element in preview |
+| **Screenshot testing** | Phase 3 | Golden image comparison for visual regression testing |
+| **Interactive mode** | Phase 4 | Click, scroll, and interact with the preview via VNC |
+| **Animation preview** | Phase 4 | Preview animations with playback controls |
+| **Device preview** | Phase 4 | Deploy and preview on real Tizen devices via SDB |
+
+## How Other Frameworks Compare
+
+| | DALi Preview | SwiftUI | Compose | Flutter | Qt QML |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Live preview | O | O | O | O | O |
+| Refresh speed | ~0.5s (dlopen) | <0.5s | <1s | ~0.2s | <0.5s |
+| Multi-preview | Phase 2 | O | O | Exp. | Partial |
+| Dark/Light toggle | Phase 2 | O | O | O | O |
+| Custom fonts | Phase 3 | O | O | O | O |
+| Interactive | Phase 4 | O | O | O | O |
+| Widget Inspector | Phase 3 | O | O | O | O |
+| Animation tools | Phase 4 | O | O | Partial | O |
+| Device preview | Phase 4 | O | O | O | O |
+
+## Known Limitations
+
+- **C++ compilation overhead** -- Even with dlopen, complex code changes require ~0.5s (vs ~0.2s in JIT-based frameworks). Simple chaining code can reach ~200ms with the C++ parser (Phase 4).
+- **Comment-based markers** -- C++ has no `@Preview` annotation, so preview regions are marked with `// @dali-preview-begin/end` comments. No IDE-level autocomplete or type-checking for markers.
+- **Limited bidirectional editing** -- Changing values (colors, sizes, text) from an Inspector is feasible via regex substitution, but structural code modifications (adding/removing methods) require C++ syntax tree manipulation which is significantly harder than in Swift/Kotlin/Dart.
+- **Linux only** -- Requires Xvfb for headless rendering. Windows/Mac support would require a DALi WebAssembly port.
 
 ## Prerequisites
 
@@ -33,12 +59,6 @@
 | **Ubuntu 22.04+** | -- | Other Linux distros may work |
 | **DALi build environment (including dali-ui)** | Required | `dali-env/opt` with dali-core, dali-adaptor, **dali-ui** (dali-ui-foundation, dali-ui-components) |
 | **g++, Xvfb, ccache** | Auto-installed | The extension detects missing tools and installs them on first run |
-
-## DALi Environment
-
-The extension auto-detects `dali-env/opt` from your environment variables (`DESKTOP_PREFIX`) or `setenv` files.
-
-A DALi Ubuntu backend build environment **including dali-ui** is required. The standard DALi-only environment is not sufficient -- dali-ui (dali-ui-foundation, dali-ui-components) must also be built and installed. An automated one-command setup will be provided in a future release.
 
 ## Installation
 
@@ -84,24 +104,13 @@ code --install-extension dali-preview-*.vsix
                .SetTextColor(UiColor(0xFFFFFF)),
        });
    ```
-2. Press **Ctrl+S** -- the preview panel opens automatically with the rendered result.
+2. The preview panel opens automatically and updates as you type.
 
 ## Usage
 
 ### Dedicated preview files
 
 Create a file ending in `.preview.dali.cpp`. The entire file content is treated as the body of a `View CreatePreviewUI()` function.
-
-```cpp
-// weather-card.preview.dali.cpp
-return FlexLayout::New()
-    .Direction(FlexDirection::COLUMN)
-    .Children({
-        Label::New("Seoul Weather").SetFontSize(28),
-        View::New().SetBackgroundColor(UiColor(0x4a90d9)).SetRequestedHeight(120.0f),
-        Label::New("25 C").SetFontSize(48),
-    });
-```
 
 ### Inline markers in existing .cpp files
 
@@ -125,36 +134,11 @@ void MyApp::CreateUI() {
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `daliPreview.daliPrefix` | `string` | `""` | Path to DALi install prefix (containing `lib/` and `include/`). Auto-detected if empty. |
+| `daliPreview.daliPrefix` | `string` | `""` | Path to DALi install prefix. Auto-detected if empty. |
 | `daliPreview.previewWidth` | `number` | `1024` | Preview canvas width in pixels |
 | `daliPreview.previewHeight` | `number` | `600` | Preview canvas height in pixels |
-
-## AI-Driven Development (Coming Soon)
-
-This project is designed for AI-Driven Development, where GitHub Issues are automatically analyzed, implemented, and released by AI. This feature requires an Anthropic API key and is **not yet active**.
-
-Feature requests and bug reports can be submitted as GitHub Issues and will be handled manually for now.
-
-## Testing
-
-All changes are automatically tested before release:
-
-- **Unit tests** -- code extraction logic, error parsing, harness generation
-- **Build pipeline tests** -- harness template substitution and compilation commands
-- **Integration tests** -- extension activation, commands, webview messaging
-- **E2E tests** -- actual DALi rendering with golden image comparison
-
-No code is released without passing all tests.
-
-## Roadmap
-
-- ~~Click-to-Code (preview element → source code)~~ **Done in v0.2.0**
-- ~~dlopen persistent server (~0.5s preview update, no full recompile)~~ **Done in v0.3.0**
-- Real-time preview (live as you type)
-- Bidirectional selection (source code → preview element)
-- Component Tree viewer and Property Editor
-- Automated DALi environment one-command setup
-- VS Code Marketplace publishing
+| `daliPreview.livePreview` | `boolean` | `true` | Enable live preview (auto-update as you type) |
+| `daliPreview.livePreviewDebounce` | `number` | `300` | Debounce interval in ms (100–5000) |
 
 ## License
 
