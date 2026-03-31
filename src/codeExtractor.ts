@@ -1,13 +1,47 @@
 import * as vscode from 'vscode';
+import { PreviewConfig } from './previewConfig';
 
 export interface ExtractionResult {
     code: string;
     startLine: number;
     mode: 'preview-file' | 'marker';
+    configs?: PreviewConfig[];
 }
 
 const MARKER_BEGIN = '// @dali-preview-begin';
 const MARKER_END = '// @dali-preview-end';
+
+const PREVIEW_CONFIG_RE = /^\/\/\s*@preview-config:\s*(.+)$/;
+const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
+const CONFIG_WIDTH_RE = /width\s*=\s*(\d+)/;
+const CONFIG_HEIGHT_RE = /height\s*=\s*(\d+)/;
+const CONFIG_THEME_RE = /theme\s*=\s*(light|dark)/;
+
+function parsePreviewConfigLine(line: string): PreviewConfig | null {
+    const m = PREVIEW_CONFIG_RE.exec(line.trim());
+    if (!m) {
+        return null;
+    }
+    const body = m[1];
+    const nameMatch = CONFIG_NAME_RE.exec(body);
+    if (!nameMatch) {
+        return null;
+    }
+    const config: PreviewConfig = { name: nameMatch[1] };
+    const widthMatch = CONFIG_WIDTH_RE.exec(body);
+    if (widthMatch) {
+        config.width = parseInt(widthMatch[1], 10);
+    }
+    const heightMatch = CONFIG_HEIGHT_RE.exec(body);
+    if (heightMatch) {
+        config.height = parseInt(heightMatch[1], 10);
+    }
+    const themeMatch = CONFIG_THEME_RE.exec(body);
+    if (themeMatch) {
+        config.theme = themeMatch[1] as 'light' | 'dark';
+    }
+    return config;
+}
 
 /**
  * Regex matching a variable declaration like `View card = ...`
@@ -29,10 +63,22 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
 
     // --- Mode 1: dedicated preview file ---
     if (fileName.endsWith('.preview.dali.cpp')) {
+        const lines = document.getText().split('\n');
+        const configs: PreviewConfig[] = [];
+        const codeLines: string[] = [];
+        for (const line of lines) {
+            const cfg = parsePreviewConfigLine(line);
+            if (cfg) {
+                configs.push(cfg);
+            } else {
+                codeLines.push(line);
+            }
+        }
         return {
-            code: document.getText(),
+            code: codeLines.join('\n'),
             startLine: 0,
             mode: 'preview-file',
+            configs: configs.length > 0 ? configs : undefined,
         };
     }
 
@@ -56,10 +102,18 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             return null; // no valid marker pair (or empty region)
         }
 
-        // Extract lines between the markers (exclusive of markers themselves)
+        // Extract lines between the markers (exclusive of markers themselves).
+        // Lines matching @preview-config are collected as configs and excluded from code.
         const codeLines: string[] = [];
+        const configs: PreviewConfig[] = [];
         for (let i = beginLine + 1; i < endLine; i++) {
-            codeLines.push(document.lineAt(i).text);
+            const lineText = document.lineAt(i).text;
+            const cfg = parsePreviewConfigLine(lineText);
+            if (cfg) {
+                configs.push(cfg);
+            } else {
+                codeLines.push(lineText);
+            }
         }
 
         let code = codeLines.join('\n');
@@ -78,6 +132,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             code,
             startLine: beginLine + 1,
             mode: 'marker',
+            configs: configs.length > 0 ? configs : undefined,
         };
     }
 

@@ -155,6 +155,129 @@ describe('codeExtractor', () => {
     });
 
     // -----------------------------------------------------------------
+    // @preview-config parsing
+    // -----------------------------------------------------------------
+    describe('@preview-config parsing', () => {
+        it('parses a single @preview-config in marker mode', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Phone Light", width=720, height=1280, theme=light',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].name).to.equal('Phone Light');
+            expect(result!.configs![0].width).to.equal(720);
+            expect(result!.configs![0].height).to.equal(1280);
+            expect(result!.configs![0].theme).to.equal('light');
+        });
+
+        it('parses multiple @preview-config lines in marker mode', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Phone Light", width=720, height=1280, theme=light',
+                '// @preview-config: name="Phone Dark", width=720, height=1280, theme=dark',
+                '// @preview-config: name="Tablet", width=1920, height=1080',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(3);
+            expect(result!.configs![1].theme).to.equal('dark');
+            expect(result!.configs![2].theme).to.be.undefined;
+        });
+
+        it('excludes @preview-config lines from extracted code', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Watch", width=360, height=360',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.code).to.not.include('@preview-config');
+            expect(result!.code).to.include('View::New()');
+        });
+
+        it('returns undefined configs when no @preview-config lines exist', () => {
+            const content = [
+                '// @dali-preview-begin',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.be.undefined;
+        });
+
+        it('parses @preview-config in .preview.dali.cpp files', () => {
+            const content = [
+                '// @preview-config: name="Phone Light", width=720, height=1280',
+                '// @preview-config: name="Phone Dark", width=720, height=1280, theme=dark',
+                'return View::New();',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/card.preview.dali.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(2);
+            expect(result!.configs![0].name).to.equal('Phone Light');
+            expect(result!.code).to.not.include('@preview-config');
+        });
+
+        it('ignores malformed @preview-config lines (missing name)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: width=720, height=1280',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            // Malformed config line should be treated as code (not parsed)
+            expect(result!.configs).to.be.undefined;
+        });
+
+        it('parses optional width/height as undefined when not provided', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Minimal"',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].name).to.equal('Minimal');
+            expect(result!.configs![0].width).to.be.undefined;
+            expect(result!.configs![0].height).to.be.undefined;
+        });
+    });
+
+    // -----------------------------------------------------------------
     // isPreviewable
     // -----------------------------------------------------------------
     describe('isPreviewable()', () => {

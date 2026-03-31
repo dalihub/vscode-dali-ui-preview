@@ -352,6 +352,57 @@
     transform: translateY(-100%) translateY(-4px);
   }
 
+  /* ── Multi-preview grid ── */
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+    padding: 12px;
+    width: 100%;
+    overflow-y: auto;
+    align-items: start;
+  }
+
+  .preview-grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .preview-grid-header {
+    font-size: 11px;
+    color: #aaa;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .preview-grid-canvas {
+    position: relative;
+    display: inline-block;
+  }
+
+  .preview-grid-canvas img {
+    display: block;
+    max-width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    border: 1px solid #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+
+  .preview-grid-error {
+    font-size: 11px;
+    color: #f48771;
+    background: rgba(50, 10, 10, 0.85);
+    border: 1px solid #f44747;
+    border-radius: 4px;
+    padding: 8px 12px;
+    max-width: 100%;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
   /* ── Status bar ── */
   .status-bar {
     display: flex;
@@ -395,6 +446,9 @@
 
     <button id="btnRefresh" class="btn-refresh" title="Refresh preview">&#x21bb;</button>
   </div>
+
+  <!-- Multi-preview grid (hidden when unused) -->
+  <div class="preview-grid hidden" id="previewGrid"></div>
 
   <!-- Main preview area -->
   <div class="preview-area" id="previewArea">
@@ -456,6 +510,7 @@
   var errorText = document.getElementById('errorText');
   var buildTimeText = document.getElementById('buildTimeText');
   var timestampText = document.getElementById('timestampText');
+  var previewGrid = document.getElementById('previewGrid');
 
   // ── State ──
   var currentBg = 'dark';
@@ -616,19 +671,15 @@
     elementOverlay.appendChild(activeTooltip);
   }
 
-  function renderMetadataOverlay(metadata) {
-    currentMetadata = metadata;
-    elementOverlay.innerHTML = '';
+  function renderMetadataOverlayInto(img, overlayEl, metadata) {
+    overlayEl.innerHTML = '';
     if (!metadata || !metadata.root) return;
-
-    var img = previewImage;
     if (!img || !img.naturalWidth) return;
 
     var scaleX = img.clientWidth / img.naturalWidth;
     var scaleY = img.clientHeight / img.naturalHeight;
 
-    // Calculate image offset within container (if image is centered)
-    var containerRect = elementOverlay.parentElement.getBoundingClientRect();
+    var containerRect = overlayEl.parentElement.getBoundingClientRect();
     var imgRect = img.getBoundingClientRect();
     var offsetX = imgRect.left - containerRect.left;
     var offsetY = imgRect.top - containerRect.top;
@@ -660,7 +711,7 @@
           hideInspectTooltip();
         });
 
-        elementOverlay.appendChild(div);
+        overlayEl.appendChild(div);
       }
 
       if (actor.children) {
@@ -672,12 +723,16 @@
 
     renderActor(metadata.root);
 
-    // Z-order: smaller elements on top for easier clicking
-    var boxes = Array.from(elementOverlay.querySelectorAll('.element-bbox'));
+    var boxes = Array.from(overlayEl.querySelectorAll('.element-bbox'));
     boxes.sort(function (a, b) {
       return (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight);
     });
-    boxes.forEach(function (box) { elementOverlay.appendChild(box); });
+    boxes.forEach(function (box) { overlayEl.appendChild(box); });
+  }
+
+  function renderMetadataOverlay(metadata) {
+    currentMetadata = metadata;
+    renderMetadataOverlayInto(previewImage, elementOverlay, metadata);
   }
 
   // Re-render overlay when image resizes
@@ -697,6 +752,8 @@
         overlayWelcome.classList.add('hidden');
         overlayError.classList.add('hidden');
         overlayLoading.classList.add('hidden');
+        previewGrid.classList.add('hidden');
+        previewArea.classList.remove('hidden');
         previewImage.classList.remove('hidden');
         dimensionsLabel.classList.remove('hidden');
         previewImage.src = msg.uri + '?t=' + Date.now();
@@ -726,12 +783,64 @@
         errorText.textContent = msg.message || 'Unknown error';
         break;
 
+      case 'updateMultiImage':
+        overlayWelcome.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        overlayLoading.classList.add('hidden');
+        previewArea.classList.add('hidden');
+        previewGrid.classList.remove('hidden');
+        previewGrid.innerHTML = '';
+        var totalBuildTime = 0;
+        for (var mi = 0; mi < msg.images.length; mi++) {
+          var imgInfo = msg.images[mi];
+          totalBuildTime = Math.max(totalBuildTime, imgInfo.buildTime || 0);
+          var item = document.createElement('div');
+          item.className = 'preview-grid-item';
+          var header = document.createElement('div');
+          header.className = 'preview-grid-header';
+          var sizeLabel = (imgInfo.width && imgInfo.height) ? ' (' + imgInfo.width + '\u00d7' + imgInfo.height + ')' : '';
+          header.textContent = imgInfo.name + sizeLabel;
+          item.appendChild(header);
+          if (!imgInfo.success) {
+            var errDiv = document.createElement('div');
+            errDiv.className = 'preview-grid-error';
+            errDiv.textContent = imgInfo.error || 'Build failed';
+            item.appendChild(errDiv);
+          } else {
+            var canvas = document.createElement('div');
+            canvas.className = 'preview-grid-canvas';
+            var img = document.createElement('img');
+            img.src = imgInfo.uri + '?t=' + Date.now();
+            img.alt = imgInfo.name;
+            img.draggable = false;
+            var overlay = document.createElement('div');
+            overlay.className = 'element-overlay interactive';
+            (function(imgEl, overlayEl, meta) {
+              imgEl.onload = function() {
+                if (meta) {
+                  renderMetadataOverlayInto(imgEl, overlayEl, meta);
+                }
+              };
+            })(img, overlay, imgInfo.metadata || null);
+            canvas.appendChild(img);
+            canvas.appendChild(overlay);
+            item.appendChild(canvas);
+          }
+          previewGrid.appendChild(item);
+        }
+        var buildSec = (totalBuildTime / 1000).toFixed(1);
+        buildTimeText.textContent = 'Built in ' + buildSec + 's';
+        timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        break;
+
       case 'showWelcome':
         overlayLoading.classList.add('hidden');
         overlayError.classList.add('hidden');
         previewImage.classList.add('hidden');
         dimensionsLabel.classList.add('hidden');
         overlayWelcome.classList.remove('hidden');
+        previewArea.classList.remove('hidden');
+        previewGrid.classList.add('hidden');
         buildTimeText.textContent = '';
         timestampText.textContent = '';
         break;
