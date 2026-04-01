@@ -1622,6 +1622,9 @@
         break;
     }
   });
+
+  // Notify extension that webview is ready to receive initial state
+  vscode.postMessage({ command: 'webviewReady' });
 })();
 </script>
 </body>

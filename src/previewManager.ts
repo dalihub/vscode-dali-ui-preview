@@ -11,6 +11,7 @@ export class PreviewManager {
     private themeToggleCallbacks: Array<() => void> = [];
     private bgChangeCallbacks: Array<(color: string) => void> = [];
     private inspectorToggleCallbacks: Array<(visible: boolean) => void> = [];
+    private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -186,6 +187,7 @@ export class PreviewManager {
     }
 
     setInspectorVisible(visible: boolean): void {
+        this._inspectorVisible = visible;
         if (!this.panel) {
             return;
         }
@@ -291,11 +293,17 @@ export class PreviewManager {
                 break;
             }
             case 'inspectorToggle': {
-                const visible = message.visible as boolean;
-                if (typeof visible === 'boolean') {
+                if (typeof message.visible === 'boolean') {
+                    this._inspectorVisible = message.visible;
                     for (const cb of this.inspectorToggleCallbacks) {
-                        cb(visible);
+                        cb(message.visible);
                     }
+                }
+                break;
+            }
+            case 'webviewReady': {
+                if (this._inspectorVisible) {
+                    this.panel?.webview.postMessage({ command: 'setInspectorVisible', visible: true });
                 }
                 break;
             }

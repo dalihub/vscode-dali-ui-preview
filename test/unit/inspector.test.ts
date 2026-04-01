@@ -92,8 +92,8 @@ describe('Inspector — harness template JSON structure', () => {
         expect(template).to.include('\\"properties\\":{');
     });
 
-    it('CollectActorMetadata emits "color" inside properties', () => {
-        expect(template).to.include('\\"color\\":\\"');
+    it('CollectActorMetadata emits "color" as JSON array inside properties', () => {
+        expect(template).to.include('\\"color\\":[');
     });
 
     it('CollectActorMetadata uses Actor::Property::VISIBLE', () => {

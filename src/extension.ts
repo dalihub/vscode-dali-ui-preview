@@ -294,9 +294,17 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         });
 
         // Inspector toggle state persistence
-        previewManager.onInspectorToggle((visible: boolean) => {
-            context.workspaceState.update('daliPreview.inspectorVisible', visible);
-        });
+        context.subscriptions.push(
+            previewManager.onInspectorToggle((visible: boolean) => {
+                context.workspaceState.update('daliPreview.inspectorVisible', visible);
+            })
+        );
+
+        // Restore Inspector visible state on panel creation
+        const savedInspectorVisible = context.workspaceState.get<boolean>('daliPreview.inspectorVisible', false);
+        if (savedInspectorVisible) {
+            previewManager.setInspectorVisible(savedInspectorVisible);
+        }
 
         // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
         context.subscriptions.push(

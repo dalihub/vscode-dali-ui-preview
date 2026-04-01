@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -48,6 +49,13 @@ static std::string JsonEscapeStr(const std::string& s)
         else if (c == '\n') out += "\\n";
         else if (c == '\r') out += "\\r";
         else if (c == '\t') out += "\\t";
+        else if (static_cast<unsigned char>(c) < 0x20)
+        {
+            static const char hex[] = "0123456789abcdef";
+            unsigned char uc = static_cast<unsigned char>(c);
+            const char esc[7] = {'\\', 'u', '0', '0', hex[(uc >> 4) & 0xF], hex[uc & 0xF], '\0'};
+            out += esc;
+        }
         else                out += c;
     }
     return out;
@@ -83,14 +91,20 @@ static void CollectActorMetadata(Actor actor, std::ostringstream& json,
     float   opacity = actor.GetCurrentProperty<float>(Actor::Property::OPACITY);
     Vector4 color   = actor.GetCurrentProperty<Vector4>(Actor::Property::COLOR);
 
+    float safeOpacity = std::isfinite(opacity) ? opacity : 0.0f;
+    float cr = std::isfinite(color.r) ? color.r : 0.0f;
+    float cg = std::isfinite(color.g) ? color.g : 0.0f;
+    float cb = std::isfinite(color.b) ? color.b : 0.0f;
+    float ca = std::isfinite(color.a) ? color.a : 0.0f;
+
     json << "{\"name\":\"" << JsonEscapeStr(name.CStr()) << "\","
          << "\"type\":\"" << JsonEscapeStr(typeName) << "\","
          << "\"x\":" << x << ",\"y\":" << y << ","
          << "\"w\":" << w << ",\"h\":" << h << ","
          << "\"visible\":" << (visible ? "true" : "false") << ","
-         << "\"opacity\":" << opacity << ","
+         << "\"opacity\":" << safeOpacity << ","
          << "\"properties\":{"
-         << "\"color\":\"" << color.r << "," << color.g << "," << color.b << "," << color.a << "\""
+         << "\"color\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
          << "}";
 
     uint32_t childCount = actor.GetChildCount();
