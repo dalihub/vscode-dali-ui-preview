@@ -15,11 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code-to-Preview** (`src/extension.ts`): 에디터 커서 위치 변경 시 200ms 디바운스 후 해당 Actor를 프리뷰 + Inspector 트리에서 하이라이트.
 - **Scene Graph JSON 확장** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): `type`, `visible`, `opacity`, `properties.color` 필드 추가. `JsonEscapeStr` / `ShortTypeName` 헬퍼 함수 추가.
 - **`PreviewManager` 신규 메서드** (`src/previewManager.ts`): `highlightElement(line)`, `setInspectorVisible(visible)`, `onInspectorToggle(callback)`.
-- **단위 테스트** (`test/unit/inspector.test.ts`): 하네스 JSON 구조, `highlightElement`, `setInspectorVisible`, `onInspectorToggle` 21개 테스트 추가.
+- **단위 테스트** (`test/unit/inspector.test.ts`): 하네스 JSON 구조, `highlightElement`, `setInspectorVisible`, `onInspectorToggle`, 상태 복원 등 **195개 테스트** (신규 22개 포함).
+
+### Fixed (QA 리뷰)
+
+- **JsonEscapeStr 제어문자 누락** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): RFC 8259 §7 미준수 — 0x00–0x1F 범위 제어문자를 `\uXXXX` 포맷으로 이스케이프하지 않던 버그 수정. Actor 이름에 제어문자 포함 시 Webview JSON 파싱 오류 가능성 제거.
+- **NaN/Inf 미검증** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): `opacity`·`color` RGBA 컴포넌트에 `std::isfinite()` 가드 추가. 미초기화 Actor 속성에서 비정상 float 출력 시 JSON 파싱 실패 방지.
+- **color 포맷 비표준** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): `"color":"r,g,b,a"` (문자열) → `"color":[r,g,b,a]` (JSON 배열)로 변경. 표준 JSON 포맷 준수.
+- **`onInspectorToggle` Disposable 미등록** (`src/extension.ts`): 반환된 `vscode.Disposable`을 `context.subscriptions`에 추가하지 않아 패널 소멸 시 콜백이 정리되지 않던 문제 수정.
+- **Inspector 상태 미복원** (`src/previewManager.ts`, `media/preview.html`): 패널 재생성 후 Inspector on/off 상태가 초기화되던 버그 수정. Webview 로딩 완료 시 `webviewReady` 메시지를 전송하고 저장된 상태를 복원.
+- **`as boolean` 불필요한 타입 캐스트 제거** (`src/previewManager.ts`): `inspectorToggle` 핸들러에서 `typeof` 가드 전 `as boolean` 캐스트 제거. 런타임 타입 검증 의도를 명확히 표현.
 
 ### Changed
 
-- **골든 파일 업데이트** (`test/golden/red-box.harness.cpp`): `CollectActorMetadata()` 변경 반영 (`#include <string>`, `JsonEscapeStr`, `ShortTypeName`, `type`/`visible`/`opacity`/`properties` 필드).
+- **골든 파일 업데이트** (`test/golden/red-box.harness.cpp`): `CollectActorMetadata()` 변경 반영 — `#include <cmath>`, 제어문자 이스케이프, NaN/Inf 가드, color JSON 배열 포맷 포함.
 
 ---
 
