@@ -5,18 +5,30 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Phase 3-4: 스크린샷 골든 테스트 (DAL-18)
+## [0.14.0] - 2026-04-02 — Phase 3-4: 스크린샷 골든 테스트 (DAL-18)
 
 ### Added
 
 - **E2E 골든 테스트 러너** (`test/e2e/goldenTestRunner.ts`): `test/samples/*.preview.dali.cpp` 샘플을 자동 빌드+실행하여 PNG를 `actual/`에 저장. `UPDATE_GOLDENS=1`로 골든 업데이트, 그 외에는 pixelmatch로 회귀 비교.
 - **독립 실행형 빌드 러너** (`test/e2e/standaloneBuildRunner.ts`): vscode 의존성 없는 순수 Node.js 빌드+캡처 모듈. `DALI_PREFIX` / `DESKTOP_PREFIX` 환경변수 또는 공통 경로로 DALi 자동 감지.
-- **이미지 비교 모듈** (`test/e2e/imageComparator.ts`): pixelmatch + pngjs 래퍼. 픽셀 차이 1% 미만 시 PASS, 초과 시 diff PNG 생성.
-- **GitHub Actions 워크플로우** (`.github/workflows/golden-test.yml`): self-hosted runner에서 골든 테스트 실행, 실패 시 diff 아티팩트 업로드.
+- **이미지 비교 모듈** (`test/e2e/imageComparator.ts`): pixelmatch + pngjs 래퍼. 픽셀 차이 1% 미만 시 PASS, 초과 시 diff PNG 생성. dimension 불일치 시 `sizeMismatch` 필드로 명확한 오류 보고.
+- **GitHub Actions 워크플로우** (`.github/workflows/golden-test.yml`): self-hosted runner에서 골든 테스트 실행. concurrency 제어, job timeout(20분), Xvfb 폴링 대기, DALi SDK pre-flight 검증, /tmp 정리, 실패 시 diff + actual 아티팩트 업로드(14일 보존).
 - **`package.json` 스크립트**: `test:e2e` (회귀 비교), `test:golden:update` (골든 파일 갱신).
 - **골든 이미지 디렉토리** (`test/golden/screenshots/`): 기준 PNG 저장 위치.
 - `.gitignore`: `test/e2e/actual/`, `test/e2e/diff/` 추가.
 - **의존성**: `pixelmatch ^7.1.0`, `pngjs ^7.0.0`, `@types/pngjs ^6.0.5` 추가.
+
+### Fixed (QA 리뷰)
+
+- **CI 안정성**: `sleep 1` → `xdpyinfo` 폴링으로 Xvfb 준비 확인; concurrency 그룹 추가로 /tmp 경합 방지; job timeout-minutes: 20 추가; 스테일 락파일 정리 스텝 추가.
+- **execute() 성공 판정 순서** (`standaloneBuildRunner.ts`): exit code를 1순위로, stdout 'OK:' 포함 여부를 2순위로 변경(이전: stdout만 확인하여 오류 무시 가능).
+- **LD_LIBRARY_PATH trailing colon** (`standaloneBuildRunner.ts`): 상속값이 없을 때 `lib:` → `lib`로 수정(동적 링커가 CWD를 추가 탐색 경로로 해석하는 문제 제거).
+- **hasCcache() 반복 호출** (`standaloneBuildRunner.ts`): 모듈 상수 `USE_CCACHE`로 변경하여 샘플마다 `which ccache` 서브프로세스 재실행 제거.
+- **buildAndCapture() I/O 오류 전파** (`standaloneBuildRunner.ts`): 템플릿 읽기/하네스 쓰기 실패 시 예외 대신 `{ success: false, error }` 반환.
+- **stale binary 잔존** (`standaloneBuildRunner.ts`): 컴파일 전 이전 바이너리 삭제 추가(컴파일 실패 시 이전 결과 실행 방지).
+- **C++ 문자열 경로 이스케이프** (`standaloneBuildRunner.ts`): `OUTPUT_PATH` / `METADATA_PATH`에 백슬래시·따옴표 포함 시 C++ 컴파일 오류 방지.
+- **compareImages() async 불필요** (`imageComparator.ts`): 동기 함수로 변경(내부에 await 없음).
+- **diff Buffer 낭비** (`imageComparator.ts`): PASS 시 diff buffer 미할당(2-pass 방식으로 실패 시에만 buffer 생성).
 
 ---
 
