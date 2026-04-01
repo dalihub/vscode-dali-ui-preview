@@ -9,6 +9,7 @@ import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrors
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
+import { PropertyEditor } from './propertyEditor';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -305,6 +306,27 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         if (savedInspectorVisible) {
             previewManager.setInspectorVisible(savedInspectorVisible);
         }
+
+        // Property editing: webview → source code modification via WorkspaceEdit
+        const propertyEditor = new PropertyEditor();
+        context.subscriptions.push(
+            previewManager.onEditProperty(async (sourceLine, propName, value) => {
+                if (!lastPreviewedDoc) {
+                    return;
+                }
+                try {
+                    const result = await propertyEditor.applyEdit(lastPreviewedDoc, sourceLine, propName, value);
+                    if (!result.success) {
+                        outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
+                        vscode.window.showWarningMessage(`속성 편집 실패: ${result.reason}`);
+                    }
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    outputChannel.appendLine(`[PropertyEditor] 예기치 않은 오류: ${msg}`);
+                    vscode.window.showWarningMessage(`속성 편집 중 오류 발생: ${msg}`);
+                }
+            })
+        );
 
         // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
         context.subscriptions.push(
