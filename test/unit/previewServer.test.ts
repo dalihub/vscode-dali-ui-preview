@@ -393,10 +393,13 @@ describe('PreviewServer — IPC behavior', () => {
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
         expect(writtenCmd).to.include('#ff8800');
-        expect(writtenCmd).to.match(/RELOAD .+ #ff8800\n$/);
+        // IPC format: RELOAD so png meta w h theme bgColor locale fontScale font
+        const parts = writtenCmd.trim().split(' ');
+        expect(parts).to.have.length(11);
+        expect(parts[7]).to.equal('#ff8800');
     });
 
-    it('reload() omits bgColor field when invalid hex is supplied', async () => {
+    it('reload() uses - placeholder for bgColor when invalid hex is supplied', async () => {
         const { server, proc } = await startedServer();
 
         const reloadPromise = server.reload(
@@ -407,10 +410,13 @@ describe('PreviewServer — IPC behavior', () => {
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
         expect(writtenCmd).to.not.include('invalid');
-        expect(writtenCmd.trim().split(' ')).to.have.length(7); // no 8th field
+        // bgColor field should be '-' placeholder, full 11 fields still sent
+        const parts = writtenCmd.trim().split(' ');
+        expect(parts).to.have.length(11);
+        expect(parts[7]).to.equal('-');
     });
 
-    it('reload() omits bgColor field when undefined', async () => {
+    it('reload() uses - placeholder for bgColor when undefined', async () => {
         const { server, proc } = await startedServer();
 
         const reloadPromise = server.reload(
@@ -420,7 +426,44 @@ describe('PreviewServer — IPC behavior', () => {
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
-        expect(writtenCmd.trim().split(' ')).to.have.length(7);
+        const parts = writtenCmd.trim().split(' ');
+        expect(parts).to.have.length(11);
+        expect(parts[7]).to.equal('-');
+    });
+
+    it('reload() passes locale, fontScale, font in correct positions', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark',
+            undefined, 'ko_KR', 1.5, 'NotoSansKR.ttf'
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await reloadPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        const parts = writtenCmd.trim().split(' ');
+        expect(parts).to.have.length(11);
+        expect(parts[8]).to.equal('ko_KR');
+        expect(parts[9]).to.equal('1.5');
+        expect(parts[10]).to.equal('NotoSansKR.ttf');
+    });
+
+    it('reload() uses - placeholders when locale/fontScale/font are omitted', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await reloadPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        const parts = writtenCmd.trim().split(' ');
+        expect(parts).to.have.length(11);
+        expect(parts[8]).to.equal('-');
+        expect(parts[9]).to.equal('-');
+        expect(parts[10]).to.equal('-');
     });
 });
 

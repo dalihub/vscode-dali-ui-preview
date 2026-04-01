@@ -16,6 +16,7 @@ function substituteTemplate(
     outputPath: string,
     metadataPath: string = '/tmp/preview_metadata.json',
     theme: 'light' | 'dark' = 'dark',
+    fontSetup: string = '',
 ): string {
     const bgColor = theme === 'light'
         ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
@@ -26,7 +27,8 @@ function substituteTemplate(
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, outputPath)
         .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
-        .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColor);
+        .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColor)
+        .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
 }
 
 describe('harnessGeneration', () => {
@@ -47,6 +49,7 @@ describe('harnessGeneration', () => {
         expect(template).to.include('{{OUTPUT_PATH}}');
         expect(template).to.include('{{METADATA_PATH}}');
         expect(template).to.include('{{BACKGROUND_COLOR}}');
+        expect(template).to.include('{{FONT_SETUP}}');
     });
 
     it('substitution replaces all placeholders', () => {

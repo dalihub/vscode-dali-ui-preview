@@ -5,6 +5,24 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-04-01 — Phase 3-1: @preview-config locale/fontScale/font 파라미터 지원 (DAL-15)
+
+### Added
+
+- **`@preview-config` locale 파라미터** (`src/codeExtractor.ts`, `src/buildRunner.ts`, `server/preview_server.cpp`): `locale=ko_KR` 형식 파싱. Phase 1 harness 실행 시 `LANG=ko_KR.UTF-8` 환경변수, Phase 2 서버 모드에서 `setenv("LANG", ...)` 적용.
+- **`@preview-config` fontScale 파라미터** (`src/codeExtractor.ts`, `src/buildRunner.ts`): `fontScale=1.5` 형식 파싱. 유효 범위 0.5~2.0 강제. 하네스 실행 시 `DALI_FONT_SCALE` 환경변수 전달.
+- **`@preview-config` font 파라미터** (`src/codeExtractor.ts`, `src/buildRunner.ts`, `server/preview_server.cpp`): `font=NotoSansKR.ttf` 형식 파싱. `FontClient::Get().AddCustomFontDirectory()` 호출 코드 삽입 (Phase 1: 하네스 템플릿, Phase 2: dlopen 전 DoReload에서 적용).
+- **`PreviewConfig` 인터페이스 확장** (`src/previewConfig.ts`): `locale?: string`, `fontScale?: number`, `font?: string` 필드 추가.
+- **IPC RELOAD 프로토콜 확장** (`src/previewServer.ts`, `server/preview_server.cpp`): 11-필드 포맷 `RELOAD so png meta w h theme bgColor locale fontScale font`. 빈 필드는 `-` placeholder (하위 호환).
+- **`{{FONT_SETUP}}` 플레이스홀더** (`server/preview_harness.cpp.template`): font 파라미터 지정 시 `AddCustomFontDirectory()` 코드 삽입, 미지정 시 빈 문자열 치환.
+- **테스트 샘플** (`test/samples/multi-config-locale.preview.dali.cpp`): locale/fontScale/font 파라미터 조합 샘플 추가.
+
+### Tests
+
+- **파서 단위 테스트 8건 추가** (`test/unit/codeExtractor.test.ts`): locale 파싱, fontScale 범위 내 파싱, fontScale 범위 초과(0.1/3.0) 무시, font 파싱, fontScale+font 동시 파싱, 전체 파라미터 조합, 기존 파라미터 하위 호환 검증.
+- **IPC 테스트 3건 업데이트 + 3건 추가** (`test/unit/previewServer.test.ts`): 11-필드 포맷 검증, bgColor placeholder 동작 검증, locale/fontScale/font 위치 검증, omit 시 `-` placeholder 검증.
+- **harness 템플릿 테스트 업데이트** (`test/unit/harnessGeneration.test.ts`): `{{FONT_SETUP}}` placeholder 존재 및 치환 검증. golden 파일 업데이트.
+
 ## [0.10.0] - 2026-04-01 — 버그 수정: 컬러 팔레트 배경색 렌더링 파이프라인 연결 (DAL-13)
 
 ### Fixed

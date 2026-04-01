@@ -154,6 +154,8 @@ private:
 
 int main(int argc, char* argv[])
 {
+  // === Font/Locale setup ===
+
   Application app = Application::New(&argc, &argv, "", Application::OPAQUE);
   UiConfig::New().Apply();
   PreviewApp preview(app);
