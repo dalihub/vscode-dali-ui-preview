@@ -37,6 +37,28 @@ using Dali::Ui::View;
 // Scene-graph metadata helpers (identical to preview_harness.cpp.template)
 // ---------------------------------------------------------------------------
 
+static std::string JsonEscapeStr(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size() + 4);
+    for(char c : s)
+    {
+        if      (c == '"')  out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else                out += c;
+    }
+    return out;
+}
+
+static std::string ShortTypeName(const std::string& fullName)
+{
+    auto pos = fullName.rfind("::");
+    return (pos != std::string::npos) ? fullName.substr(pos + 2) : fullName;
+}
+
 static void CollectActorMetadata(Actor actor, std::ostringstream& json,
                                  float pX, float pY, float pW, float pH,
                                  bool isFirst = true)
@@ -54,9 +76,22 @@ static void CollectActorMetadata(Actor actor, std::ostringstream& json,
     float x = pX + pW * parentOrigin.x + pos.x - w * anchor.x;
     float y = pY + pH * parentOrigin.y + pos.y - h * anchor.y;
 
-    json << "{\"name\":\"" << name.CStr() << "\","
+    std::string typeName = ShortTypeName(actor.GetTypeName());
+    if(typeName.empty()) typeName = "Actor";
+
+    bool    visible = actor.GetCurrentProperty<bool>(Actor::Property::VISIBLE);
+    float   opacity = actor.GetCurrentProperty<float>(Actor::Property::OPACITY);
+    Vector4 color   = actor.GetCurrentProperty<Vector4>(Actor::Property::COLOR);
+
+    json << "{\"name\":\"" << JsonEscapeStr(name.CStr()) << "\","
+         << "\"type\":\"" << JsonEscapeStr(typeName) << "\","
          << "\"x\":" << x << ",\"y\":" << y << ","
-         << "\"w\":" << w << ",\"h\":" << h;
+         << "\"w\":" << w << ",\"h\":" << h << ","
+         << "\"visible\":" << (visible ? "true" : "false") << ","
+         << "\"opacity\":" << opacity << ","
+         << "\"properties\":{"
+         << "\"color\":\"" << color.r << "," << color.g << "," << color.b << "," << color.a << "\""
+         << "}";
 
     uint32_t childCount = actor.GetChildCount();
     if (childCount > 0)
