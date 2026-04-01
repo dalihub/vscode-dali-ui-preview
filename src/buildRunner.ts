@@ -84,8 +84,12 @@ export class BuildRunner {
 
     /**
      * Converts a #RRGGBB hex color string to a DALi Vector4 literal.
+     * Returns the dark-theme fallback if the input is not a valid #RRGGBB string.
      */
     static hexToVector4(hex: string): string {
+        if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+            return BuildRunner.themeToBackgroundColor('dark');
+        }
         const r = parseInt(hex.slice(1, 3), 16) / 255;
         const g = parseInt(hex.slice(3, 5), 16) / 255;
         const b = parseInt(hex.slice(5, 7), 16) / 255;

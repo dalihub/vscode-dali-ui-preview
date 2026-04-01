@@ -222,10 +222,17 @@ public:
     {
         if (hex.size() != 7 || hex[0] != '#')
             return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // fallback dark
-        unsigned int r = std::stoul(hex.substr(1, 2), nullptr, 16);
-        unsigned int g = std::stoul(hex.substr(3, 2), nullptr, 16);
-        unsigned int b = std::stoul(hex.substr(5, 2), nullptr, 16);
-        return Vector4(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
+        try
+        {
+            unsigned int r = std::stoul(hex.substr(1, 2), nullptr, 16);
+            unsigned int g = std::stoul(hex.substr(3, 2), nullptr, 16);
+            unsigned int b = std::stoul(hex.substr(5, 2), nullptr, 16);
+            return Vector4(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
+        }
+        catch (...)
+        {
+            return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // fallback dark on parse error
+        }
     }
 
     void DoReload(const ReloadRequest& req)

@@ -10,8 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **배경색 미적용 버그** (`src/buildRunner.ts`, `src/previewServer.ts`, `src/extension.ts`, `server/preview_server.cpp`): 컬러 팔레트에서 선택한 배경색이 웹뷰 HTML 컨테이너에만 적용되고 실제 DALi 렌더링 PNG에는 반영되지 않던 구조적 결함 수정. `#RRGGBB` 색상을 전체 빌드 파이프라인(Phase 1 harness compile / Phase 2 dlopen RELOAD / multi-preview)에 전달.
-- **색상 변경 시 리빌드 미트리거** (`src/extension.ts`): `onBackgroundChange` 콜백에서 색상 저장 후 즉시 `runPreview()` 호출 추가. Ctrl+S 없이도 팔레트 선택 즉시 렌더링 반영.
+- **색상 변경 시 리빌드 미트리거** (`src/extension.ts`): `onBackgroundChange` 콜백에서 색상 저장 후 300ms 디바운스 후 `runPreview()` 호출. 컬러 피커 드래그 시 과다 빌드(g++ 과부하) 방지. Ctrl+S 없이도 팔레트 선택 후 즉시 렌더링 반영.
 - **테마 전환 시 커스텀 색상 잔류** (`src/extension.ts`): 다크↔라이트 테마 전환 시 `currentBgColor` 초기화 추가. 커맨드 팔레트 토글과 웹뷰 토글 버튼 모두 처리.
+- **`hexToVector4()` 유효하지 않은 입력 시 NaN 주입** (`src/buildRunner.ts`): `#RRGGBB` 형식이 아닌 입력(빈 문자열, 접두사 없음, 길이 오류, 비16진 문자)에 대해 다크 테마 폴백 반환. 잘못된 입력이 C++ 하네스에 `NaN` 리터럴로 삽입되어 컴파일 오류를 유발하던 문제 차단.
+- **`HexToColor()` 비정상 입력 시 서버 프로세스 크래시** (`server/preview_server.cpp`): `stoul()` 호출을 `try/catch(...)` 블록으로 감싸 유효하지 않은 16진 문자(예: `#GG0000`)로 인한 `std::invalid_argument` 예외가 Preview Server 프로세스를 종료하던 문제 수정. 파싱 실패 시 다크 테마 폴백 색상 반환.
 
 ### Added
 
@@ -21,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
-- **`BuildRunner.hexToVector4()` 단위 테스트 4건** (`test/unit/buildRunner.test.ts`): `#ff0000`, `#000000`, `#ffffff`, `#FF0000` 변환 검증.
+- **`BuildRunner.hexToVector4()` 단위 테스트 11건** (`test/unit/buildRunner.test.ts`): 유효한 색상(red/black/white/uppercase/mid-range) 5건 + 유효하지 않은 입력(빈 문자열, 접두사 없음, 너무 짧음, 너무 긺, 비16진 문자) 6건 — 폴백 동작 검증 포함.
+- **`PreviewServer.reload()` bgColor 파라미터 테스트 3건** (`test/unit/previewServer.test.ts`): 유효한 bgColor 포함 시 RELOAD 명령에 색상 필드 추가 확인, 유효하지 않은 hex 및 undefined 시 필드 생략 확인.
+- **`preview_server.cpp` HexToColor 구조 테스트 3건** (`test/unit/previewServer.test.ts`): `HexToColor` 함수 존재, bgColor 토큰 파싱, stoul try/catch 존재 검증.
 
 ## [0.9.0] - 2026-03-31 — Phase 2-4 UX: 다크/라이트 모드 전환 발견가능성 개선
 

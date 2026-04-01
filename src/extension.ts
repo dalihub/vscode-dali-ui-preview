@@ -26,6 +26,7 @@ let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
 let buildGeneration = 0;
 let pendingRebuildDoc: vscode.TextDocument | undefined;
 let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let bgColorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -245,10 +246,14 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         previewManager.onBackgroundChange((color: string) => {
             currentBgColor = color;
             context.workspaceState.update('daliPreview.backgroundColor', color);
-            const editor = vscode.window.activeTextEditor;
-            if (editor && isPreviewable(editor.document)) {
-                runPreview(editor.document);
-            }
+            clearTimeout(bgColorDebounceTimer);
+            bgColorDebounceTimer = setTimeout(() => {
+                bgColorDebounceTimer = undefined;
+                const editor = vscode.window.activeTextEditor;
+                if (editor && isPreviewable(editor.document)) {
+                    runPreview(editor.document);
+                }
+            }, 300);
         });
 
         // Handle click-to-code from webview
