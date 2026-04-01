@@ -5,6 +5,27 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-04-02 — Phase 4-1: 인터랙티브 모드 (VNC) — DAL-22
+
+### Added
+
+- **VncManager** (`src/vncManager.ts`): x11vnc + websockify + DALi 앱 프로세스 생명주기 관리. 포트 자동 탐색 (5900-5910, 6080-6090), graceful shutdown, hot reload 지원.
+- **VNC 하니스 템플릿** (`server/preview_interactive.cpp.template`): `app.MainLoop()` 진입 방식 하니스. READY 시그널 stdout 출력, 메타데이터 JSON 내보내기 유지 (Click-to-Code 호환).
+- **BuildRunner.buildInteractive()** (`src/buildRunner.ts`): VNC 전용 바이너리 빌드 메서드. `buildEnv()` 유틸리티로 DALi 실행 환경 변수 생성.
+- **noVNC RFB 클라이언트** (`media/vendor/noVNC/rfb.js`): RFB 3.8 프로토콜 구현 (None 보안, Raw + CopyRect + DesktopSize 인코딩). VS Code webview CSP 호환 로컬 번들.
+- **VNC 모드 UI** (`media/preview.html`): 툴바 VNC 토글 버튼, VNC 컨테이너 + 캔버스, 연결 상태 표시, 핫 리로드 오버레이. CSP에 `connect-src ws:` 추가.
+- **PreviewManager VNC 통합** (`src/previewManager.ts`): `startVncMode()` / `stopVncMode()` / `notifyVncReloading()` / `notifyVncReloaded()` 메서드. VNC 콜백 (onStartVnc, onStopVnc, onVncConnected, onVncDisconnected). rfb.js webview URI 주입.
+- **dali.toggleInteractiveMode 명령** (`src/extension.ts`): VNC 모드 시작/중지, 파일 저장 시 핫 리로드, 의존성 체크 후 툴바 버튼 노출.
+- **StatusBarManager.showMode('vnc')** (`src/statusBar.ts`): VNC 모드 상태 표시.
+- **설정 추가** (`package.json`): `daliPreview.vncPort` (기본 5900), `daliPreview.websocketPort` (기본 6080).
+
+### Tests
+
+- `test/unit/vncManager.test.ts` 신규: checkDependencies, findAvailablePort, isRunning, startInteractiveMode 의존성 오류 처리 테스트.
+- 테스트 총계: **236개** (이전 228개 → +8)
+
+---
+
 ## [0.13.1] - 2026-04-01 — Phase 3-3 QA 2차 수정 (DAL-17)
 
 ### Fixed
