@@ -107,11 +107,11 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "NODE_PATH=/home/woochan/tizen/dali_preview/node_modules /home/woochan/tizen/dali_preview/node_modules/.bin/tsc -p ./",
-    "watch": "NODE_PATH=/home/woochan/tizen/dali_preview/node_modules /home/woochan/tizen/dali_preview/node_modules/.bin/tsc -watch -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "test": "npm run test:unit",
-    "test:unit": "NODE_PATH=/home/woochan/tizen/dali_preview/node_modules /home/woochan/tizen/dali_preview/node_modules/.bin/mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+    "test:unit": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
     "pretest": "npm run compile"
   },
   "devDependencies": {
