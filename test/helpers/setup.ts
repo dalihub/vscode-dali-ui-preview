@@ -16,6 +16,14 @@ const vscodeMock = {
             get: (_key: string, defaultValue?: any) => defaultValue,
         }),
         workspaceFolders: undefined,
+        applyEdit: (_edit: any) => Promise.resolve(true),
+    },
+    WorkspaceEdit: class WorkspaceEdit {
+        private _ops: Array<{ uri: any; range: any; newText: string }> = [];
+        replace(uri: any, range: any, newText: string) {
+            this._ops.push({ uri, range, newText });
+        }
+        get ops() { return this._ops; }
     },
     Uri: {
         file: (p: string) => ({ fsPath: p, scheme: 'file', path: p }),

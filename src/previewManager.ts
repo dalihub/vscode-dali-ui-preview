@@ -11,6 +11,7 @@ export class PreviewManager {
     private themeToggleCallbacks: Array<() => void> = [];
     private bgChangeCallbacks: Array<(color: string) => void> = [];
     private inspectorToggleCallbacks: Array<(visible: boolean) => void> = [];
+    private editPropertyCallbacks: Array<(sourceLine: number, propName: string, value: string) => void> = [];
     private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
@@ -224,6 +225,16 @@ export class PreviewManager {
         });
     }
 
+    onEditProperty(callback: (sourceLine: number, propName: string, value: string) => void): vscode.Disposable {
+        this.editPropertyCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.editPropertyCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.editPropertyCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     onInspectorToggle(callback: (visible: boolean) => void): vscode.Disposable {
         this.inspectorToggleCallbacks.push(callback);
         return new vscode.Disposable(() => {
@@ -248,6 +259,7 @@ export class PreviewManager {
         this.themeToggleCallbacks = [];
         this.bgChangeCallbacks = [];
         this.inspectorToggleCallbacks = [];
+        this.editPropertyCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -297,6 +309,17 @@ export class PreviewManager {
                     this._inspectorVisible = message.visible;
                     for (const cb of this.inspectorToggleCallbacks) {
                         cb(message.visible);
+                    }
+                }
+                break;
+            }
+            case 'editProperty': {
+                const sourceLine = message.sourceLine as number;
+                const propName = message.propName as string;
+                const value = message.value as string;
+                if (typeof sourceLine === 'number' && typeof propName === 'string' && typeof value === 'string') {
+                    for (const cb of this.editPropertyCallbacks) {
+                        cb(sourceLine, propName, value);
                     }
                 }
                 break;

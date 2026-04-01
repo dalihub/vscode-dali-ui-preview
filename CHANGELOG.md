@@ -5,6 +5,28 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-04-01 — Phase 3-3: 속성 편집기 (Property Editor — DAL-17)
+
+### Added
+
+- **`src/propertyEditor.ts` 신규**: `PropertyEditor` 클래스. Inspector 속성 패널에서 편집된 값을 소스코드에 자동 반영. `vscode.workspace.applyEdit` 사용으로 VS Code undo/redo 완전 지원.
+- **편집 가능한 속성 패널** (`media/preview.html`): `__L<line>` 태그가 있는 Actor(소스 라인 매핑 가능)의 속성을 직접 편집.
+  - `x`, `y`, `w`, `h` → `<input type="number">` 숫자 입력
+  - `opacity` → 슬라이더 (0.0 ~ 1.0)
+  - `visible` → 체크박스 토글
+  - `color` → `<input type="color">` 색상 피커 (hex → `Vector4` 변환 자동)
+- **소스 매핑 불가 속성 시각적 구분** (`media/preview.html`): `__L<line>` 태그 없는 Actor 속성은 이탤릭 회색(`readonly`) 스타일로 읽기 전용 표시.
+- **`PreviewManager.onEditProperty()`** (`src/previewManager.ts`): Webview `editProperty` 메시지를 Extension으로 전달하는 콜백 등록 API.
+- **Extension 연결** (`src/extension.ts`): `PropertyEditor` 인스턴스 생성 및 `onEditProperty` 이벤트 수신. 편집 실패 시 `outputChannel` 로깅 + `showWarningMessage`.
+- **`workspace.applyEdit` + `WorkspaceEdit` mock** (`test/helpers/setup.ts`): PropertyEditor 단위 테스트를 위한 vscode mock 확장.
+- **단위 테스트** (`test/unit/propertyEditor.test.ts`): PropertyEditor 21개 + PreviewManager.onEditProperty 3개 — 총 **24개 테스트** 신규 추가. 누적 214개.
+
+### Changed
+
+- **속성 패널 CSS 확장** (`media/preview.html`): `.prop-input`, `.prop-opacity-wrap`, `.readonly` 등 편집 위젯 스타일 추가.
+
+---
+
 ## [0.12.0] - 2026-04-01 — Phase 3-2: 위젯 트리 Inspector (DAL-16)
 
 ### Added

@@ -9,6 +9,7 @@ import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrors
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
+import { PropertyEditor } from './propertyEditor';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -305,6 +306,20 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         if (savedInspectorVisible) {
             previewManager.setInspectorVisible(savedInspectorVisible);
         }
+
+        // Property editing: webview → source code modification via WorkspaceEdit
+        const propertyEditor = new PropertyEditor();
+        previewManager.onEditProperty(async (sourceLine, propName, value) => {
+            if (!lastPreviewedDoc) {
+                return;
+            }
+            const result = await propertyEditor.applyEdit(lastPreviewedDoc, sourceLine, propName, value);
+            if (!result.success) {
+                outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
+                vscode.window.showWarningMessage(`속성 편집 실패: ${result.reason}`);
+            }
+            // File save in applyEdit triggers live preview debounce automatically
+        });
 
         // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
         context.subscriptions.push(
