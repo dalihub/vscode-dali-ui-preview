@@ -611,6 +611,155 @@
     color: #000000;
     border-color: #000000;
   }
+
+  /* ── Inspector layout wrapper ── */
+  #contentRow {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  #contentLeft {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── Inspector panel ── */
+  .inspector-panel {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: #252526;
+    border-left: 1px solid #3c3c3c;
+    overflow: hidden;
+  }
+
+  .inspector-header {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #aaa;
+    background: #2d2d2d;
+    border-bottom: 1px solid #3c3c3c;
+    flex-shrink: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .tree-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    min-height: 100px;
+    max-height: 55%;
+  }
+
+  .tree-node {
+    display: flex;
+    align-items: center;
+    padding: 2px 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: #cccccc;
+    white-space: nowrap;
+  }
+
+  .tree-node:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .tree-node.selected {
+    background: rgba(0, 122, 204, 0.25);
+    color: #fff;
+  }
+
+  .tree-node-toggle {
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    color: #888;
+    font-size: 9px;
+    user-select: none;
+  }
+
+  .tree-node-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .tree-node-type {
+    color: #4ec9b0;
+  }
+
+  .tree-node-name {
+    color: #888;
+    font-size: 11px;
+  }
+
+  .tree-children.collapsed {
+    display: none;
+  }
+
+  .property-panel {
+    overflow-y: auto;
+    padding: 4px 0;
+    border-top: 1px solid #3c3c3c;
+    font-size: 12px;
+    min-height: 80px;
+    flex: 1;
+  }
+
+  .property-placeholder {
+    color: #666;
+    font-size: 11px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+
+  .property-row {
+    display: flex;
+    align-items: center;
+    padding: 2px 10px;
+    gap: 6px;
+  }
+
+  .property-key {
+    color: #9cdcfe;
+    font-size: 11px;
+    min-width: 68px;
+    flex-shrink: 0;
+  }
+
+  .property-value {
+    color: #ce9178;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .property-value.bool-true { color: #4ec9b0; }
+  .property-value.bool-false { color: #f48771; }
+
+  .btn-inspector {
+    font-size: 13px;
+    padding: 2px 8px;
+  }
+
+  .btn-inspector.active {
+    background: #0e639c;
+    border-color: #007acc;
+  }
 </style>
 </head>
 <body>
@@ -649,6 +798,10 @@
     <div class="toolbar-separator"></div>
 
     <button id="btnBgColor" class="btn-bg-color" title="배경색 선택 (Background color)"></button>
+
+    <div class="toolbar-separator"></div>
+
+    <button id="btnInspector" class="btn-inspector" title="Widget Inspector 토글">&#x1F50D;</button>
   </div>
 
   <!-- Background color picker popup -->
@@ -672,40 +825,56 @@
     <button id="cpReset" class="cp-reset">기본값으로 초기화</button>
   </div>
 
-  <!-- Multi-preview grid (hidden when unused) -->
-  <div class="preview-grid hidden" id="previewGrid"></div>
+  <!-- Content row: preview (left) + inspector (right) -->
+  <div id="contentRow">
+    <div id="contentLeft">
 
-  <!-- Main preview area -->
-  <div class="preview-area" id="previewArea">
-    <!-- Image container -->
-    <div class="preview-container bg-dark" id="previewContainer">
-      <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
-      <div id="elementOverlay" class="element-overlay"></div>
-      <div class="resize-handle" id="resizeHandle"></div>
-      <div class="resize-outline" id="resizeOutline"></div>
-      <div class="resize-dimensions" id="resizeDimensions"></div>
-      <div class="dimensions-label hidden" id="dimensionsLabel"></div>
-    </div>
+      <!-- Multi-preview grid (hidden when unused) -->
+      <div class="preview-grid hidden" id="previewGrid"></div>
 
-    <!-- Overlays -->
-    <div class="overlay overlay-loading hidden" id="overlayLoading">
-      <div class="spinner"></div>
-    </div>
+      <!-- Main preview area -->
+      <div class="preview-area" id="previewArea">
+        <!-- Image container -->
+        <div class="preview-container bg-dark" id="previewContainer">
+          <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
+          <div id="elementOverlay" class="element-overlay"></div>
+          <div class="resize-handle" id="resizeHandle"></div>
+          <div class="resize-outline" id="resizeOutline"></div>
+          <div class="resize-dimensions" id="resizeDimensions"></div>
+          <div class="dimensions-label hidden" id="dimensionsLabel"></div>
+        </div>
 
-    <div class="overlay overlay-error hidden" id="overlayError">
-      <div class="error-box">
-        <h3>Preview Error</h3>
-        <pre id="errorText"></pre>
+        <!-- Overlays -->
+        <div class="overlay overlay-loading hidden" id="overlayLoading">
+          <div class="spinner"></div>
+        </div>
+
+        <div class="overlay overlay-error hidden" id="overlayError">
+          <div class="error-box">
+            <h3>Preview Error</h3>
+            <pre id="errorText"></pre>
+          </div>
+        </div>
+
+        <div class="overlay overlay-welcome" id="overlayWelcome">
+          <div class="welcome-box">
+            <h2>DALi Preview</h2>
+            <p>Save a <code>.preview.dali.cpp</code> file to see preview</p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- #contentLeft -->
+
+    <!-- Inspector panel (hidden by default) -->
+    <div id="inspectorPanel" class="inspector-panel hidden">
+      <div class="inspector-header">Widget Inspector</div>
+      <div id="treeView" class="tree-view"></div>
+      <div id="propertyPanel" class="property-panel">
+        <p class="property-placeholder">노드를 선택하세요</p>
       </div>
     </div>
-
-    <div class="overlay overlay-welcome" id="overlayWelcome">
-      <div class="welcome-box">
-        <h2>DALi Preview</h2>
-        <p>Save a <code>.preview.dali.cpp</code> file to see preview</p>
-      </div>
-    </div>
-  </div>
+  </div><!-- #contentRow -->
 
   <!-- Status bar -->
   <div class="status-bar">
@@ -1075,13 +1244,14 @@
         div.style.height = (actor.h * scaleY) + 'px';
         div.dataset.line = lineNum;
 
-        div.addEventListener('click', function (e) {
+        div.addEventListener('click', (function(ln, d) { return function (e) {
           e.stopPropagation();
           clearInspectSelection();
-          selectedBbox = div;
-          div.classList.add('selected');
-          vscode.postMessage({ command: 'selectElement', line: lineNum });
-        });
+          selectedBbox = d;
+          d.classList.add('selected');
+          vscode.postMessage({ command: 'selectElement', line: ln });
+          highlightTreeByLine(ln);
+        }; })(lineNum, div));
 
         div.addEventListener('mouseenter', function () {
           showInspectTooltip(div, 'Line ' + (lineNum + 1));
@@ -1124,6 +1294,188 @@
     }).observe(previewImage);
   }
 
+  // ── Inspector ──
+  var btnInspector = document.getElementById('btnInspector');
+  var inspectorPanel = document.getElementById('inspectorPanel');
+  var treeViewEl = document.getElementById('treeView');
+  var propertyPanelEl = document.getElementById('propertyPanel');
+  var inspectorVisible = false;
+  var lineToTreeNode = {};
+  var selectedTreeNodeEl = null;
+
+  function setInspectorVisible(visible) {
+    inspectorVisible = visible;
+    if (visible) {
+      inspectorPanel.classList.remove('hidden');
+      btnInspector.classList.add('active');
+      if (currentMetadata) {
+        renderTreeView(currentMetadata);
+      }
+    } else {
+      inspectorPanel.classList.add('hidden');
+      btnInspector.classList.remove('active');
+    }
+  }
+
+  btnInspector.addEventListener('click', function () {
+    var next = !inspectorVisible;
+    setInspectorVisible(next);
+    vscode.postMessage({ command: 'inspectorToggle', visible: next });
+  });
+
+  function renderPropertyPanel(node) {
+    propertyPanelEl.innerHTML = '';
+    if (!node) {
+      propertyPanelEl.innerHTML = '<p class="property-placeholder">노드를 선택하세요</p>';
+      return;
+    }
+
+    function addRow(key, value, extraClass) {
+      var row = document.createElement('div');
+      row.className = 'property-row';
+      var k = document.createElement('span');
+      k.className = 'property-key';
+      k.textContent = key;
+      var v = document.createElement('span');
+      v.className = 'property-value' + (extraClass ? ' ' + extraClass : '');
+      v.textContent = String(value);
+      v.title = String(value);
+      row.appendChild(k);
+      row.appendChild(v);
+      propertyPanelEl.appendChild(row);
+    }
+
+    if (node.type)    addRow('type',    node.type);
+    if (node.name)    addRow('name',    node.name);
+    addRow('x',       Math.round(node.x || 0));
+    addRow('y',       Math.round(node.y || 0));
+    addRow('w',       Math.round(node.w || 0));
+    addRow('h',       Math.round(node.h || 0));
+    if (node.visible !== undefined) {
+      addRow('visible', node.visible, node.visible ? 'bool-true' : 'bool-false');
+    }
+    if (node.opacity !== undefined) {
+      addRow('opacity', node.opacity.toFixed ? node.opacity.toFixed(2) : node.opacity);
+    }
+    if (node.properties) {
+      var keys = Object.keys(node.properties);
+      for (var pi = 0; pi < keys.length; pi++) {
+        addRow(keys[pi], node.properties[keys[pi]]);
+      }
+    }
+  }
+
+  function selectInspectorNode(nodeEl, nodeData) {
+    if (selectedTreeNodeEl) {
+      selectedTreeNodeEl.classList.remove('selected');
+    }
+    selectedTreeNodeEl = nodeEl;
+    if (nodeEl) {
+      nodeEl.classList.add('selected');
+      nodeEl.scrollIntoView({ block: 'nearest' });
+    }
+    renderPropertyPanel(nodeData);
+
+    // Highlight corresponding bounding box in preview
+    var bboxes = elementOverlay.querySelectorAll('.element-bbox');
+    for (var bi = 0; bi < bboxes.length; bi++) {
+      bboxes[bi].classList.remove('selected');
+    }
+    if (nodeData && nodeData.name && nodeData.name.indexOf('__L') === 0) {
+      var lineNum = parseInt(nodeData.name.substring(3), 10);
+      var matchBox = elementOverlay.querySelector('.element-bbox[data-line="' + lineNum + '"]');
+      if (matchBox) {
+        selectedBbox = matchBox;
+        matchBox.classList.add('selected');
+      }
+    }
+  }
+
+  function buildTreeNode(node, depth) {
+    var wrapper = document.createElement('div');
+
+    var nodeEl = document.createElement('div');
+    nodeEl.className = 'tree-node';
+    nodeEl.style.paddingLeft = (depth * 14 + 4) + 'px';
+
+    var hasChildren = node.children && node.children.length > 0;
+
+    var toggleEl = document.createElement('span');
+    toggleEl.className = 'tree-node-toggle';
+    toggleEl.textContent = hasChildren ? '\u25BC' : '';
+    nodeEl.appendChild(toggleEl);
+
+    var labelEl = document.createElement('span');
+    labelEl.className = 'tree-node-label';
+
+    var typeSpan = document.createElement('span');
+    typeSpan.className = 'tree-node-type';
+    typeSpan.textContent = node.type || node.name || 'Actor';
+    labelEl.appendChild(typeSpan);
+
+    if (node.name && node.name !== node.type) {
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'tree-node-name';
+      nameSpan.textContent = '(' + node.name + ')';
+      labelEl.appendChild(nameSpan);
+    }
+    nodeEl.appendChild(labelEl);
+    wrapper.appendChild(nodeEl);
+
+    // Track line-tagged nodes
+    if (node.name && node.name.indexOf('__L') === 0) {
+      var lineNum = parseInt(node.name.substring(3), 10);
+      lineToTreeNode[lineNum] = { el: nodeEl, data: node };
+    }
+
+    var childrenEl = null;
+    if (hasChildren) {
+      childrenEl = document.createElement('div');
+      childrenEl.className = 'tree-children' + (depth >= 1 ? ' collapsed' : '');
+      for (var i = 0; i < node.children.length; i++) {
+        childrenEl.appendChild(buildTreeNode(node.children[i], depth + 1));
+      }
+      wrapper.appendChild(childrenEl);
+
+      toggleEl.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var collapsed = childrenEl.classList.toggle('collapsed');
+        toggleEl.textContent = collapsed ? '\u25B6' : '\u25BC';
+      });
+    }
+
+    nodeEl.addEventListener('click', function () {
+      selectInspectorNode(nodeEl, node);
+      // Notify extension for Code-to-Code sync
+      if (node.name && node.name.indexOf('__L') === 0) {
+        var ln = parseInt(node.name.substring(3), 10);
+        vscode.postMessage({ command: 'selectElement', line: ln });
+      }
+    });
+
+    return wrapper;
+  }
+
+  function renderTreeView(metadata) {
+    treeViewEl.innerHTML = '';
+    lineToTreeNode = {};
+    selectedTreeNodeEl = null;
+    if (!metadata || !metadata.root) return;
+
+    var rootNode = buildTreeNode(metadata.root, 0);
+    treeViewEl.appendChild(rootNode);
+
+    renderPropertyPanel(null);
+  }
+
+  function highlightTreeByLine(line) {
+    if (!inspectorVisible) return;
+    var entry = lineToTreeNode[line];
+    if (entry) {
+      selectInspectorNode(entry.el, entry.data);
+    }
+  }
+
   // ── Message handling ──
   window.addEventListener('message', function (event) {
     var msg = event.data;
@@ -1141,8 +1493,12 @@
           dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
           if (msg.metadata) {
             renderMetadataOverlay(msg.metadata);
+            if (inspectorVisible) {
+              renderTreeView(msg.metadata);
+            }
           } else {
             elementOverlay.innerHTML = '';
+            treeViewEl.innerHTML = '';
           }
         };
         var buildSec = (msg.buildTime / 1000).toFixed(1);
@@ -1174,6 +1530,8 @@
         overlayLoading.classList.add('hidden');
         previewArea.classList.add('hidden');
         previewGrid.classList.remove('hidden');
+        // Inspector는 단일 프리뷰 모드 전용
+        if (inspectorVisible) { setInspectorVisible(false); }
         previewGrid.innerHTML = '';
         var totalBuildTime = 0;
         for (var mi = 0; mi < msg.images.length; mi++) {
@@ -1238,6 +1596,28 @@
         if (msg.color && isValidHex(msg.color)) {
           syncControlsFromHex(msg.color);
           applyBgColor(msg.color);
+        }
+        break;
+
+      case 'highlightElement':
+        if (typeof msg.line === 'number') {
+          highlightTreeByLine(msg.line);
+          // Also highlight bounding box
+          var bboxes2 = elementOverlay.querySelectorAll('.element-bbox');
+          for (var bhi = 0; bhi < bboxes2.length; bhi++) {
+            bboxes2[bhi].classList.remove('selected');
+          }
+          var targetBox = elementOverlay.querySelector('.element-bbox[data-line="' + msg.line + '"]');
+          if (targetBox) {
+            selectedBbox = targetBox;
+            targetBox.classList.add('selected');
+          }
+        }
+        break;
+
+      case 'setInspectorVisible':
+        if (typeof msg.visible === 'boolean') {
+          setInspectorVisible(msg.visible);
         }
         break;
     }
