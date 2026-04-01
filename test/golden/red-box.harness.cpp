@@ -5,6 +5,7 @@
 #include <dali/dali.h>
 #include <dali/public-api/adaptor-framework/capture.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
+#include <dali/devel-api/adaptor-framework/font-client.h>
 
 #include <iostream>
 #include <fstream>
@@ -108,6 +109,7 @@ public:
 
   void OnInit(Application& app)
   {
+
     Window window = app.GetWindow();
     window.SetBackgroundColor(Vector4(0.1f, 0.1f, 0.12f, 1.0f));
 
@@ -154,8 +156,6 @@ private:
 
 int main(int argc, char* argv[])
 {
-  // === Font/Locale setup ===
-
   Application app = Application::New(&argc, &argv, "", Application::OPAQUE);
   UiConfig::New().Apply();
   PreviewApp preview(app);

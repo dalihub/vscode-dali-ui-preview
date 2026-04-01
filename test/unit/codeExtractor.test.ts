@@ -340,6 +340,62 @@ describe('codeExtractor', () => {
             expect(result!.configs![0].fontScale).to.be.undefined;
         });
 
+        it('accepts fontScale at lower boundary (0.5)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Min Scale", fontScale=0.5',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.equal(0.5);
+        });
+
+        it('accepts fontScale at upper boundary (2.0)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Max Scale", fontScale=2.0',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.equal(2.0);
+        });
+
+        it('ignores fontScale just below lower boundary (0.49)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Below Min", fontScale=0.49',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
+        it('ignores fontScale just above upper boundary (2.01)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Above Max", fontScale=2.01',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
         it('parses font parameter', () => {
             const content = [
                 '// @dali-preview-begin',

@@ -269,20 +269,21 @@ public:
             setenv("LANG", langEnv.c_str(), 1);
         }
 
-        // Apply custom font directory before dlopen so FontClient can resolve fonts
+        // Apply font scale if specified
+        // Phase 3-1 stub: env var set for future DALi API hook; actual TextController
+        // integration planned for a later phase.
+        if (req.fontScale > 0.0f)
+        {
+            std::string fontScaleStr = std::to_string(req.fontScale);
+            setenv("DALI_FONT_SCALE", fontScaleStr.c_str(), 1);
+        }
+
+        // Apply custom font directory before dlopen so FontClient can resolve fonts.
+        // req.font carries the resolved absolute directory path (set by the TypeScript
+        // side from daliPreview.fontDirectories config), not a bare filename.
         if (!req.font.empty())
         {
-            std::string fontDir = req.font;
-            size_t sep = fontDir.rfind('/');
-            if (sep != std::string::npos)
-            {
-                fontDir = fontDir.substr(0, sep);
-            }
-            else
-            {
-                fontDir = ".";
-            }
-            FontClient::Get().AddCustomFontDirectory(fontDir.c_str());
+            FontClient::Get().AddCustomFontDirectory(req.font.c_str());
         }
 
         // Apply background color: custom hex color takes precedence over theme

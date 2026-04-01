@@ -489,4 +489,20 @@ describe('previewServer — preview_server.cpp HexToColor', () => {
         expect(content).to.include('try');
         expect(content).to.include('catch');
     });
+
+    it('preview_server.cpp applies locale via setenv("LANG")', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('setenv');
+        expect(content).to.include('LANG');
+    });
+
+    it('preview_server.cpp applies font scale via setenv("DALI_FONT_SCALE")', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('DALI_FONT_SCALE');
+    });
+
+    it('preview_server.cpp applies font directory via FontClient::Get().AddCustomFontDirectory', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('AddCustomFontDirectory');
+    });
 });

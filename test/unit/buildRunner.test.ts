@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as vscode from 'vscode';
 import { BuildRunner } from '../../src/buildRunner';
 import * as daliEnv from '../../src/daliEnvironment';
 
@@ -160,6 +161,93 @@ describe('BuildRunner.hexToVector4()', () => {
 
     it('returns dark fallback for non-hex characters', () => {
         expect(BuildRunner.hexToVector4('#GGHHII')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+});
+
+describe('BuildRunner — buildAndRun() fontSetup', () => {
+    let tmpFontDir: string;
+
+    before(() => {
+        tmpFontDir = path.join(require('os').tmpdir(), 'dali-test-fonts-' + Date.now());
+        fs.mkdirSync(tmpFontDir, { recursive: true });
+        fs.writeFileSync(path.join(tmpFontDir, 'NotoSansKR.ttf'), '');
+    });
+
+    after(() => {
+        fs.rmSync(tmpFontDir, { recursive: true, force: true });
+    });
+
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('injects FontClient::Get().AddCustomFontDirectory when font is found in fontDirectories', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const fakeConfig = { get: (_key: string, def: string[]) => [tmpFontDir] };
+        sinon.stub(vscode.workspace, 'getConfiguration').returns(fakeConfig as any);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedHarnessContent = '';
+        (runner as any).compile = async (harnessPath: string) => {
+            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
+            return { success: false, error: 'stub' };
+        };
+
+        await runner.buildAndRun('return View::New();', 720, 1280, 'dark', undefined, undefined, undefined, 'NotoSansKR.ttf');
+
+        expect(capturedHarnessContent).to.include(`FontClient::Get().AddCustomFontDirectory("${tmpFontDir}")`);
+    });
+
+    it('omits FontClient snippet when font is not specified', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedHarnessContent = '';
+        (runner as any).compile = async (harnessPath: string) => {
+            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
+            return { success: false, error: 'stub' };
+        };
+
+        await runner.buildAndRun('return View::New();', 720, 1280, 'dark');
+
+        expect(capturedHarnessContent).to.not.include('FontClient::Get().AddCustomFontDirectory');
+    });
+
+    it('escapes double-quotes in fontDir before C++ injection', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        // Use a directory containing a double-quote in the name (valid on Linux)
+        const quotedDir = path.join(require('os').tmpdir(), 'fonts-"test-' + Date.now());
+        fs.mkdirSync(quotedDir, { recursive: true });
+        fs.writeFileSync(path.join(quotedDir, 'Test.ttf'), '');
+
+        const fakeConfig = { get: (_key: string, def: string[]) => [quotedDir] };
+        sinon.stub(vscode.workspace, 'getConfiguration').returns(fakeConfig as any);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedHarnessContent = '';
+        (runner as any).compile = async (harnessPath: string) => {
+            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
+            return { success: false, error: 'stub' };
+        };
+
+        await runner.buildAndRun('return View::New();', 720, 1280, 'dark', undefined, undefined, undefined, 'Test.ttf');
+
+        fs.rmSync(quotedDir, { recursive: true, force: true });
+
+        // Compute the correctly escaped version to verify escaping was applied
+        const expectedEscaped = quotedDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        expect(capturedHarnessContent).to.include(`AddCustomFontDirectory("${expectedEscaped}")`);
+        // Also verify the raw (unescaped) double-quote is NOT present in the AddCustomFontDirectory call
+        const rawFontDirInCall = `AddCustomFontDirectory("${quotedDir}")`;
+        expect(capturedHarnessContent).to.not.include(rawFontDirInCall);
     });
 });
 

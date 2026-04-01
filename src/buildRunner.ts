@@ -192,7 +192,9 @@ export class BuildRunner {
                     return false;
                 }
             }) || path.dirname(font);
-            fontSetup = `FontClient::Get().AddCustomFontDirectory("${fontDir}");`;
+            // Escape backslashes and double-quotes before embedding in C++ string literal
+            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
         }
 
         const harness = this.templateContent
@@ -280,6 +282,8 @@ export class BuildRunner {
             DALI_WINDOW_WIDTH: String(width),
             DALI_WINDOW_HEIGHT: String(height),
             ...(locale ? { LANG: `${locale}.UTF-8` } : {}),
+            // Phase 3-1 stub: env var set for future DALi API hook; actual TextController
+            // integration planned for a later phase.
             ...(fontScale !== undefined ? { DALI_FONT_SCALE: String(fontScale) } : {}),
         };
 

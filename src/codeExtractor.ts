@@ -16,7 +16,7 @@ const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
 const CONFIG_WIDTH_RE = /width\s*=\s*(\d+)/;
 const CONFIG_HEIGHT_RE = /height\s*=\s*(\d+)/;
 const CONFIG_THEME_RE = /theme\s*=\s*(light|dark)/;
-const CONFIG_LOCALE_RE = /locale\s*=\s*([a-zA-Z_]+)/;
+const CONFIG_LOCALE_RE = /locale\s*=\s*([a-zA-Z][a-zA-Z0-9_\-]+)/;
 const CONFIG_FONTSCALE_RE = /fontScale\s*=\s*([\d.]+)/;
 const CONFIG_FONT_RE = /(?<![a-zA-Z])font\s*=\s*([\w.\-/]+)/;
 

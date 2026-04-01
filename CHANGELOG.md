@@ -17,10 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`{{FONT_SETUP}}` 플레이스홀더** (`server/preview_harness.cpp.template`): font 파라미터 지정 시 `AddCustomFontDirectory()` 코드 삽입, 미지정 시 빈 문자열 치환.
 - **테스트 샘플** (`test/samples/multi-config-locale.preview.dali.cpp`): locale/fontScale/font 파라미터 조합 샘플 추가.
 
-### Tests
+### Fixed (QA 리뷰)
+
+- **FontClient 헤더 누락** (`server/preview_harness.cpp.template`): `{{FONT_SETUP}}` 치환 시 필요한 `#include <dali/devel-api/adaptor-framework/font-client.h>` 추가. 미추가 시 font 파라미터 지정 시 컴파일 오류 발생.
+- **FontClient 호출 타이밍 오류** (`server/preview_harness.cpp.template`): `{{FONT_SETUP}}` 위치를 `main()` 상단(Application 초기화 전)에서 `OnInit()` 내부(Adaptor 초기화 후)로 이동. DALi FontClient singleton은 Adaptor 초기화 후에만 유효.
+- **DALI_FONT_SCALE setenv 누락** (`server/preview_server.cpp`): Phase 2 서버 모드(dlopen) `DoReload()`에서 `fontScale` 필드를 파싱했으나 `setenv("DALI_FONT_SCALE", ...)` 호출이 빠져 있던 버그 수정. Phase 1 harness와 동작 일관성 확보.
+- **IPC font 필드 프로토콜 불일치** (`src/extension.ts`, `server/preview_server.cpp`): 서버 모드에서 `font` 파일명 그대로 전송 → `rfind('/')` 시 `"."` 폴백으로 `AddCustomFontDirectory(".")` 호출되던 문제 수정. TypeScript 측(`runMultiPreview`)에서 `daliPreview.fontDirectories` 설정을 조회해 폰트 파일이 존재하는 절대 경로를 IPC에 전달하도록 변경. C++ 서버는 해당 경로를 바로 `AddCustomFontDirectory()`에 사용.
+- **fontDir C++ 문자열 리터럴 인젝션** (`src/buildRunner.ts`): `fontDir`을 `FontClient::Get().AddCustomFontDirectory("${fontDir}")` 로 삽입할 때 `"` 및 `\` 미이스케이프 문제 수정. `fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"')` 처리 추가.
+- **locale 정규식 숫자/하이픈 불허** (`src/codeExtractor.ts`): `[a-zA-Z_]+` → `[a-zA-Z][a-zA-Z0-9_\-]+`로 확장. BCP 47 하이픈 형식(`zh-Hans`) 및 숫자 포함 locale 지원.
+- **IPC locale/font 공백 인젝션 방어** (`src/previewServer.ts`): 기존 whitespace guard가 soPath/pngPath/metadataPath만 검사했으나 locale/font 필드도 포함하도록 확장.
+
+### Tests (QA 리뷰 추가)
 
 - **파서 단위 테스트 8건 추가** (`test/unit/codeExtractor.test.ts`): locale 파싱, fontScale 범위 내 파싱, fontScale 범위 초과(0.1/3.0) 무시, font 파싱, fontScale+font 동시 파싱, 전체 파라미터 조합, 기존 파라미터 하위 호환 검증.
+- **fontScale 경계값 테스트 4건 추가** (`test/unit/codeExtractor.test.ts`): 하한 경계(0.5) 허용, 상한 경계(2.0) 허용, 하한 직하(0.49) 거부, 상한 직상(2.01) 거부.
+- **buildRunner fontSetup 테스트 3건 추가** (`test/unit/buildRunner.test.ts`): font 파일 발견 시 `AddCustomFontDirectory()` 삽입 검증, font 미지정 시 snippet 없음 검증, fontDir 내 `"` 이스케이프 처리 검증.
 - **IPC 테스트 3건 업데이트 + 3건 추가** (`test/unit/previewServer.test.ts`): 11-필드 포맷 검증, bgColor placeholder 동작 검증, locale/fontScale/font 위치 검증, omit 시 `-` placeholder 검증.
+- **preview_server.cpp 구조 테스트 3건 추가** (`test/unit/previewServer.test.ts`): setenv LANG, setenv DALI_FONT_SCALE, AddCustomFontDirectory 코드 존재 검증.
 - **harness 템플릿 테스트 업데이트** (`test/unit/harnessGeneration.test.ts`): `{{FONT_SETUP}}` placeholder 존재 및 치환 검증. golden 파일 업데이트.
 
 ## [0.10.0] - 2026-04-01 — 버그 수정: 컬러 팔레트 배경색 렌더링 파이프라인 연결 (DAL-13)

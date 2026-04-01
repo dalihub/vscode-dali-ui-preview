@@ -103,8 +103,10 @@ export class PreviewServer {
                 return;
             }
 
-            // H2: Reject paths containing whitespace or newlines (IPC injection)
-            if (/[\s\n]/.test(soPath) || /[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath)) {
+            // H2: Reject paths and optional fields containing whitespace or newlines (IPC injection)
+            if (/[\s\n]/.test(soPath) || /[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath) ||
+                (locale !== undefined && /[\s\n]/.test(locale)) ||
+                (font !== undefined && /[\s\n]/.test(font))) {
                 resolve({ success: false, error: 'path contains invalid characters' });
                 return;
             }
