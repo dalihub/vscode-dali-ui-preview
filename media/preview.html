@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; img-src {{cspSource}} vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline' {{cspSource}}; connect-src ws: wss:;">
+  content="default-src 'none'; img-src {{cspSource}} vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline' {{cspSource}}; connect-src ws://localhost:*;">
 <title>DALi Preview</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1142,6 +1142,10 @@
     vncStatus.style.display = '';
     if (typeof RFB === 'undefined') {
       vncStatus.textContent = 'RFB 클라이언트를 로드할 수 없습니다';
+      return;
+    }
+    if (!/^ws:\/\/localhost:[0-9]{4,5}$/.test(wsUrl)) {
+      vncStatus.textContent = '잘못된 WebSocket URL';
       return;
     }
     rfbClient = new RFB(vncContainer, wsUrl);

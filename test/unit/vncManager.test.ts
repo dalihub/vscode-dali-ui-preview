@@ -135,3 +135,95 @@ describe('VncManager — startInteractiveMode() dependency check', () => {
         }
     });
 });
+
+describe('VncManager — startInteractiveMode() VNC port exhaustion', () => {
+    it('returns {success:false} when no VNC port is available', async () => {
+        const origCheck = VncManager.checkDependencies;
+        (VncManager as any).checkDependencies = () => null;
+        const mgr = new VncManager(fakeOutputChannel);
+        // Force findAvailablePort to always return -1
+        (mgr as any).findAvailablePort = async () => -1;
+        try {
+            const result = await mgr.startInteractiveMode({
+                daliBinaryPath: '/tmp/fake_bin',
+                display: ':99',
+                width: 1024,
+                height: 600,
+                env: {},
+            });
+            expect(result.success).to.equal(false);
+            expect(result.error).to.include('VNC port');
+        } finally {
+            VncManager.checkDependencies = origCheck;
+            mgr.dispose();
+        }
+    });
+
+    it('returns {success:false} when no WebSocket port is available', async () => {
+        const origCheck = VncManager.checkDependencies;
+        (VncManager as any).checkDependencies = () => null;
+        const mgr = new VncManager(fakeOutputChannel);
+        let callCount = 0;
+        (mgr as any).findAvailablePort = async () => {
+            // First call (VNC port) succeeds, second (WS port) fails
+            return callCount++ === 0 ? 5900 : -1;
+        };
+        try {
+            const result = await mgr.startInteractiveMode({
+                daliBinaryPath: '/tmp/fake_bin',
+                display: ':99',
+                width: 1024,
+                height: 600,
+                env: {},
+            });
+            expect(result.success).to.equal(false);
+            expect(result.error).to.include('WebSocket port');
+        } finally {
+            VncManager.checkDependencies = origCheck;
+            mgr.dispose();
+        }
+    });
+});
+
+describe('VncManager — stopInteractiveMode()', () => {
+    it('sets isRunning to false', async () => {
+        const mgr = new VncManager(fakeOutputChannel);
+        // Manually set running state
+        (mgr as any)._isRunning = true;
+        await mgr.stopInteractiveMode();
+        expect(mgr.isRunning).to.equal(false);
+        mgr.dispose();
+    });
+});
+
+describe('VncManager — restartDaliApp()', () => {
+    it('returns false when the new binary does not exist', async () => {
+        const mgr = new VncManager(fakeOutputChannel);
+        const ok = await mgr.restartDaliApp('/nonexistent/fake_bin', {
+            display: ':99',
+            width: 1024,
+            height: 600,
+            env: {},
+        });
+        // spawn of nonexistent binary → error event → false
+        expect(ok).to.equal(false);
+        mgr.dispose();
+    });
+});
+
+describe('VncManager — onDaliAppExitCallback', () => {
+    it('callback field is initially undefined', () => {
+        const mgr = new VncManager(fakeOutputChannel);
+        expect(mgr.onDaliAppExitCallback).to.equal(undefined);
+        mgr.dispose();
+    });
+
+    it('can be set and called', () => {
+        const mgr = new VncManager(fakeOutputChannel);
+        let called = false;
+        mgr.onDaliAppExitCallback = () => { called = true; };
+        mgr.onDaliAppExitCallback();
+        expect(called).to.equal(true);
+        mgr.dispose();
+    });
+});

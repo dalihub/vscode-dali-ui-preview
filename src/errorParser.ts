@@ -28,6 +28,7 @@ export function parseGccErrors(
     stderr: string,
     harnessCodeOffset: number,
     isPlugin = false,
+    isInteractive = false,
 ): ParsedError[] {
     const results: ParsedError[] = [];
     const lines = stderr.split('\n');
@@ -40,10 +41,21 @@ export function parseGccErrors(
 
         const [, filePath, lineStr, colStr, severity, message] = m;
 
-        // Accept errors from either the harness file or the plugin file
+        // Accept errors from the appropriate generated file
         const isHarness = filePath.includes('preview_harness');
         const isPluginFile = filePath.includes('preview_plugin');
-        if (isPlugin ? !isPluginFile : !isHarness) {
+        const isInteractiveFile = filePath.includes('preview_interactive');
+
+        let matches: boolean;
+        if (isInteractive) {
+            matches = isInteractiveFile;
+        } else if (isPlugin) {
+            matches = isPluginFile;
+        } else {
+            matches = isHarness;
+        }
+
+        if (!matches) {
             continue;
         }
 

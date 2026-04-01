@@ -21,6 +21,7 @@ const VNC_PORT_RANGE_END = 5910;
 const WS_PORT_RANGE_START = 6080;
 const WS_PORT_RANGE_END = 6090;
 const PROCESS_STARTUP_WAIT_MS = 800;
+const DALI_READY_TIMEOUT_MS = 8000;
 
 export class VncManager {
     private x11vncProcess: ChildProcess | undefined;
@@ -29,6 +30,7 @@ export class VncManager {
     private vncPort: number = VNC_PORT_RANGE_START;
     private wsPort: number = WS_PORT_RANGE_START;
     private _isRunning = false;
+    onDaliAppExitCallback: (() => void) | undefined;
 
     constructor(private outputChannel: vscode.OutputChannel) {}
 
@@ -148,13 +150,18 @@ export class VncManager {
                 });
 
                 let readyReceived = false;
+                let stdoutBuf = '';
 
                 child.stdout?.on('data', (data: Buffer) => {
-                    const text = data.toString();
-                    this.outputChannel.appendLine(`[DALi-VNC] ${text.trim()}`);
-                    if (!readyReceived && text.includes('READY')) {
-                        readyReceived = true;
-                        resolve(true);
+                    stdoutBuf += data.toString();
+                    const lines = stdoutBuf.split('\n');
+                    stdoutBuf = lines.pop() ?? '';
+                    for (const line of lines) {
+                        this.outputChannel.appendLine(`[DALi-VNC] ${line}`);
+                        if (!readyReceived && line.includes('READY')) {
+                            readyReceived = true;
+                            resolve(true);
+                        }
                     }
                 });
 
@@ -170,8 +177,11 @@ export class VncManager {
                 child.on('exit', (code) => {
                     this.outputChannel.appendLine(`[VncManager] DALi app exited with code ${code}`);
                     if (this._isRunning) {
-                        // Unexpected exit — notify extension
+                        // Unexpected exit — clean up companion processes and notify extension
                         this._isRunning = false;
+                        this.killX11vnc();
+                        this.killWebsockify();
+                        this.onDaliAppExitCallback?.();
                     }
                     if (!readyReceived) {
                         resolve(false);
@@ -188,7 +198,7 @@ export class VncManager {
                     } else if (!readyReceived) {
                         resolve(false);
                     }
-                }, PROCESS_STARTUP_WAIT_MS * 3);
+                }, DALI_READY_TIMEOUT_MS);
 
             } catch (err: any) {
                 this.outputChannel.appendLine(`[VncManager] Failed to spawn DALi app: ${err.message}`);
@@ -203,6 +213,7 @@ export class VncManager {
                 const args = [
                     '-display', display,
                     '-rfbport', String(this.vncPort),
+                    '-localhost',
                     '-nopw',
                     '-shared',
                     '-forever',
@@ -270,8 +281,8 @@ export class VncManager {
         return new Promise((resolve) => {
             try {
                 const args = [
-                    String(this.wsPort),
-                    `localhost:${this.vncPort}`,
+                    `127.0.0.1:${this.wsPort}`,
+                    `127.0.0.1:${this.vncPort}`,
                 ];
 
                 const child = spawn('websockify', args, {

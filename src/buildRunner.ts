@@ -68,6 +68,10 @@ export class BuildRunner {
         return this.pluginTemplateContent;
     }
 
+    getInteractiveTemplateContent(): string {
+        return this.interactiveTemplateContent;
+    }
+
     async getDaliPrefix(): Promise<string> {
         if (!(await this.ensureDaliPrefix())) {
             return '';
