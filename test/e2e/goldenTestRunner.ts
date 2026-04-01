@@ -143,7 +143,15 @@ async function runSample(
         };
     }
 
-    const cmpResult = await compareImages(goldenPng, actualPng, diffPng);
+    const cmpResult = compareImages(goldenPng, actualPng, diffPng);
+
+    if (cmpResult.sizeMismatch) {
+        return {
+            name,
+            passed: false,
+            error: `Size mismatch: golden ${cmpResult.sizeMismatch.golden} vs actual ${cmpResult.sizeMismatch.actual}`,
+        };
+    }
 
     return {
         name,

@@ -7,9 +7,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: golden-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   golden-test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, dali-sdk, linux]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -24,20 +29,36 @@ jobs:
       - name: Compile TypeScript
         run: npm run compile
 
+      - name: Verify DALi SDK
+        run: |
+          pkg-config --exists dali2-core dali2-adaptor dali2-ui-components || {
+            echo "ERROR: DALi SDK not found. Ensure pkg-config and DALi packages are installed on this runner."
+            exit 1
+          }
+
+      - name: Clean up stale artifacts
+        run: |
+          rm -rf /tmp/dali_e2e
+          rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
+          pkill -f 'Xvfb :99' || true
+
       - name: Start Xvfb
         run: |
           Xvfb :99 -screen 0 1920x1080x24 &
-          sleep 1
+          until xdpyinfo -display :99 >/dev/null 2>&1; do sleep 0.2; done
 
       - name: Run golden screenshot tests
         env:
           DISPLAY: ':99'
         run: npm run test:e2e
 
-      - name: Upload diff artifacts on failure
+      - name: Upload diff and actual screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: golden-test-diffs
-          path: test/e2e/diff/
+          path: |
+            test/e2e/diff/
+            test/e2e/actual/
           if-no-files-found: ignore
+          retention-days: 14

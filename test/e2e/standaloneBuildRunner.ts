@@ -2,7 +2,7 @@
  * Standalone build runner for E2E golden screenshot tests.
  * No vscode dependency — pure Node.js only.
  */
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -61,39 +61,61 @@ export function detectDaliPrefix(): string | null {
     return null;
 }
 
-function hasCcache(): boolean {
+// Computed once at module load to avoid per-compilation subprocess overhead.
+const USE_CCACHE: boolean = (() => {
     try {
-        require('child_process').execSync('which ccache', { stdio: 'ignore' });
+        execSync('which ccache', { stdio: 'ignore' });
         return true;
     } catch {
         return false;
     }
-}
+})();
 
 /**
  * Compile the harness C++ source and run it under Xvfb to capture a PNG.
  */
 export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<StandaloneBuildResult> {
     const tmpDir = '/tmp/dali_e2e';
-    if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
+    try {
+        if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true });
+        }
+    } catch (e) {
+        return { success: false, error: `Failed to create tmp dir: ${(e as Error).message}` };
     }
 
     const harnessPath = path.join(tmpDir, 'e2e_harness.cpp');
     const binPath = path.join(tmpDir, 'e2e_bin');
 
-    const templateContent = fs.readFileSync(opts.templatePath, 'utf-8');
+    // Escape paths for embedding as C++ string literals.
+    const escapeCppString = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+    let templateContent: string;
+    try {
+        templateContent = fs.readFileSync(opts.templatePath, 'utf-8');
+    } catch (e) {
+        return { success: false, error: `Failed to read template: ${(e as Error).message}` };
+    }
 
     const harness = templateContent
         .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
-        .replace(/\{\{OUTPUT_PATH\}\}/g, opts.outputPngPath)
-        .replace(/\{\{METADATA_PATH\}\}/g, opts.metadataPath)
+        .replace(/\{\{OUTPUT_PATH\}\}/g, escapeCppString(opts.outputPngPath))
+        .replace(/\{\{METADATA_PATH\}\}/g, escapeCppString(opts.metadataPath))
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
-    fs.writeFileSync(harnessPath, harness);
+    try {
+        fs.writeFileSync(harnessPath, harness);
+    } catch (e) {
+        return { success: false, error: `Failed to write harness: ${(e as Error).message}` };
+    }
+
+    // Remove stale binary before compiling to avoid running an old artifact on failure.
+    if (fs.existsSync(binPath)) {
+        fs.unlinkSync(binPath);
+    }
 
     const compileResult = await compile(harnessPath, binPath, opts.daliPrefix);
     if (!compileResult.success) {
@@ -105,7 +127,7 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
 
 function compile(source: string, output: string, daliPrefix: string): Promise<StandaloneBuildResult> {
     const pkgConfigPath = `${daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
-    const compiler = hasCcache() ? 'ccache g++' : 'g++';
+    const compiler = USE_CCACHE ? 'ccache g++' : 'g++';
 
     const cmd = [
         `PKG_CONFIG_PATH="${pkgConfigPath}"`,
@@ -140,9 +162,14 @@ function execute(
         fs.unlinkSync(pngPath);
     }
 
+    const inherited = process.env.LD_LIBRARY_PATH;
+    const ldLibraryPath = inherited
+        ? `${daliPrefix}/lib:${inherited}`
+        : `${daliPrefix}/lib`;
+
     const env: NodeJS.ProcessEnv = {
         ...process.env,
-        LD_LIBRARY_PATH: `${daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
+        LD_LIBRARY_PATH: ldLibraryPath,
         DISPLAY: display,
         DALI_WINDOW_WIDTH: String(width),
         DALI_WINDOW_HEIGHT: String(height),
@@ -150,10 +177,11 @@ function execute(
 
     return new Promise((resolve) => {
         exec(binPath, { env, timeout: 15000 }, (error, stdout, stderr) => {
-            if (stdout.includes('OK:')) {
-                resolve({ success: true });
-            } else if (error) {
+            // Check exit code first; stdout 'OK:' is a secondary confirmation.
+            if (error) {
                 resolve({ success: false, error: `Runtime error:\n${stderr || error.message}` });
+            } else if (stdout.includes('OK:')) {
+                resolve({ success: true });
             } else {
                 resolve({ success: false, error: `Unexpected output:\n${stdout}\n${stderr}` });
             }
