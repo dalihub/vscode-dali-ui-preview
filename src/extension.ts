@@ -309,17 +309,24 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
 
         // Property editing: webview → source code modification via WorkspaceEdit
         const propertyEditor = new PropertyEditor();
-        previewManager.onEditProperty(async (sourceLine, propName, value) => {
-            if (!lastPreviewedDoc) {
-                return;
-            }
-            const result = await propertyEditor.applyEdit(lastPreviewedDoc, sourceLine, propName, value);
-            if (!result.success) {
-                outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
-                vscode.window.showWarningMessage(`속성 편집 실패: ${result.reason}`);
-            }
-            // File save in applyEdit triggers live preview debounce automatically
-        });
+        context.subscriptions.push(
+            previewManager.onEditProperty(async (sourceLine, propName, value) => {
+                if (!lastPreviewedDoc) {
+                    return;
+                }
+                try {
+                    const result = await propertyEditor.applyEdit(lastPreviewedDoc, sourceLine, propName, value);
+                    if (!result.success) {
+                        outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
+                        vscode.window.showWarningMessage(`속성 편집 실패: ${result.reason}`);
+                    }
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    outputChannel.appendLine(`[PropertyEditor] 예기치 않은 오류: ${msg}`);
+                    vscode.window.showWarningMessage(`속성 편집 중 오류 발생: ${msg}`);
+                }
+            })
+        );
 
         // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
         context.subscriptions.push(

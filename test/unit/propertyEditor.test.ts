@@ -9,6 +9,7 @@ import { createMockDocument } from '../helpers/mockDocument';
 /**
  * Build a PropertyEditor with a controllable applyEdit mock.
  * Returns captured WorkspaceEdit ops so tests can inspect what was replaced.
+ * `restore` MUST be called in afterEach to avoid mock leakage across tests (H7).
  */
 function makeEditor() {
     const ops: Array<{ uri: any; range: any; newText: string }> = [];
@@ -22,7 +23,6 @@ function makeEditor() {
         return Promise.resolve(true);
     };
 
-    // Stub doc.save()
     function makeDoc(content: string) {
         const doc = createMockDocument('test.cpp', content) as any;
         doc.save = () => Promise.resolve(true);
@@ -53,15 +53,97 @@ describe('PropertyEditor — EDITABLE_PROPS', () => {
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — unknown property', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
     it('returns failure for an unrecognised property name', async () => {
         const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc('actor.DoSomething();');
         const result = await editor.applyEdit(doc, 0, 'unknownProp', '42');
         expect(result.success).to.equal(false);
         if (!result.success) {
             expect(result.reason).to.include('unknownProp');
         }
-        restore();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Input validation (H1, H8)
+// ---------------------------------------------------------------------------
+
+describe('PropertyEditor — input validation', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('returns failure for empty newValue (H8)', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetProperty(Actor::Property::OPACITY, 1.0f);');
+        const result = await editor.applyEdit(doc, 0, 'opacity', '');
+        expect(result.success).to.equal(false);
+    });
+
+    it('returns failure for non-numeric x value', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetPosition(0.0f, 0.0f);');
+        const result = await editor.applyEdit(doc, 0, 'x', 'rm -rf /');
+        expect(result.success).to.equal(false);
+    });
+
+    it('returns failure for non-boolean visible value', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetVisible(true);');
+        const result = await editor.applyEdit(doc, 0, 'visible', 'yes');
+        expect(result.success).to.equal(false);
+    });
+
+    it('returns failure for malformed color value', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetBackgroundColor(Color::RED);');
+        const result = await editor.applyEdit(doc, 0, 'color', 'invalid_color');
+        expect(result.success).to.equal(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// sourceLine clamping (H9)
+// ---------------------------------------------------------------------------
+
+describe('PropertyEditor — sourceLine clamping', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('clamps negative sourceLine to 0 and still finds the setter (H9)', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetProperty(Actor::Property::OPACITY, 1.0f);');
+        const result = await editor.applyEdit(doc, -1, 'opacity', '0.5f');
+        expect(result.success).to.equal(true);
+        expect(ops).to.have.lengthOf(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// doc.save() must NOT be called (H2 / H10)
+// ---------------------------------------------------------------------------
+
+describe('PropertyEditor — no doc.save() after edit', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('does not call doc.save() on success — avoids double build (H2/H10)', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetProperty(Actor::Property::OPACITY, 1.0f);') as any;
+        let saveCalled = false;
+        doc.save = () => { saveCalled = true; return Promise.resolve(true); };
+        const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
+        expect(result.success).to.equal(true);
+        expect(saveCalled).to.equal(false);
     });
 });
 
@@ -70,77 +152,87 @@ describe('PropertyEditor — unknown property', () => {
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — setter not found', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
     it('returns failure when no matching setter exists within search radius', async () => {
         const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc([
             'auto box = Actor::New();',
-            '// no SetOpacity call here',
+            '// no SetProperty OPACITY call here',
         ].join('\n'));
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
         expect(result.success).to.equal(false);
-        restore();
     });
 
     it('returns failure when setter is outside search radius', async () => {
         const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         // Put the setter 30 lines away (beyond default radius of 20)
         const lines = Array(30).fill('// pad');
-        lines.push('actor.SetOpacity(1.0f);');
+        lines.push('actor.SetProperty(Actor::Property::OPACITY, 1.0f);');
         const doc = makeDoc(lines.join('\n'));
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f', 20);
         expect(result.success).to.equal(false);
-        restore();
     });
 });
 
 // ---------------------------------------------------------------------------
-// opacity
+// opacity — SetProperty(Actor::Property::OPACITY, v) primary (C1)
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — opacity', () => {
-    it('replaces .SetOpacity() on the same line as the tagged actor', async () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('replaces SetProperty(Actor::Property::OPACITY, ...) on the same line', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc([
             'auto box = Actor::New(); // __L0',
-            'box.SetOpacity(1.0f);',
+            'box.SetProperty(Actor::Property::OPACITY, 1.0f);',
         ].join('\n'));
-
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
         expect(result.success).to.equal(true);
         expect(ops).to.have.lengthOf(1);
-        expect(ops[0].newText).to.equal('.SetOpacity(0.5f)');
-        restore();
+        expect(ops[0].newText).to.equal('.SetProperty(Actor::Property::OPACITY, 0.5f)');
     });
 
-    it('finds .SetOpacity() within default search radius', async () => {
+    it('falls back to .SetOpacity() when SetProperty not present', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('box.SetOpacity(1.0f);');
+        const result = await editor.applyEdit(doc, 0, 'opacity', '0.8f');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetOpacity(0.8f)');
+    });
+
+    it('finds SetProperty OPACITY within default search radius', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const lines = ['auto box = Actor::New();'];
         for (let i = 0; i < 10; i++) {
             lines.push('// comment ' + i);
         }
-        lines.push('box.SetOpacity(1.0f);');
+        lines.push('box.SetProperty(Actor::Property::OPACITY, 1.0f);');
         const doc = makeDoc(lines.join('\n'));
-
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.8f');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.SetOpacity(0.8f)');
-        restore();
+        expect(ops[0].newText).to.equal('.SetProperty(Actor::Property::OPACITY, 0.8f)');
     });
 
-    it('replaces first occurrence found (closest to source line)', async () => {
+    it('replaces first occurrence found', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc([
-            'box.SetOpacity(0.9f);',
+            'box.SetProperty(Actor::Property::OPACITY, 0.9f);',
             'auto box = Actor::New();',
-            'box.SetOpacity(1.0f);',
+            'box.SetProperty(Actor::Property::OPACITY, 1.0f);',
         ].join('\n'));
-
-        // Source line is 1 (actor creation). Radius=1 → finds line 0 and line 2.
-        // Iteration goes from lineStart (0) → lineEnd (2), so line 0 matches first.
         const result = await editor.applyEdit(doc, 1, 'opacity', '0.5f', 1);
         expect(result.success).to.equal(true);
         expect(ops).to.have.lengthOf(1);
-        restore();
     });
 });
 
@@ -149,99 +241,126 @@ describe('PropertyEditor — opacity', () => {
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — visible', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
     it('replaces .SetVisible() with new boolean value', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc('box.SetVisible(true);');
-
         const result = await editor.applyEdit(doc, 0, 'visible', 'false');
         expect(result.success).to.equal(true);
         expect(ops[0].newText).to.equal('.SetVisible(false)');
-        restore();
     });
 });
 
 // ---------------------------------------------------------------------------
-// color
+// color — SetBackgroundColor with nested parentheses (C1, C2)
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — color', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
     it('replaces .SetBackgroundColor() with new Vector4 value', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
         const doc = makeDoc('box.SetBackgroundColor(Color::RED);');
-
         const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(0, 1, 0, 1)');
         expect(result.success).to.equal(true);
         expect(ops[0].newText).to.equal('.SetBackgroundColor(Vector4(0, 1, 0, 1))');
-        restore();
     });
 
-    it('replaces .BackgroundColor() (alternative API) with new value', async () => {
+    it('replaces .SetBackgroundColor() when value uses UiColor nested parens (C2)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc('box.BackgroundColor(Color::RED);');
-
-        const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(0, 0, 1, 1)');
+        restoreFn = restore;
+        const doc = makeDoc('box.SetBackgroundColor(UiColor(0x6C63FFFF));');
+        const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(0.4235f, 0.3882f, 1.0000f, 1.0000f)');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.BackgroundColor(Vector4(0, 0, 1, 1))');
-        restore();
+        expect(ops[0].newText).to.include('.SetBackgroundColor(Vector4(');
     });
 
-    it('prefers .SetBackgroundColor() over .BackgroundColor() when both present', async () => {
+    it('replaces .SetBackgroundColor() when value uses Vector4 nested parens (C2)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc([
-            'box.BackgroundColor(Color::RED);',
-            'box.SetBackgroundColor(Color::RED);',
-        ].join('\n'));
-
-        // Both lines within radius=1 from sourceLine=0.
-        // Line 0 is checked first: BackgroundColor matches first matcher (SetBackgroundColor) — no.
-        // Line 0 matches second matcher (BackgroundColor) — yes, replaces line 0.
-        const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(1, 0, 0, 1)', 1);
+        restoreFn = restore;
+        const doc = makeDoc('box.SetBackgroundColor(Vector4(0.42f, 0.39f, 1.0f, 1.0f));');
+        const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(1.0000f, 0.0000f, 0.0000f, 1.0000f)');
         expect(result.success).to.equal(true);
-        // The first line scanned that matches any matcher is used
-        expect(ops).to.have.lengthOf(1);
-        restore();
+        expect(ops[0].newText).to.equal('.SetBackgroundColor(Vector4(1.0000f, 0.0000f, 0.0000f, 1.0000f))');
     });
 });
 
 // ---------------------------------------------------------------------------
-// x, y, w, h
+// x, y — SetPosition(x, y) editing preserves the other arg (C1)
 // ---------------------------------------------------------------------------
 
-describe('PropertyEditor — x / y / w / h', () => {
-    it('replaces .SetX()', async () => {
+describe('PropertyEditor — x / y via SetPosition', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('replaces x in .SetPosition(x, y) while preserving y', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc('actor.SetX(0.0f);');
-        const result = await editor.applyEdit(doc, 0, 'x', '100');
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetPosition(0.0f, 100.0f);');
+        const result = await editor.applyEdit(doc, 0, 'x', '50');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.SetX(100)');
-        restore();
+        expect(ops).to.have.lengthOf(1);
+        expect(ops[0].newText).to.equal('.SetPosition(50, 100.0f)');
     });
 
-    it('replaces .SetY()', async () => {
+    it('replaces y in .SetPosition(x, y) while preserving x', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc('actor.SetY(50.0f);');
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetPosition(10.0f, 50.0f);');
         const result = await editor.applyEdit(doc, 0, 'y', '200');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.SetY(200)');
-        restore();
+        expect(ops).to.have.lengthOf(1);
+        expect(ops[0].newText).to.equal('.SetPosition(10.0f, 200)');
     });
+});
 
-    it('replaces .SetWidth()', async () => {
+// ---------------------------------------------------------------------------
+// w, h — SetRequestedWidth / SetRequestedHeight and SetSize fallback (C1)
+// ---------------------------------------------------------------------------
+
+describe('PropertyEditor — w / h', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('replaces .SetRequestedWidth()', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc('actor.SetWidth(720.0f);');
+        restoreFn = restore;
+        const doc = makeDoc('view.SetRequestedWidth(720.0f);');
         const result = await editor.applyEdit(doc, 0, 'w', '1280');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.SetWidth(1280)');
-        restore();
+        expect(ops[0].newText).to.equal('.SetRequestedWidth(1280)');
     });
 
-    it('replaces .SetHeight()', async () => {
+    it('replaces .SetRequestedHeight()', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
-        const doc = makeDoc('actor.SetHeight(100.0f);');
+        restoreFn = restore;
+        const doc = makeDoc('view.SetRequestedHeight(100.0f);');
         const result = await editor.applyEdit(doc, 0, 'h', '200');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.equal('.SetHeight(200)');
-        restore();
+        expect(ops[0].newText).to.equal('.SetRequestedHeight(200)');
+    });
+
+    it('falls back to .SetSize(w, h) for w — preserves h', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetSize(720.0f, 100.0f);');
+        const result = await editor.applyEdit(doc, 0, 'w', '1280');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetSize(1280, 100.0f)');
+    });
+
+    it('falls back to .SetSize(w, h) for h — preserves w', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetSize(720.0f, 100.0f);');
+        const result = await editor.applyEdit(doc, 0, 'h', '200');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetSize(720.0f, 200)');
     });
 });
 
@@ -250,13 +369,21 @@ describe('PropertyEditor — x / y / w / h', () => {
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — applyEdit returns false', () => {
+    let originalApply: any;
+    afterEach(() => {
+        if (originalApply) {
+            require('vscode').workspace.applyEdit = originalApply;
+            originalApply = undefined;
+        }
+    });
+
     it('returns failure when vscode.workspace.applyEdit returns false', async () => {
         const vscode = require('vscode');
-        const original = vscode.workspace.applyEdit;
+        originalApply = vscode.workspace.applyEdit;
         vscode.workspace.applyEdit = (_edit: any) => Promise.resolve(false);
 
         const editor = new PropertyEditor();
-        const doc = createMockDocument('test.cpp', 'actor.SetOpacity(1.0f);') as any;
+        const doc = createMockDocument('test.cpp', 'actor.SetProperty(Actor::Property::OPACITY, 1.0f);') as any;
         doc.save = () => Promise.resolve(true);
 
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
@@ -264,7 +391,6 @@ describe('PropertyEditor — applyEdit returns false', () => {
         if (!result.success) {
             expect(result.reason).to.include('applyEdit');
         }
-        vscode.workspace.applyEdit = original;
     });
 });
 

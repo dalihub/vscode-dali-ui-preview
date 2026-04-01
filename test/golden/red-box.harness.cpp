@@ -103,6 +103,7 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
     json << "{\"name\":\"" << JsonEscapeStr(name.CStr()) << "\","
          << "\"type\":\"" << JsonEscapeStr(typeName) << "\","
          << "\"x\":" << x << ",\"y\":" << y << ","
+         << "\"localX\":" << pos.x << ",\"localY\":" << pos.y << ","
          << "\"w\":" << w << ",\"h\":" << h << ","
          << "\"visible\":" << (visible ? "true" : "false") << ","
          << "\"opacity\":" << safeOpacity << ","
