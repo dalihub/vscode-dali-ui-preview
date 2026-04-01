@@ -5,6 +5,24 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-04-01 — 버그 수정: 컬러 팔레트 배경색 렌더링 파이프라인 연결 (DAL-13)
+
+### Fixed
+
+- **배경색 미적용 버그** (`src/buildRunner.ts`, `src/previewServer.ts`, `src/extension.ts`, `server/preview_server.cpp`): 컬러 팔레트에서 선택한 배경색이 웹뷰 HTML 컨테이너에만 적용되고 실제 DALi 렌더링 PNG에는 반영되지 않던 구조적 결함 수정. `#RRGGBB` 색상을 전체 빌드 파이프라인(Phase 1 harness compile / Phase 2 dlopen RELOAD / multi-preview)에 전달.
+- **색상 변경 시 리빌드 미트리거** (`src/extension.ts`): `onBackgroundChange` 콜백에서 색상 저장 후 즉시 `runPreview()` 호출 추가. Ctrl+S 없이도 팔레트 선택 즉시 렌더링 반영.
+- **테마 전환 시 커스텀 색상 잔류** (`src/extension.ts`): 다크↔라이트 테마 전환 시 `currentBgColor` 초기화 추가. 커맨드 팔레트 토글과 웹뷰 토글 버튼 모두 처리.
+
+### Added
+
+- **`BuildRunner.hexToVector4()`** (`src/buildRunner.ts`): `#RRGGBB` 16진 색상 → DALi `Vector4` 리터럴 변환 static 메서드 추가.
+- **`HexToColor()`** (`server/preview_server.cpp`): C++ 서버에서 `#RRGGBB` 문자열을 `Vector4`로 변환하는 static 헬퍼 추가.
+- **RELOAD 프로토콜 옵셔널 색상 필드** (`src/previewServer.ts`, `server/preview_server.cpp`): `RELOAD` IPC 명령에 8번째 옵셔널 `#RRGGBB` 필드 추가. 미전송 시 기존 테마 색상 폴백 유지 (하위 호환).
+
+### Tests
+
+- **`BuildRunner.hexToVector4()` 단위 테스트 4건** (`test/unit/buildRunner.test.ts`): `#ff0000`, `#000000`, `#ffffff`, `#FF0000` 변환 검증.
+
 ## [0.9.0] - 2026-03-31 — Phase 2-4 UX: 다크/라이트 모드 전환 발견가능성 개선
 
 ### Added

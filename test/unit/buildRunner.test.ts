@@ -121,6 +121,24 @@ describe('BuildRunner.themeToBackgroundColor()', () => {
     });
 });
 
+describe('BuildRunner.hexToVector4()', () => {
+    it('converts red #ff0000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#ff0000')).to.equal('Vector4(1.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+
+    it('converts black #000000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#000000')).to.equal('Vector4(0.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+
+    it('converts white #ffffff correctly', () => {
+        expect(BuildRunner.hexToVector4('#ffffff')).to.equal('Vector4(1.0000f, 1.0000f, 1.0000f, 1.0f)');
+    });
+
+    it('converts uppercase hex #FF0000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#FF0000')).to.equal('Vector4(1.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+});
+
 describe('BuildRunner.sanitizeConfigName()', () => {
     it('lowercases the name', () => {
         expect(BuildRunner.sanitizeConfigName('Phone Light')).to.equal('phone_light');
