@@ -5,6 +5,27 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-04-01 — Phase 3-3 QA 2차 수정 (DAL-17)
+
+### Fixed
+
+- **C1 SetPositionX/Y 우선** (`src/propertyEditor.ts`): x/y 속성 편집 시 `SetPositionX(float)` / `SetPositionY(float)`을 1순위 매처로 추가. 기존 `SetPosition(x, y)` 2인수 패턴은 fallback으로 유지.
+- **C2 UiColor 형식 지원** (`media/preview.html`, `src/propertyEditor.ts`): 색상 피커 출력을 `Vector4(...)` → `UiColor(0xRRGGBB)` 로 변경 (DALi 샘플 코드 스타일과 동일). color validator가 `UiColor(0x...)` 형식을 허용하도록 갱신.
+- **H1 SetProperty(VISIBLE) 우선** (`src/propertyEditor.ts`): visible 속성 편집 시 `SetProperty(Actor::Property::VISIBLE, bool)` 공개 API를 1순위로, `SetVisible()` 내부 API는 fallback으로 변경.
+- **H2 NaN sourceLine 방어** (`src/previewManager.ts`): `typeof n === 'number'`는 NaN도 통과하므로 `Number.isInteger(sourceLine)` 검증 추가.
+- **H3 propName allowlist 검증** (`src/previewManager.ts`): `EDITABLE_PROPS.includes(propName)` 검사 추가로 미등록 속성명 전달 차단.
+- **H4 색상 피커 디바운싱** (`media/preview.html`): `<input type="color">` change 핸들러에 100ms 디바운스 추가. 드래그 중 연속 postMessage 방지.
+
+### Tests
+
+- SetPositionX / SetPositionY 기본 매처 테스트 추가
+- SetPosition(x, y) fallback 테스트 명칭 정비
+- `SetProperty(Actor::Property::VISIBLE)` 테스트 추가 + 우선순위 검증
+- `UiColor(0xRRGGBB)` / `UiColor(0xRRGGBBAA)` color 형식 테스트 추가
+- 테스트 총계: **228개** (이전 223개 → +5)
+
+---
+
 ## [0.13.0] - 2026-04-01 — Phase 3-3: 속성 편집기 (Property Editor — DAL-17)
 
 ### Added

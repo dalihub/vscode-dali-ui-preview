@@ -22,9 +22,10 @@ const PROP_VALIDATORS: Readonly<Record<string, (v: string) => boolean>> = {
     h:       (v) => FLOAT_LITERAL.test(v),
     opacity: (v) => FLOAT_LITERAL.test(v),
     visible: (v) => v === 'true' || v === 'false',
-    // Vector4(r, g, b, a) — four float literals
+    // Vector4(r, g, b, a) or UiColor(0xRRGGBB[AA]) — both valid DALi color forms
     color: (v) =>
-        /^Vector4\(\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*\)$/.test(v),
+        /^Vector4\(\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*,\s*-?[0-9]+(\.[0-9]+)?f?\s*\)$/.test(v) ||
+        /^UiColor\(0x[0-9A-Fa-f]{6,8}\)$/.test(v),
 };
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,12 @@ const PROP_MATCHERS: Readonly<Record<string, PropMatcher[]>> = {
     ],
     visible: [
         {
+            // SetProperty(Actor::Property::VISIBLE, bool) — public Actor API
+            pattern: /\.SetProperty\s*\(\s*Actor::Property::VISIBLE\s*,\s*[^)]+\)/,
+            buildReplacement: (v) => `.SetProperty(Actor::Property::VISIBLE, ${v})`,
+        },
+        {
+            // SetVisible() — legacy fallback (actor-impl.h internal, but still found in some code)
             pattern: /\.SetVisible\s*\([^)]*\)/,
             buildReplacement: (v) => `.SetVisible(${v})`,
         },
@@ -59,15 +66,23 @@ const PROP_MATCHERS: Readonly<Record<string, PropMatcher[]>> = {
             buildReplacement: (v) => `.SetBackgroundColor(${v})`,
         },
     ],
-    // position — DALi uses SetPosition(x, y); edit x or y independently
-    // by capturing both arguments and rebuilding the call (C1)
+    // position — SetPositionX/SetPositionY are the single-axis DALi-UI API;
+    // SetPosition(x, y) is Actor core and kept as fallback.
     x: [
+        {
+            pattern: /\.SetPositionX\s*\([^)]*\)/,
+            buildReplacement: (v) => `.SetPositionX(${v})`,
+        },
         {
             pattern: /\.SetPosition\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?f?)\s*,\s*(-?[0-9]+(?:\.[0-9]+)?f?)\s*\)/,
             buildReplacement: (v, m) => `.SetPosition(${v}, ${m[2]})`,
         },
     ],
     y: [
+        {
+            pattern: /\.SetPositionY\s*\([^)]*\)/,
+            buildReplacement: (v) => `.SetPositionY(${v})`,
+        },
         {
             pattern: /\.SetPosition\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?f?)\s*,\s*(-?[0-9]+(?:\.[0-9]+)?f?)\s*\)/,
             buildReplacement: (v, m) => `.SetPosition(${m[1]}, ${v})`,

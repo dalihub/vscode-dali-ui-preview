@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { MultiPreviewResult } from './previewConfig';
+import { EDITABLE_PROPS } from './propertyEditor';
 
 export class PreviewManager {
     private panel: vscode.WebviewPanel | undefined;
@@ -317,7 +318,13 @@ export class PreviewManager {
                 const sourceLine = message.sourceLine as number;
                 const propName = message.propName as string;
                 const value = message.value as string;
-                if (typeof sourceLine === 'number' && typeof propName === 'string' && typeof value === 'string') {
+                if (
+                    typeof sourceLine === 'number' &&
+                    Number.isInteger(sourceLine) &&
+                    typeof propName === 'string' &&
+                    EDITABLE_PROPS.includes(propName) &&
+                    typeof value === 'string'
+                ) {
                     for (const cb of this.editPropertyCallbacks) {
                         cb(sourceLine, propName, value);
                     }

@@ -244,13 +244,32 @@ describe('PropertyEditor — visible', () => {
     let restoreFn: (() => void) | undefined;
     afterEach(() => { restoreFn?.(); restoreFn = undefined; });
 
-    it('replaces .SetVisible() with new boolean value', async () => {
+    it('replaces .SetVisible() with new boolean value (legacy fallback)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         const doc = makeDoc('box.SetVisible(true);');
         const result = await editor.applyEdit(doc, 0, 'visible', 'false');
         expect(result.success).to.equal(true);
         expect(ops[0].newText).to.equal('.SetVisible(false)');
+    });
+
+    it('replaces .SetProperty(Actor::Property::VISIBLE) — public API primary matcher (H1)', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('box.SetProperty(Actor::Property::VISIBLE, true);');
+        const result = await editor.applyEdit(doc, 0, 'visible', 'false');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetProperty(Actor::Property::VISIBLE, false)');
+    });
+
+    it('prefers SetProperty(VISIBLE) over SetVisible() when both could match (H1 priority)', async () => {
+        // Only one call per line — SetProperty should be matched first
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetProperty(Actor::Property::VISIBLE, false);');
+        const result = await editor.applyEdit(doc, 0, 'visible', 'true');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.include('Actor::Property::VISIBLE');
     });
 });
 
@@ -271,13 +290,22 @@ describe('PropertyEditor — color', () => {
         expect(ops[0].newText).to.equal('.SetBackgroundColor(Vector4(0, 1, 0, 1))');
     });
 
-    it('replaces .SetBackgroundColor() when value uses UiColor nested parens (C2)', async () => {
+    it('replaces .SetBackgroundColor() when source uses UiColor — new value is UiColor (C2)', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('box.SetBackgroundColor(UiColor(0x6C63FF));');
+        const result = await editor.applyEdit(doc, 0, 'color', 'UiColor(0xFF0000)');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetBackgroundColor(UiColor(0xFF0000))');
+    });
+
+    it('accepts UiColor(0xRRGGBBAA) 8-digit hex as valid color (C2 validator)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         const doc = makeDoc('box.SetBackgroundColor(UiColor(0x6C63FFFF));');
-        const result = await editor.applyEdit(doc, 0, 'color', 'Vector4(0.4235f, 0.3882f, 1.0000f, 1.0000f)');
+        const result = await editor.applyEdit(doc, 0, 'color', 'UiColor(0x6C63FFFF)');
         expect(result.success).to.equal(true);
-        expect(ops[0].newText).to.include('.SetBackgroundColor(Vector4(');
+        expect(ops[0].newText).to.equal('.SetBackgroundColor(UiColor(0x6C63FFFF))');
     });
 
     it('replaces .SetBackgroundColor() when value uses Vector4 nested parens (C2)', async () => {
@@ -291,14 +319,32 @@ describe('PropertyEditor — color', () => {
 });
 
 // ---------------------------------------------------------------------------
-// x, y — SetPosition(x, y) editing preserves the other arg (C1)
+// x, y — SetPositionX/Y primary; SetPosition(x, y) fallback (C1)
 // ---------------------------------------------------------------------------
 
-describe('PropertyEditor — x / y via SetPosition', () => {
+describe('PropertyEditor — x / y via SetPositionX / SetPositionY', () => {
     let restoreFn: (() => void) | undefined;
     afterEach(() => { restoreFn?.(); restoreFn = undefined; });
 
-    it('replaces x in .SetPosition(x, y) while preserving y', async () => {
+    it('replaces .SetPositionX() — primary matcher (C1)', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetPositionX(0.0f);');
+        const result = await editor.applyEdit(doc, 0, 'x', '100');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetPositionX(100)');
+    });
+
+    it('replaces .SetPositionY() — primary matcher (C1)', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc('actor.SetPositionY(50.0f);');
+        const result = await editor.applyEdit(doc, 0, 'y', '200');
+        expect(result.success).to.equal(true);
+        expect(ops[0].newText).to.equal('.SetPositionY(200)');
+    });
+
+    it('replaces x in .SetPosition(x, y) while preserving y — fallback (C1)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         const doc = makeDoc('actor.SetPosition(0.0f, 100.0f);');
@@ -308,7 +354,7 @@ describe('PropertyEditor — x / y via SetPosition', () => {
         expect(ops[0].newText).to.equal('.SetPosition(50, 100.0f)');
     });
 
-    it('replaces y in .SetPosition(x, y) while preserving x', async () => {
+    it('replaces y in .SetPosition(x, y) while preserving x — fallback (C1)', async () => {
         const { editor, ops, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         const doc = makeDoc('actor.SetPosition(10.0f, 50.0f);');
