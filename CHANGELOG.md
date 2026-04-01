@@ -5,6 +5,24 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-01 — Phase 3-2: 위젯 트리 Inspector (DAL-16)
+
+### Added
+
+- **위젯 트리 Inspector** (`media/preview.html`): Scene Graph 트리 뷰 + 속성 패널. 노드 클릭 시 프리뷰 이미지에 bounding box 하이라이트 + 속성 패널 갱신.
+- **Inspector 토글 버튼** (`media/preview.html`): 툴바의 🔍 버튼으로 Inspector 패널 on/off. 멀티 프리뷰 모드 진입 시 자동 비활성화.
+- **프리뷰 ↔ 트리 양방향 연동** (`media/preview.html`): 프리뷰 이미지 클릭(Click-to-Code) → 트리 노드 자동 선택 + 스크롤. 트리 노드 클릭 → bounding box 하이라이트.
+- **Code-to-Preview** (`src/extension.ts`): 에디터 커서 위치 변경 시 200ms 디바운스 후 해당 Actor를 프리뷰 + Inspector 트리에서 하이라이트.
+- **Scene Graph JSON 확장** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): `type`, `visible`, `opacity`, `properties.color` 필드 추가. `JsonEscapeStr` / `ShortTypeName` 헬퍼 함수 추가.
+- **`PreviewManager` 신규 메서드** (`src/previewManager.ts`): `highlightElement(line)`, `setInspectorVisible(visible)`, `onInspectorToggle(callback)`.
+- **단위 테스트** (`test/unit/inspector.test.ts`): 하네스 JSON 구조, `highlightElement`, `setInspectorVisible`, `onInspectorToggle` 21개 테스트 추가.
+
+### Changed
+
+- **골든 파일 업데이트** (`test/golden/red-box.harness.cpp`): `CollectActorMetadata()` 변경 반영 (`#include <string>`, `JsonEscapeStr`, `ShortTypeName`, `type`/`visible`/`opacity`/`properties` 필드).
+
+---
+
 ## [0.11.0] - 2026-04-01 — Phase 3-1: @preview-config locale/fontScale/font 파라미터 지원 (DAL-15)
 
 ### Added
