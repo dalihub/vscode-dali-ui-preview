@@ -10,6 +10,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <string>
+#include <cmath>
 
 using namespace Dali;
 using namespace Dali::Ui;
@@ -33,6 +35,36 @@ View CreatePreviewUI()
 }
 
 // === Scene graph metadata export for click-to-code ===
+
+static std::string JsonEscapeStr(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size() + 4);
+    for(char c : s)
+    {
+        if      (c == '"')  out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (static_cast<unsigned char>(c) < 0x20)
+        {
+            static const char hex[] = "0123456789abcdef";
+            unsigned char uc = static_cast<unsigned char>(c);
+            const char esc[7] = {'\\', 'u', '0', '0', hex[(uc >> 4) & 0xF], hex[uc & 0xF], '\0'};
+            out += esc;
+        }
+        else                out += c;
+    }
+    return out;
+}
+
+static std::string ShortTypeName(const std::string& fullName)
+{
+    auto pos = fullName.rfind("::");
+    return (pos != std::string::npos) ? fullName.substr(pos + 2) : fullName;
+}
+
 void CollectActorMetadata(Actor actor, std::ostringstream& json,
                           float pX, float pY, float pW, float pH,
                           bool isFirst = true)
@@ -51,9 +83,28 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
     float x = pX + pW * parentOrigin.x + pos.x - w * anchor.x;
     float y = pY + pH * parentOrigin.y + pos.y - h * anchor.y;
 
-    json << "{\"name\":\"" << name.CStr() << "\","
+    std::string typeName = ShortTypeName(actor.GetTypeName());
+    if(typeName.empty()) typeName = "Actor";
+
+    bool    visible = actor.GetCurrentProperty<bool>(Actor::Property::VISIBLE);
+    float   opacity = actor.GetCurrentProperty<float>(Actor::Property::OPACITY);
+    Vector4 color   = actor.GetCurrentProperty<Vector4>(Actor::Property::COLOR);
+
+    float safeOpacity = std::isfinite(opacity) ? opacity : 0.0f;
+    float cr = std::isfinite(color.r) ? color.r : 0.0f;
+    float cg = std::isfinite(color.g) ? color.g : 0.0f;
+    float cb = std::isfinite(color.b) ? color.b : 0.0f;
+    float ca = std::isfinite(color.a) ? color.a : 0.0f;
+
+    json << "{\"name\":\"" << JsonEscapeStr(name.CStr()) << "\","
+         << "\"type\":\"" << JsonEscapeStr(typeName) << "\","
          << "\"x\":" << x << ",\"y\":" << y << ","
-         << "\"w\":" << w << ",\"h\":" << h;
+         << "\"w\":" << w << ",\"h\":" << h << ","
+         << "\"visible\":" << (visible ? "true" : "false") << ","
+         << "\"opacity\":" << safeOpacity << ","
+         << "\"properties\":{"
+         << "\"color\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
+         << "}";
 
     uint32_t childCount = actor.GetChildCount();
     if(childCount > 0)

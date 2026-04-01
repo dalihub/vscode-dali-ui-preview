@@ -10,6 +10,8 @@ export class PreviewManager {
     private selectElementCallbacks: Array<(line: number) => void> = [];
     private themeToggleCallbacks: Array<() => void> = [];
     private bgChangeCallbacks: Array<(color: string) => void> = [];
+    private inspectorToggleCallbacks: Array<(visible: boolean) => void> = [];
+    private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -177,6 +179,21 @@ export class PreviewManager {
         this.panel.webview.postMessage({ command: 'setBackgroundColor', color });
     }
 
+    highlightElement(line: number): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'highlightElement', line });
+    }
+
+    setInspectorVisible(visible: boolean): void {
+        this._inspectorVisible = visible;
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'setInspectorVisible', visible });
+    }
+
     onBackgroundChange(callback: (color: string) => void): vscode.Disposable {
         this.bgChangeCallbacks.push(callback);
         return new vscode.Disposable(() => {
@@ -207,6 +224,16 @@ export class PreviewManager {
         });
     }
 
+    onInspectorToggle(callback: (visible: boolean) => void): vscode.Disposable {
+        this.inspectorToggleCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.inspectorToggleCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.inspectorToggleCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     dispose(): void {
         this.panel?.dispose();
         this.panel = undefined;
@@ -220,6 +247,7 @@ export class PreviewManager {
         this.selectElementCallbacks = [];
         this.themeToggleCallbacks = [];
         this.bgChangeCallbacks = [];
+        this.inspectorToggleCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -261,6 +289,21 @@ export class PreviewManager {
             case 'toggleTheme': {
                 for (const cb of this.themeToggleCallbacks) {
                     cb();
+                }
+                break;
+            }
+            case 'inspectorToggle': {
+                if (typeof message.visible === 'boolean') {
+                    this._inspectorVisible = message.visible;
+                    for (const cb of this.inspectorToggleCallbacks) {
+                        cb(message.visible);
+                    }
+                }
+                break;
+            }
+            case 'webviewReady': {
+                if (this._inspectorVisible) {
+                    this.panel?.webview.postMessage({ command: 'setInspectorVisible', visible: true });
                 }
                 break;
             }
