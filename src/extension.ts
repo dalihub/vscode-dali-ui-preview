@@ -472,9 +472,26 @@ async function runMultiPreview(
         }
 
         const configStart = Date.now();
-        const width  = config.width  ?? currentWidth;
-        const height = config.height ?? currentHeight;
-        const theme  = config.theme  ?? currentTheme;
+        const width     = config.width     ?? currentWidth;
+        const height    = config.height    ?? currentHeight;
+        const theme     = config.theme     ?? currentTheme;
+        const locale    = config.locale;
+        const fontScale = config.fontScale;
+        const font      = config.font;
+
+        // Resolve font filename to its absolute directory for the IPC server path.
+        // The server's C++ code expects an absolute directory in the font field, not a bare filename.
+        // (buildRunner.buildAndRun() does its own resolution for the harness path.)
+        let fontDir: string | undefined;
+        if (font) {
+            const fontCfg = vscode.workspace.getConfiguration('daliPreview');
+            const fontDirs = fontCfg.get<string[]>('fontDirectories', []);
+            fontDir = fontDirs.find(d => {
+                try { return fs.existsSync(path.join(d, font)); }
+                catch { return false; }
+            });
+            // If not found in configured directories, omit (don't fall back to '.', which is useless)
+        }
 
         try {
             if (previewServer?.isRunning) {
@@ -488,7 +505,8 @@ async function runMultiPreview(
                     const pngPath      = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}.png`;
                     const metadataPath = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}_metadata.json`;
                     const reloadResult = await previewServer.reload(
-                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor
+                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor,
+                        locale, fontScale, fontDir
                     );
                     results.push({
                         config,
@@ -509,7 +527,10 @@ async function runMultiPreview(
                 }
             } else {
                 // Phase 1 fallback
-                const result = await buildRunner.buildAndRun(instrumented, width, height, theme, currentBgColor);
+                const result = await buildRunner.buildAndRun(
+                    instrumented, width, height, theme, currentBgColor,
+                    locale, fontScale, font
+                );
                 results.push({
                     config,
                     success: result.success,

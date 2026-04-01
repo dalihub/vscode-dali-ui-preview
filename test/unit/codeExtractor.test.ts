@@ -275,6 +275,201 @@ describe('codeExtractor', () => {
             expect(result!.configs![0].width).to.be.undefined;
             expect(result!.configs![0].height).to.be.undefined;
         });
+
+        it('parses locale parameter', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Korean", width=720, height=1280, locale=ko_KR',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].locale).to.equal('ko_KR');
+        });
+
+        it('parses fontScale parameter within valid range', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Large Text", width=720, height=1280, fontScale=1.5',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].fontScale).to.equal(1.5);
+        });
+
+        it('ignores fontScale below minimum range (0.1)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Too Small", fontScale=0.1',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
+        it('ignores fontScale above maximum range (3.0)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Too Large", fontScale=3.0',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
+        it('accepts fontScale at lower boundary (0.5)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Min Scale", fontScale=0.5',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.equal(0.5);
+        });
+
+        it('accepts fontScale at upper boundary (2.0)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Max Scale", fontScale=2.0',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.equal(2.0);
+        });
+
+        it('ignores fontScale just below lower boundary (0.49)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Below Min", fontScale=0.49',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
+        it('ignores fontScale just above upper boundary (2.01)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Above Max", fontScale=2.01',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fontScale).to.be.undefined;
+        });
+
+        it('parses font parameter', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Custom Font", width=720, height=1280, font=NotoSansKR.ttf',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].font).to.equal('NotoSansKR.ttf');
+        });
+
+        it('parses font without interfering with fontScale', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="All Params", width=720, height=1280, fontScale=1.5, font=NotoSansKR.ttf',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].fontScale).to.equal(1.5);
+            expect(result!.configs![0].font).to.equal('NotoSansKR.ttf');
+        });
+
+        it('parses all new params together with existing params', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Full Config", width=720, height=1280, theme=light, locale=ko_KR, fontScale=1.5, font=NotoSansKR.ttf',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.name).to.equal('Full Config');
+            expect(cfg.width).to.equal(720);
+            expect(cfg.height).to.equal(1280);
+            expect(cfg.theme).to.equal('light');
+            expect(cfg.locale).to.equal('ko_KR');
+            expect(cfg.fontScale).to.equal(1.5);
+            expect(cfg.font).to.equal('NotoSansKR.ttf');
+        });
+
+        it('keeps locale/fontScale/font as undefined when not present (backward compat)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Legacy", width=720, height=1280, theme=dark',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.locale).to.be.undefined;
+            expect(cfg.fontScale).to.be.undefined;
+            expect(cfg.font).to.be.undefined;
+        });
     });
 
     // -----------------------------------------------------------------

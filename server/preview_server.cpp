@@ -16,6 +16,7 @@
  */
 #include <dali/dali.h>
 #include <dali/public-api/adaptor-framework/capture.h>
+#include <dali/devel-api/adaptor-framework/font-client.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
 
 #include <dlfcn.h>
@@ -109,6 +110,9 @@ struct ReloadRequest {
     float       height = 0.0f;
     std::string theme  = "dark";  // "light" | "dark"
     std::string bgColor;          // optional, #RRGGBB format
+    std::string locale;           // optional, e.g. "ko_KR"
+    float       fontScale = 0.0f; // optional, 0 = not set
+    std::string font;             // optional, font filename
 };
 
 // ---------------------------------------------------------------------------
@@ -184,11 +188,29 @@ public:
                 {
                     req.theme = themeStr;
                 }
-                // Optional bgColor parameter (#RRGGBB)
+                // Optional bgColor parameter (#RRGGBB or '-')
                 std::string colorStr;
-                if (iss >> colorStr)
+                if (iss >> colorStr && colorStr != "-")
                 {
                     req.bgColor = colorStr;
+                }
+                // Optional locale parameter (e.g. ko_KR or '-')
+                std::string localeStr;
+                if (iss >> localeStr && localeStr != "-")
+                {
+                    req.locale = localeStr;
+                }
+                // Optional fontScale parameter or '-'
+                std::string fontScaleStr;
+                if (iss >> fontScaleStr && fontScaleStr != "-")
+                {
+                    try { req.fontScale = std::stof(fontScaleStr); } catch (...) {}
+                }
+                // Optional font filename or '-'
+                std::string fontStr;
+                if (iss >> fontStr && fontStr != "-")
+                {
+                    req.font = fontStr;
                 }
 
                 if (!mCaptureBusy)
@@ -239,6 +261,30 @@ public:
     {
         mCaptureBusy = true;
         mCurrentReq  = req;
+
+        // Apply locale if specified
+        if (!req.locale.empty())
+        {
+            std::string langEnv = req.locale + ".UTF-8";
+            setenv("LANG", langEnv.c_str(), 1);
+        }
+
+        // Apply font scale if specified
+        // Phase 3-1 stub: env var set for future DALi API hook; actual TextController
+        // integration planned for a later phase.
+        if (req.fontScale > 0.0f)
+        {
+            std::string fontScaleStr = std::to_string(req.fontScale);
+            setenv("DALI_FONT_SCALE", fontScaleStr.c_str(), 1);
+        }
+
+        // Apply custom font directory before dlopen so FontClient can resolve fonts.
+        // req.font carries the resolved absolute directory path (set by the TypeScript
+        // side from daliPreview.fontDirectories config), not a bare filename.
+        if (!req.font.empty())
+        {
+            FontClient::Get().AddCustomFontDirectory(req.font.c_str());
+        }
 
         // Apply background color: custom hex color takes precedence over theme
         mWindow.SetBackgroundColor(

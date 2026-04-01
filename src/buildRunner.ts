@@ -146,7 +146,16 @@ export class BuildRunner {
         return false;
     }
 
-    async buildAndRun(userCode: string, width?: number, height?: number, theme: 'light' | 'dark' = 'dark', bgColor?: string): Promise<BuildResult> {
+    async buildAndRun(
+        userCode: string,
+        width?: number,
+        height?: number,
+        theme: 'light' | 'dark' = 'dark',
+        bgColor?: string,
+        locale?: string,
+        fontScale?: number,
+        font?: string
+    ): Promise<BuildResult> {
         // Ensure DALi prefix is available
         if (!(await this.ensureDaliPrefix())) {
             return {
@@ -169,13 +178,33 @@ export class BuildRunner {
         const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
             ? BuildRunner.hexToVector4(bgColor)
             : BuildRunner.themeToBackgroundColor(theme);
+
+        // Build font setup code for harness template substitution
+        let fontSetup = '';
+        if (font) {
+            const config = vscode.workspace.getConfiguration('daliPreview');
+            const fontDirs = config.get<string[]>('fontDirectories', []);
+            // Find the directory containing the font file
+            const fontDir = fontDirs.find(d => {
+                try {
+                    return fs.existsSync(path.join(d, font!));
+                } catch {
+                    return false;
+                }
+            }) || path.dirname(font);
+            // Escape backslashes and double-quotes before embedding in C++ string literal
+            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
+        }
+
         const harness = this.templateContent
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
             .replace(/\{\{OUTPUT_PATH\}\}/g, pngPath)
             .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec);
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
+            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -186,7 +215,7 @@ export class BuildRunner {
         }
 
         // 3. Execute
-        return this.execute(binPath, pngPath, metadataPath, width, height);
+        return this.execute(binPath, pngPath, metadataPath, width, height, locale, fontScale);
     }
 
     private compileShared(source: string, output: string): Promise<BuildResult> {
@@ -239,7 +268,11 @@ export class BuildRunner {
         });
     }
 
-    private execute(binPath: string, pngPath: string, metadataPath: string, width: number, height: number): Promise<BuildResult> {
+    private execute(
+        binPath: string, pngPath: string, metadataPath: string,
+        width: number, height: number,
+        locale?: string, fontScale?: number
+    ): Promise<BuildResult> {
         const display = this.xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
 
         const env: NodeJS.ProcessEnv = {
@@ -248,6 +281,10 @@ export class BuildRunner {
             DISPLAY: display,
             DALI_WINDOW_WIDTH: String(width),
             DALI_WINDOW_HEIGHT: String(height),
+            ...(locale ? { LANG: `${locale}.UTF-8` } : {}),
+            // Phase 3-1 stub: env var set for future DALi API hook; actual TextController
+            // integration planned for a later phase.
+            ...(fontScale !== undefined ? { DALI_FONT_SCALE: String(fontScale) } : {}),
         };
 
         // Remove old PNG

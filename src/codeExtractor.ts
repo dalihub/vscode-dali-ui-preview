@@ -16,6 +16,12 @@ const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
 const CONFIG_WIDTH_RE = /width\s*=\s*(\d+)/;
 const CONFIG_HEIGHT_RE = /height\s*=\s*(\d+)/;
 const CONFIG_THEME_RE = /theme\s*=\s*(light|dark)/;
+const CONFIG_LOCALE_RE = /locale\s*=\s*([a-zA-Z][a-zA-Z0-9_\-]+)/;
+const CONFIG_FONTSCALE_RE = /fontScale\s*=\s*([\d.]+)/;
+const CONFIG_FONT_RE = /(?<![a-zA-Z])font\s*=\s*([\w.\-/]+)/;
+
+const FONTSCALE_MIN = 0.5;
+const FONTSCALE_MAX = 2.0;
 
 function parsePreviewConfigLine(line: string): PreviewConfig | null {
     const m = PREVIEW_CONFIG_RE.exec(line.trim());
@@ -39,6 +45,22 @@ function parsePreviewConfigLine(line: string): PreviewConfig | null {
     const themeMatch = CONFIG_THEME_RE.exec(body);
     if (themeMatch) {
         config.theme = themeMatch[1] as 'light' | 'dark';
+    }
+    const localeMatch = CONFIG_LOCALE_RE.exec(body);
+    if (localeMatch) {
+        config.locale = localeMatch[1];
+    }
+    // fontScale must be matched before font to avoid partial overlap
+    const fontScaleMatch = CONFIG_FONTSCALE_RE.exec(body);
+    if (fontScaleMatch) {
+        const scale = parseFloat(fontScaleMatch[1]);
+        if (scale >= FONTSCALE_MIN && scale <= FONTSCALE_MAX) {
+            config.fontScale = scale;
+        }
+    }
+    const fontMatch = CONFIG_FONT_RE.exec(body);
+    if (fontMatch) {
+        config.font = fontMatch[1];
     }
     return config;
 }
