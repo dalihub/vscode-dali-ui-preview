@@ -108,6 +108,7 @@ struct ReloadRequest {
     float       width  = 0.0f;
     float       height = 0.0f;
     std::string theme  = "dark";  // "light" | "dark"
+    std::string bgColor;          // optional, #RRGGBB format
 };
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,12 @@ public:
                 {
                     req.theme = themeStr;
                 }
+                // Optional bgColor parameter (#RRGGBB)
+                std::string colorStr;
+                if (iss >> colorStr)
+                {
+                    req.bgColor = colorStr;
+                }
 
                 if (!mCaptureBusy)
                 {
@@ -211,13 +218,31 @@ public:
         return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // dark (default)
     }
 
+    static Vector4 HexToColor(const std::string& hex)
+    {
+        if (hex.size() != 7 || hex[0] != '#')
+            return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // fallback dark
+        try
+        {
+            unsigned int r = std::stoul(hex.substr(1, 2), nullptr, 16);
+            unsigned int g = std::stoul(hex.substr(3, 2), nullptr, 16);
+            unsigned int b = std::stoul(hex.substr(5, 2), nullptr, 16);
+            return Vector4(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
+        }
+        catch (...)
+        {
+            return Vector4(0.1f, 0.1f, 0.12f, 1.0f); // fallback dark on parse error
+        }
+    }
+
     void DoReload(const ReloadRequest& req)
     {
         mCaptureBusy = true;
         mCurrentReq  = req;
 
-        // Apply background color for current theme
-        mWindow.SetBackgroundColor(ThemeToColor(req.theme));
+        // Apply background color: custom hex color takes precedence over theme
+        mWindow.SetBackgroundColor(
+            req.bgColor.empty() ? ThemeToColor(req.theme) : HexToColor(req.bgColor));
 
         // Resize window if dimensions changed
         Vector2 winSize = mWindow.GetSize();
@@ -297,10 +322,13 @@ public:
         capture.FinishedSignal().Connect(this, &PreviewServer::OnCaptured);
         mCapture = capture;
 
+        const Vector4 captureBg = mCurrentReq.bgColor.empty()
+            ? ThemeToColor(mCurrentReq.theme)
+            : HexToColor(mCurrentReq.bgColor);
         capture.Start(Actor(mWindow.GetRootLayer()),
                       Vector2(mCurrentReq.width, mCurrentReq.height),
                       Dali::String(mCurrentReq.pngPath.c_str()),
-                      ThemeToColor(mCurrentReq.theme));
+                      captureBg);
         return false; // one-shot timer
     }
 

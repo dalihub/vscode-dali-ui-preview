@@ -381,4 +381,69 @@ describe('PreviewServer — IPC behavior', () => {
         expect(result.success).to.equal(false);
         expect(result.error).to.include('invalid characters');
     });
+
+    it('reload() appends valid bgColor to RELOAD command', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', '#ff8800'
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await reloadPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        expect(writtenCmd).to.include('#ff8800');
+        expect(writtenCmd).to.match(/RELOAD .+ #ff8800\n$/);
+    });
+
+    it('reload() omits bgColor field when invalid hex is supplied', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', 'invalid'
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await reloadPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        expect(writtenCmd).to.not.include('invalid');
+        expect(writtenCmd.trim().split(' ')).to.have.length(7); // no 8th field
+    });
+
+    it('reload() omits bgColor field when undefined', async () => {
+        const { server, proc } = await startedServer();
+
+        const reloadPromise = server.reload(
+            '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', undefined
+        );
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await reloadPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        expect(writtenCmd.trim().split(' ')).to.have.length(7);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// preview_server.cpp — HexToColor structure tests
+// ---------------------------------------------------------------------------
+
+describe('previewServer — preview_server.cpp HexToColor', () => {
+    const SERVER_CPP = path.resolve(__dirname, '../../../server/preview_server.cpp');
+
+    it('preview_server.cpp contains HexToColor function', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('HexToColor');
+    });
+
+    it('preview_server.cpp parses optional bgColor token from RELOAD command', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('bgColor');
+    });
+
+    it('preview_server.cpp HexToColor uses try/catch for stoul safety', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('try');
+        expect(content).to.include('catch');
+    });
 });

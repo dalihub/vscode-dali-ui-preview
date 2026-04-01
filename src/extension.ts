@@ -26,6 +26,7 @@ let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
 let buildGeneration = 0;
 let pendingRebuildDoc: vscode.TextDocument | undefined;
 let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let bgColorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -118,6 +119,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
         currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
         context.workspaceState.update('daliPreview.theme', currentTheme);
+        currentBgColor = undefined;
+        context.workspaceState.update('daliPreview.backgroundColor', undefined);
         themeStatusBar?.update(currentTheme);
         if (previewManager) {
             previewManager.setTheme(currentTheme);
@@ -228,6 +231,8 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         previewManager.onThemeToggle(() => {
             currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
             context.workspaceState.update('daliPreview.theme', currentTheme);
+            currentBgColor = undefined;
+            context.workspaceState.update('daliPreview.backgroundColor', undefined);
             themeStatusBar?.update(currentTheme);
             previewManager!.setTheme(currentTheme);
             // Rebuild with new theme
@@ -241,6 +246,14 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         previewManager.onBackgroundChange((color: string) => {
             currentBgColor = color;
             context.workspaceState.update('daliPreview.backgroundColor', color);
+            clearTimeout(bgColorDebounceTimer);
+            bgColorDebounceTimer = setTimeout(() => {
+                bgColorDebounceTimer = undefined;
+                const editor = vscode.window.activeTextEditor;
+                if (editor && isPreviewable(editor.document)) {
+                    runPreview(editor.document);
+                }
+            }, 300);
         });
 
         // Handle click-to-code from webview
@@ -356,7 +369,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 const pngPath      = '/tmp/dali_preview/preview.png';
                 const metadataPath = '/tmp/dali_preview/preview_metadata.json';
                 result = await previewServer.reload(
-                    pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight, currentTheme
+                    pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
                 );
                 usedServerMode = true;
             } else {
@@ -380,7 +393,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         // Phase 1 fallback: full harness compile + run
         if (!usedServerMode) {
-            result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight, currentTheme);
+            result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight, currentTheme, currentBgColor);
         }
 
         // Discard stale result if a newer build was queued
@@ -475,7 +488,7 @@ async function runMultiPreview(
                     const pngPath      = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}.png`;
                     const metadataPath = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}_metadata.json`;
                     const reloadResult = await previewServer.reload(
-                        pluginResult.soPath, pngPath, metadataPath, width, height, theme
+                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor
                     );
                     results.push({
                         config,
@@ -496,7 +509,7 @@ async function runMultiPreview(
                 }
             } else {
                 // Phase 1 fallback
-                const result = await buildRunner.buildAndRun(instrumented, width, height, theme);
+                const result = await buildRunner.buildAndRun(instrumented, width, height, theme, currentBgColor);
                 results.push({
                     config,
                     success: result.success,

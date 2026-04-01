@@ -121,6 +121,48 @@ describe('BuildRunner.themeToBackgroundColor()', () => {
     });
 });
 
+describe('BuildRunner.hexToVector4()', () => {
+    it('converts red #ff0000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#ff0000')).to.equal('Vector4(1.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+
+    it('converts black #000000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#000000')).to.equal('Vector4(0.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+
+    it('converts white #ffffff correctly', () => {
+        expect(BuildRunner.hexToVector4('#ffffff')).to.equal('Vector4(1.0000f, 1.0000f, 1.0000f, 1.0f)');
+    });
+
+    it('converts uppercase hex #FF0000 correctly', () => {
+        expect(BuildRunner.hexToVector4('#FF0000')).to.equal('Vector4(1.0000f, 0.0000f, 0.0000f, 1.0f)');
+    });
+
+    it('converts mid-range color #804020 correctly', () => {
+        expect(BuildRunner.hexToVector4('#804020')).to.equal('Vector4(0.5020f, 0.2510f, 0.1255f, 1.0f)');
+    });
+
+    it('returns dark fallback for empty string', () => {
+        expect(BuildRunner.hexToVector4('')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+
+    it('returns dark fallback for string without # prefix', () => {
+        expect(BuildRunner.hexToVector4('ff0000')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+
+    it('returns dark fallback for too-short hex string', () => {
+        expect(BuildRunner.hexToVector4('#abc')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+
+    it('returns dark fallback for too-long hex string', () => {
+        expect(BuildRunner.hexToVector4('#1234567')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+
+    it('returns dark fallback for non-hex characters', () => {
+        expect(BuildRunner.hexToVector4('#GGHHII')).to.equal('Vector4(0.1f, 0.1f, 0.12f, 1.0f)');
+    });
+});
+
 describe('BuildRunner.sanitizeConfigName()', () => {
     it('lowercases the name', () => {
         expect(BuildRunner.sanitizeConfigName('Phone Light')).to.equal('phone_light');
