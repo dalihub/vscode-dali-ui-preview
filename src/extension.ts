@@ -38,6 +38,9 @@ let currentTheme: 'light' | 'dark' = 'dark';
 // Current background color (persisted in workspaceState)
 let currentBgColor: string | undefined;
 
+// Code-to-Preview debounce timer
+let cursorHighlightTimer: ReturnType<typeof setTimeout> | undefined;
+
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
     outputChannel.appendLine('DALi Preview extension activating...');
@@ -289,6 +292,37 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
                 });
             }
         });
+
+        // Inspector toggle state persistence
+        previewManager.onInspectorToggle((visible: boolean) => {
+            context.workspaceState.update('daliPreview.inspectorVisible', visible);
+        });
+
+        // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
+        context.subscriptions.push(
+            vscode.window.onDidChangeTextEditorSelection((e) => {
+                if (!previewManager?.isVisible) {
+                    return;
+                }
+                if (!lastPreviewedDoc) {
+                    return;
+                }
+                if (e.textEditor.document.uri.toString() !== lastPreviewedDoc.uri.toString()) {
+                    return;
+                }
+                const line = e.selections[0]?.active.line;
+                if (typeof line !== 'number') {
+                    return;
+                }
+                if (cursorHighlightTimer !== undefined) {
+                    clearTimeout(cursorHighlightTimer);
+                }
+                cursorHighlightTimer = setTimeout(() => {
+                    cursorHighlightTimer = undefined;
+                    previewManager?.highlightElement(line);
+                }, 200);
+            })
+        );
     }
 }
 
