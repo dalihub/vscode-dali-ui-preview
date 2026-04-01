@@ -93,17 +93,22 @@
     "package": "vsce package",
     "test": "npm run test:unit",
     "test:unit": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+    "test:e2e": "node out/test/e2e/goldenTestRunner.js",
+    "test:golden:update": "UPDATE_GOLDENS=1 node out/test/e2e/goldenTestRunner.js",
     "pretest": "npm run compile"
   },
   "devDependencies": {
     "@types/chai": "^4.3.0",
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
+    "@types/pngjs": "^6.0.5",
     "@types/sinon": "^17.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
     "chai": "^4.3.0",
     "mocha": "^11.3.0",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
     "sinon": "^17.0.0",
     "typescript": "^5.9.3"
   },
