@@ -472,9 +472,12 @@ async function runMultiPreview(
         }
 
         const configStart = Date.now();
-        const width  = config.width  ?? currentWidth;
-        const height = config.height ?? currentHeight;
-        const theme  = config.theme  ?? currentTheme;
+        const width     = config.width     ?? currentWidth;
+        const height    = config.height    ?? currentHeight;
+        const theme     = config.theme     ?? currentTheme;
+        const locale    = config.locale;
+        const fontScale = config.fontScale;
+        const font      = config.font;
 
         try {
             if (previewServer?.isRunning) {
@@ -488,7 +491,8 @@ async function runMultiPreview(
                     const pngPath      = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}.png`;
                     const metadataPath = `/tmp/dali_preview/preview_${sanitizeForPath(config.name)}_metadata.json`;
                     const reloadResult = await previewServer.reload(
-                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor
+                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor,
+                        locale, fontScale, font
                     );
                     results.push({
                         config,
@@ -509,7 +513,10 @@ async function runMultiPreview(
                 }
             } else {
                 // Phase 1 fallback
-                const result = await buildRunner.buildAndRun(instrumented, width, height, theme, currentBgColor);
+                const result = await buildRunner.buildAndRun(
+                    instrumented, width, height, theme, currentBgColor,
+                    locale, fontScale, font
+                );
                 results.push({
                     config,
                     success: result.success,
