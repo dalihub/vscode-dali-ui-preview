@@ -5,6 +5,14 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-04-02 — 버그픽스: font-client.h 경로 수정 — DAL-23
+
+### Fixed
+
+- **font-client.h 경로 수정** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`): `dali/devel-api/adaptor-framework/font-client.h`는 존재하지 않는 경로. 실제 위치인 `dali/devel-api/text-abstraction/font-client.h`로 수정. 이 버그로 인해 익스텐션 실행 시 항상 컴파일 에러가 발생하여 프리뷰가 불가능했음.
+
+---
+
 ## [0.15.0] - 2026-04-02 — Phase 4-1: 인터랙티브 모드 (VNC) — DAL-22
 
 ### Added
