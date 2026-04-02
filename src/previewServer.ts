@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildResult } from './buildRunner';
+import { SceneNode } from './cppParser';
 
 const execAsync = promisify(exec);
 
@@ -126,6 +127,45 @@ export class PreviewServer {
             const fontField = font || '-';
             const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField} ${localeField} ${fontScaleField} ${fontField}\n`;
             this.serverProcess.stdin!.write(cmd);
+        });
+    }
+
+    /**
+     * Send a RENDER_JSON command. Resolves with BuildResult when server responds.
+     * The scene tree is serialised to a unique temp JSON file and passed to the server.
+     */
+    async renderJson(scene: SceneNode, pngPath: string, metadataPath: string,
+                     width: number, height: number, theme: 'light' | 'dark' = 'dark',
+                     bgColor?: string): Promise<BuildResult> {
+        if (!this.isRunning || !this.serverProcess) {
+            return { success: false, error: 'Preview server is not running' };
+        }
+
+        if (/[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath)) {
+            return { success: false, error: 'path contains invalid characters' };
+        }
+
+        if (this.pendingRequest) {
+            this.pendingRequest.resolve({ success: false, error: 'reload already in progress' });
+            this.pendingRequest = undefined;
+        }
+
+        // Use a unique temp file per request to avoid race conditions on concurrent calls
+        const jsonPath = `/tmp/dali_preview/scene-${Date.now()}.json`;
+        try {
+            await fs.promises.mkdir('/tmp/dali_preview', { recursive: true });
+            await fs.promises.writeFile(jsonPath, JSON.stringify(scene));
+        } catch (err: any) {
+            return { success: false, error: `Failed to write scene JSON: ${err.message}` };
+        }
+
+        const proc = this.serverProcess;
+        return new Promise((resolve) => {
+            this.pendingRequest = { resolve, metadataPath };
+
+            const colorField = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor) ? bgColor : '-';
+            const cmd = `RENDER_JSON ${jsonPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField}\n`;
+            proc.stdin!.write(cmd);
         });
     }
 

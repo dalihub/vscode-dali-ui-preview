@@ -26,6 +26,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -152,7 +153,7 @@ static void ExportSceneMetadata(Actor root, const std::string& metadataPath,
 // ---------------------------------------------------------------------------
 
 struct ReloadRequest {
-    std::string soPath;
+    std::string soPath;       // .so path for RELOAD; JSON file path for RENDER_JSON
     std::string pngPath;
     std::string metadataPath;
     float       width  = 0.0f;
@@ -162,7 +163,337 @@ struct ReloadRequest {
     std::string locale;           // optional, e.g. "ko_KR"
     float       fontScale = 0.0f; // optional, 0 = not set
     std::string font;             // optional, font filename
+    bool        isJson = false;   // true → RENDER_JSON path
 };
+
+// ---------------------------------------------------------------------------
+// Minimal JSON → SceneNode parser
+// ---------------------------------------------------------------------------
+
+struct SceneNodeJson
+{
+    std::string                                          type;
+    std::vector<std::string>                             constructorArgs;
+    std::map<std::string, std::vector<std::string>>      properties;
+    std::vector<SceneNodeJson>                           children;
+};
+
+static void JSkipWs(const std::string& s, size_t& p)
+{
+    while (p < s.size() && (s[p]==' '||s[p]=='\t'||s[p]=='\n'||s[p]=='\r')) ++p;
+}
+
+static std::string JReadString(const std::string& s, size_t& p)
+{
+    ++p; // skip opening "
+    std::string out;
+    while (p < s.size() && s[p] != '"')
+    {
+        if (s[p] == '\\' && p + 1 < s.size())
+        {
+            ++p;
+            switch (s[p])
+            {
+                case '"':  out += '"';  break;
+                case '\\': out += '\\'; break;
+                case 'n':  out += '\n'; break;
+                case 't':  out += '\t'; break;
+                default:   out += s[p]; break;
+            }
+        }
+        else { out += s[p]; }
+        ++p;
+    }
+    ++p; // skip closing "
+    return out;
+}
+
+static std::vector<std::string> JReadStringArray(const std::string& s, size_t& p)
+{
+    ++p; // skip '['
+    std::vector<std::string> out;
+    JSkipWs(s, p);
+    while (p < s.size() && s[p] != ']')
+    {
+        if (s[p] == '"') { out.push_back(JReadString(s, p)); }
+        else { ++p; } // skip unexpected token to prevent infinite loop
+        JSkipWs(s, p);
+        if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
+    }
+    if (p < s.size()) ++p; // skip ']'
+    return out;
+}
+
+static std::map<std::string, std::vector<std::string>>
+JReadPropertiesObject(const std::string& s, size_t& p)
+{
+    ++p; // skip '{'
+    std::map<std::string, std::vector<std::string>> out;
+    JSkipWs(s, p);
+    while (p < s.size() && s[p] != '}')
+    {
+        if (s[p] == '"')
+        {
+            std::string key = JReadString(s, p);
+            JSkipWs(s, p);
+            if (p < s.size() && s[p] == ':') { ++p; JSkipWs(s, p); }
+            if (p < s.size() && s[p] == '[')
+                out[key] = JReadStringArray(s, p);
+        }
+        JSkipWs(s, p);
+        if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
+    }
+    if (p < s.size()) ++p; // skip '}'
+    return out;
+}
+
+static SceneNodeJson JParseNode(const std::string& s, size_t& p);
+
+static std::vector<SceneNodeJson> JReadNodeArray(const std::string& s, size_t& p)
+{
+    ++p; // skip '['
+    std::vector<SceneNodeJson> out;
+    JSkipWs(s, p);
+    while (p < s.size() && s[p] != ']')
+    {
+        if (s[p] == '{') { out.push_back(JParseNode(s, p)); }
+        else { ++p; } // skip unexpected token to prevent infinite loop
+        JSkipWs(s, p);
+        if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
+    }
+    if (p < s.size()) ++p; // skip ']'
+    return out;
+}
+
+static SceneNodeJson JParseNode(const std::string& s, size_t& p)
+{
+    SceneNodeJson node;
+    ++p; // skip '{'
+    JSkipWs(s, p);
+    while (p < s.size() && s[p] != '}')
+    {
+        if (s[p] == '"')
+        {
+            std::string key = JReadString(s, p);
+            JSkipWs(s, p);
+            if (p < s.size() && s[p] == ':') { ++p; JSkipWs(s, p); }
+
+            if      (key == "type"           && p < s.size() && s[p] == '"')
+                node.type = JReadString(s, p);
+            else if (key == "constructorArgs" && p < s.size() && s[p] == '[')
+                node.constructorArgs = JReadStringArray(s, p);
+            else if (key == "properties"     && p < s.size() && s[p] == '{')
+                node.properties = JReadPropertiesObject(s, p);
+            else if (key == "children"       && p < s.size() && s[p] == '[')
+                node.children = JReadNodeArray(s, p);
+            else
+            {
+                // Skip unknown value
+                if      (p < s.size() && s[p] == '"') JReadString(s, p);
+                else if (p < s.size() && s[p] == '[') JReadStringArray(s, p);
+                else { while (p < s.size() && s[p] != ',' && s[p] != '}') ++p; }
+            }
+        }
+        JSkipWs(s, p);
+        if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
+    }
+    if (p < s.size()) ++p; // skip '}'
+    return node;
+}
+
+// ---------------------------------------------------------------------------
+// Scene builder: SceneNodeJson → Dali::Ui view tree
+// ---------------------------------------------------------------------------
+
+static float SBParseFloat(const std::string& s)
+{
+    if (s.empty()) return 0.0f;
+    std::string t = s;
+    if (!t.empty() && t.back() == 'f') t.pop_back();
+    try { return std::stof(t); } catch (...) { return 0.0f; }
+}
+
+static UiColor SBParseUiColor(const std::string& s)
+{
+    // "UiColor(0x1e1e2e)" or "UiColor(0xFF0000FF)"
+    const std::string prefix = "UiColor(";
+    if (s.size() > prefix.size() && s.substr(0, prefix.size()) == prefix)
+    {
+        std::string hex = s.substr(prefix.size(), s.size() - prefix.size() - 1);
+        try
+        {
+            unsigned long v = std::stoul(hex, nullptr, 16);
+            return UiColor(static_cast<uint32_t>(v));
+        }
+        catch (...) {}
+    }
+    return UiColor(0x000000);
+}
+
+static Extents SBParseExtents(const std::string& s)
+{
+    // "Extents(30, 30, 30, 30)"
+    const std::string prefix = "Extents(";
+    if (s.size() > prefix.size() && s.substr(0, prefix.size()) == prefix)
+    {
+        std::string inner = s.substr(prefix.size(), s.size() - prefix.size() - 1);
+        std::istringstream iss(inner);
+        std::string parts[4];
+        for (int i = 0; i < 4; ++i) std::getline(iss, parts[i], ',');
+        auto trim = [](std::string str) -> std::string {
+            size_t a = str.find_first_not_of(" ");
+            if (a == std::string::npos) return "0";
+            str = str.substr(a);
+            size_t b = str.find_last_not_of(" \tf");
+            return (b == std::string::npos) ? str : str.substr(0, b + 1);
+        };
+        try {
+            return Extents(
+                static_cast<uint16_t>(std::stof(trim(parts[0]))),
+                static_cast<uint16_t>(std::stof(trim(parts[1]))),
+                static_cast<uint16_t>(std::stof(trim(parts[2]))),
+                static_cast<uint16_t>(std::stof(trim(parts[3]))));
+        } catch (...) {}
+    }
+    return Extents(0, 0, 0, 0);
+}
+
+static LayoutLength SBParseLayoutLength(const std::string& s)
+{
+    if (s == "MATCH_PARENT")    return MATCH_PARENT;
+    if (s == "WRAP_CONTENT")    return WRAP_CONTENT;
+    if (s == "FILL_TO_PARENT")  return FILL_TO_PARENT;
+    if (s == "FIT_TO_CHILDREN") return FIT_TO_CHILDREN;
+    return LayoutLength(SBParseFloat(s));
+}
+
+static void SBApplyCommonProps(View& view,
+    const std::map<std::string, std::vector<std::string>>& props)
+{
+    for (const auto& kv : props)
+    {
+        if (kv.second.empty()) continue;
+        const std::string& n  = kv.first;
+        const std::string& a0 = kv.second[0];
+        if      (n == "SetRequestedWidth")  view.SetRequestedWidth(SBParseLayoutLength(a0));
+        else if (n == "SetRequestedHeight") view.SetRequestedHeight(SBParseLayoutLength(a0));
+        else if (n == "SetBackgroundColor") view.SetBackgroundColor(SBParseUiColor(a0));
+        else if (n == "SetViewPadding")     view.SetViewPadding(SBParseExtents(a0));
+        else if (n == "SetViewMargin")      view.SetViewMargin(SBParseExtents(a0));
+    }
+}
+
+static void SBApplyFlexProps(FlexLayout& fl,
+    const std::map<std::string, std::vector<std::string>>& props)
+{
+    for (const auto& kv : props)
+    {
+        if (kv.second.empty()) continue;
+        const std::string& n  = kv.first;
+        const std::string& a0 = kv.second[0];
+
+        if (n == "Direction")
+        {
+            if      (a0.find("COLUMN_REVERSE") != std::string::npos) fl.SetDirection(FlexDirection::COLUMN_REVERSE);
+            else if (a0.find("ROW_REVERSE")    != std::string::npos) fl.SetDirection(FlexDirection::ROW_REVERSE);
+            else if (a0.find("COLUMN")         != std::string::npos) fl.SetDirection(FlexDirection::COLUMN);
+            else                                                      fl.SetDirection(FlexDirection::ROW);
+        }
+        else if (n == "AlignItems")
+        {
+            if      (a0.find("FLEX_END")   != std::string::npos) fl.SetAlignItems(FlexAlign::FLEX_END);
+            else if (a0.find("FLEX_START") != std::string::npos) fl.SetAlignItems(FlexAlign::FLEX_START);
+            else if (a0.find("STRETCH")    != std::string::npos) fl.SetAlignItems(FlexAlign::STRETCH);
+            else if (a0.find("BASELINE")   != std::string::npos) fl.SetAlignItems(FlexAlign::BASELINE);
+            else if (a0.find("CENTER")     != std::string::npos) fl.SetAlignItems(FlexAlign::CENTER);
+        }
+        else if (n == "JustifyContent")
+        {
+            if      (a0.find("SPACE_EVENLY")  != std::string::npos) fl.SetJustifyContent(FlexJustify::SPACE_EVENLY);
+            else if (a0.find("SPACE_BETWEEN") != std::string::npos) fl.SetJustifyContent(FlexJustify::SPACE_BETWEEN);
+            else if (a0.find("SPACE_AROUND")  != std::string::npos) fl.SetJustifyContent(FlexJustify::SPACE_AROUND);
+            else if (a0.find("FLEX_END")      != std::string::npos) fl.SetJustifyContent(FlexJustify::FLEX_END);
+            else if (a0.find("CENTER")        != std::string::npos) fl.SetJustifyContent(FlexJustify::CENTER);
+        }
+        else if (n == "Wrap")
+        {
+            if      (a0.find("WRAP_REVERSE") != std::string::npos) fl.SetWrap(FlexWrap::WRAP_REVERSE);
+            else if (a0.find("WRAP")         != std::string::npos) fl.SetWrap(FlexWrap::WRAP);
+        }
+    }
+}
+
+static View SBBuildNode(const SceneNodeJson& node);
+
+static View SBBuildNode(const SceneNodeJson& node)
+{
+    const std::string& type = node.type;
+
+    if (type == "Label")
+    {
+        std::string text = node.constructorArgs.empty() ? "" : node.constructorArgs[0];
+        // Strip surrounding C++ string-literal quotes (e.g. `"Hello"` → `Hello`)
+        if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
+            text = text.substr(1, text.size() - 2);
+        Label lbl = Label::New(text.c_str());
+        for (const auto& kv : node.properties)
+        {
+            if (kv.second.empty()) continue;
+            const std::string& n  = kv.first;
+            const std::string& a0 = kv.second[0];
+            if      (n == "SetFontSize")    lbl.SetFontSize(SBParseFloat(a0));
+            else if (n == "SetTextColor")   lbl.SetTextColor(SBParseUiColor(a0));
+        }
+        SBApplyCommonProps(lbl, node.properties);
+        return lbl;
+    }
+    else if (type == "FlexLayout")
+    {
+        FlexLayout fl = FlexLayout::New();
+        SBApplyFlexProps(fl, node.properties);
+        SBApplyCommonProps(fl, node.properties);
+        for (const auto& child : node.children)
+        {
+            View cv = SBBuildNode(child);
+            if (cv) fl.Add(cv);
+        }
+        return fl;
+    }
+    else if (type == "StackLayout")
+    {
+        StackLayout sl;
+        if (!node.constructorArgs.empty() &&
+            node.constructorArgs[0].find("HORIZONTAL") != std::string::npos)
+            sl = StackLayout::New(StackOrientation::HORIZONTAL);
+        else
+            sl = StackLayout::New(StackOrientation::VERTICAL);
+
+        for (const auto& kv : node.properties)
+        {
+            if (kv.second.empty()) continue;
+            if (kv.first == "Spacing") sl.SetSpacing(SBParseFloat(kv.second[0]));
+        }
+        SBApplyCommonProps(sl, node.properties);
+        for (const auto& child : node.children)
+        {
+            View cv = SBBuildNode(child);
+            if (cv) sl.Add(cv);
+        }
+        return sl;
+    }
+    else
+    {
+        // Covers "View", "ImageView", and any unknown type
+        View view = View::New();
+        SBApplyCommonProps(view, node.properties);
+        for (const auto& child : node.children)
+        {
+            View cv = SBBuildNode(child);
+            if (cv) view.Add(cv);
+        }
+        return view;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // PreviewServer application class
@@ -209,8 +540,45 @@ public:
         std::string line;
         while (ReadLine(line))
         {
+            // Parse: RENDER_JSON <json_path> <png_path> <metadata_path> <width> <height> [theme] [bgColor]
+            if (line.size() >= 11 && line.substr(0, 11) == "RENDER_JSON")
+            {
+                std::string rest = (line.size() > 11) ? line.substr(12) : "";
+                std::istringstream iss(rest);
+                ReloadRequest req;
+                req.isJson = true;
+                std::string wStr, hStr;
+                if (!(iss >> req.soPath >> req.pngPath >> req.metadataPath >> wStr >> hStr))
+                {
+                    std::cout << "ERROR:malformed RENDER_JSON command" << std::endl;
+                    continue;
+                }
+                try
+                {
+                    req.width  = std::stof(wStr);
+                    req.height = std::stof(hStr);
+                }
+                catch (...)
+                {
+                    std::cout << "ERROR:malformed RENDER_JSON command" << std::endl;
+                    continue;
+                }
+                std::string themeStr;
+                if (iss >> themeStr) req.theme = themeStr;
+                std::string colorStr;
+                if (iss >> colorStr && colorStr != "-") req.bgColor = colorStr;
+
+                if (!mCaptureBusy)
+                    DoReload(req);
+                else
+                {
+                    mPendingRequest = req;
+                    mHasPending     = true;
+                }
+            }
+
             // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height> [theme]
-            if (line.size() >= 6 && line.substr(0, 6) == "RELOAD")
+            else if (line.size() >= 6 && line.substr(0, 6) == "RELOAD")
             {
                 std::string rest = (line.size() > 6) ? line.substr(7) : "";
                 std::istringstream iss(rest);
@@ -306,8 +674,83 @@ public:
         }
     }
 
+    // -----------------------------------------------------------------------
+    // RENDER_JSON path: parse scene JSON and build view tree directly
+    // -----------------------------------------------------------------------
+
+    void DoRenderJson(const ReloadRequest& req)
+    {
+        mCaptureBusy = true;
+        mCurrentReq  = req;
+
+        // Read scene JSON file (soPath holds the json path for RENDER_JSON)
+        std::ifstream f(req.soPath);
+        if (!f.is_open())
+        {
+            std::cout << "ERROR:cannot open scene JSON: " << req.soPath << std::endl;
+            mCaptureBusy = false;
+            FlushPending();
+            return;
+        }
+        std::string json((std::istreambuf_iterator<char>(f)),
+                          std::istreambuf_iterator<char>());
+        f.close();
+
+        // Parse
+        size_t pos = 0;
+        JSkipWs(json, pos);
+        if (pos >= json.size() || json[pos] != '{')
+        {
+            std::cout << "ERROR:invalid scene JSON" << std::endl;
+            mCaptureBusy = false;
+            FlushPending();
+            return;
+        }
+        SceneNodeJson sceneNode = JParseNode(json, pos);
+
+        // Apply background
+        mWindow.SetBackgroundColor(
+            req.bgColor.empty() ? ThemeToColor(req.theme) : HexToColor(req.bgColor));
+
+        // Resize window if needed
+        Vector2 winSize = mWindow.GetSize();
+        if (static_cast<int>(winSize.width)  != static_cast<int>(req.width) ||
+            static_cast<int>(winSize.height) != static_cast<int>(req.height))
+        {
+            mWindow.SetSize(Window::WindowSize(
+                static_cast<uint32_t>(req.width),
+                static_cast<uint32_t>(req.height)));
+        }
+
+        // Clear existing actors
+        Layer rootLayer = mWindow.GetRootLayer();
+        while (rootLayer.GetChildCount() > 0)
+            rootLayer.Remove(rootLayer.GetChildAt(0));
+
+        // Build and attach scene
+        try
+        {
+            View root = SBBuildNode(sceneNode);
+            mWindow.Add(root);
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << "ERROR:BuildScene threw: " << ex.what() << std::endl;
+            mCaptureBusy = false;
+            FlushPending();
+            return;
+        }
+
+        // Delay capture to allow layout flush
+        mCaptureTimer = Timer::New(200);
+        mCaptureTimer.TickSignal().Connect(this, &PreviewServer::OnStartCapture);
+        mCaptureTimer.Start();
+    }
+
     void DoReload(const ReloadRequest& req)
     {
+        if (req.isJson) { DoRenderJson(req); return; }
+
         mCaptureBusy = true;
         mCurrentReq  = req;
 

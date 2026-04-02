@@ -36,6 +36,36 @@ describe('StatusBarManager — showMode()', () => {
         mgr.showMode('compile');
         expect(String(item.tooltip)).to.include('Compile');
     });
+
+    it('showMode("parser") sets tooltip containing "Parser"', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showMode('parser');
+        expect(String(item.tooltip)).to.include('Parser');
+    });
+
+    it('showMode("parser") updates statusBarItem.text', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showMode('parser');
+        expect(item.text).to.include('DALi');
+    });
+
+    it('showMode("server") updates statusBarItem.text', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showMode('server');
+        expect(item.text).to.include('DALi');
+    });
+
+    it('showMode("compile") updates statusBarItem.text', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showMode('compile');
+        expect(item.text).to.include('DALi');
+    });
+
+    it('showMode("vnc") sets Interactive text and does not include Parser/Server/Compile labels', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showMode('vnc');
+        expect(item.text).to.include('Interactive');
+    });
 });
 
 describe('ThemeStatusBarItem', () => {

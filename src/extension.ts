@@ -6,6 +6,7 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
+import { parseChainExpression } from './cppParser';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
@@ -515,9 +516,34 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         let result;
         let usedServerMode = false;
+        let usedParserMode = false;
+
+        // Phase 4-2: Parser-first path (~200ms) — try before compile
+        if (previewServer?.isRunning) {
+            const scene = parseChainExpression(extraction.code);
+            if (scene) {
+                const pngPath      = '/tmp/dali_preview/preview.png';
+                const metadataPath = '/tmp/dali_preview/preview_metadata.json';
+                result = await previewServer.renderJson(
+                    scene, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
+                );
+
+                if (myGeneration !== buildGeneration) { return; }
+
+                if (result.success) {
+                    usedServerMode = true;
+                    usedParserMode = true;
+                } else {
+                    // Parser path failed at render time → fall through to compile
+                    outputChannel.appendLine('[Parser] renderJson failed, falling back to compile path');
+                    result = undefined;
+                    if (myGeneration !== buildGeneration) { return; }
+                }
+            }
+        }
 
         // Phase 2: dlopen server mode
-        if (previewServer?.isRunning) {
+        if (!usedServerMode && previewServer?.isRunning) {
             const pluginResult = await buildRunner.compilePlugin(instrumented);
 
             // Discard stale result if a newer build was queued during this compile
@@ -573,7 +599,8 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             }
             cancelErrorDebounce();
             previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
-            const modeLabel = usedServerMode ? '⚡ server' : '🔨 compile';
+            const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
+            statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
             statusBar?.showSuccess(buildTimeMs);
             outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${currentWidth}x${currentHeight})`);
         } else {
