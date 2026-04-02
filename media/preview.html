@@ -889,6 +889,72 @@
     font-size: 13px;
     z-index: 10;
   }
+
+  /* ── Animation preview ── */
+  .animation-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .animation-container img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 120px);
+    object-fit: contain;
+    border: 1px solid #333;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .animation-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #ccc;
+    user-select: none;
+  }
+
+  .animation-controls button {
+    background: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .animation-controls button:hover {
+    background: #505050;
+  }
+
+  .animation-controls input[type="range"] {
+    width: 80px;
+    accent-color: #007acc;
+    cursor: pointer;
+  }
+
+  .animation-speed-label {
+    min-width: 28px;
+    color: #aaa;
+    font-size: 11px;
+  }
+
+  .animation-badge {
+    background: #0e639c;
+    color: #fff;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+  }
 </style>
 </head>
 <body>
@@ -969,6 +1035,20 @@
         <!-- Image container -->
         <div class="preview-container bg-dark" id="previewContainer">
           <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
+
+          <!-- Animation container (shown when GIF is available) -->
+          <div id="animationContainer" class="animation-container hidden">
+            <img id="animationImage" alt="DALi Animation" draggable="false">
+            <div class="animation-controls" id="animationControls">
+              <button id="animPlayPause" title="재생/일시정지">&#x23F8;</button>
+              <button id="animRestart" title="처음부터">&#x23EE;</button>
+              <label for="animSpeedSlider" style="font-size:11px;color:#999;">Speed:</label>
+              <input type="range" id="animSpeedSlider" min="0.25" max="3" step="0.25" value="1">
+              <span class="animation-speed-label" id="animSpeedLabel">1x</span>
+              <span class="animation-badge" id="animBadge">GIF</span>
+            </div>
+          </div>
+
           <div id="elementOverlay" class="element-overlay"></div>
           <div class="resize-handle" id="resizeHandle"></div>
           <div class="resize-outline" id="resizeOutline"></div>
@@ -1033,6 +1113,13 @@
   var previewArea = document.getElementById('previewArea');
   var previewContainer = document.getElementById('previewContainer');
   var previewImage = document.getElementById('previewImage');
+  var animationContainer = document.getElementById('animationContainer');
+  var animationImage = document.getElementById('animationImage');
+  var animPlayPause = document.getElementById('animPlayPause');
+  var animRestart = document.getElementById('animRestart');
+  var animSpeedSlider = document.getElementById('animSpeedSlider');
+  var animSpeedLabel = document.getElementById('animSpeedLabel');
+  var animBadge = document.getElementById('animBadge');
   var resizeHandle = document.getElementById('resizeHandle');
   var resizeOutline = document.getElementById('resizeOutline');
   var resizeDimensions = document.getElementById('resizeDimensions');
@@ -1069,6 +1156,12 @@
   var rfbClient = null;
   var vncMode = false;
 
+  // Animation state
+  var animMode = false;
+  var animPaused = false;
+  var animOrigSrc = '';
+  var animSpeedRequestTimer = null;
+
   // ── Presets ──
   var presets = {
     '1024x600': [1024, 600],
@@ -1077,6 +1170,36 @@
     '1920x1080': [1920, 1080],
     '480x800': [480, 800]
   };
+
+  // ── Animation controls ──
+  animPlayPause.addEventListener('click', function () {
+    animPaused = !animPaused;
+    if (animPaused) {
+      // Freeze: replace src with a blank to stop GIF, store original
+      animPlayPause.textContent = '\u25B6';
+      animationImage.src = '';
+    } else {
+      // Resume: reload GIF from start
+      animPlayPause.textContent = '\u23F8';
+      animationImage.src = animOrigSrc + '?t=' + Date.now();
+    }
+  });
+
+  animRestart.addEventListener('click', function () {
+    animPaused = false;
+    animPlayPause.textContent = '\u23F8';
+    animationImage.src = animOrigSrc + '?t=' + Date.now();
+  });
+
+  animSpeedSlider.addEventListener('input', function () {
+    var speed = parseFloat(animSpeedSlider.value);
+    animSpeedLabel.textContent = speed + 'x';
+    // Debounce: request new GIF at different speed from extension
+    clearTimeout(animSpeedRequestTimer);
+    animSpeedRequestTimer = setTimeout(function () {
+      vscode.postMessage({ command: 'animationSpeedChange', speed: speed });
+    }, 500);
+  });
 
   function applyPreset() {
     var val = preset.value;
@@ -1809,12 +1932,47 @@
   window.addEventListener('message', function (event) {
     var msg = event.data;
     switch (msg.command) {
+      case 'updateAnimation': {
+        overlayWelcome.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        overlayLoading.classList.add('hidden');
+        previewGrid.classList.add('hidden');
+        previewArea.classList.remove('hidden');
+        previewImage.classList.add('hidden');
+        animationContainer.classList.remove('hidden');
+        animMode = true;
+        animPaused = false;
+        animPlayPause.textContent = '\u23F8';
+        animSpeedSlider.value = '1';
+        animSpeedLabel.textContent = '1x';
+        animOrigSrc = msg.uri;
+        animBadge.textContent = msg.isGif ? 'GIF' : 'PNG';
+        animationImage.src = msg.uri + '?t=' + Date.now();
+        animationImage.onload = function () {
+          dimensionsLabel.textContent = animationImage.naturalWidth + ' x ' + animationImage.naturalHeight;
+          dimensionsLabel.classList.remove('hidden');
+          if (msg.metadata) {
+            renderMetadataOverlay(msg.metadata);
+            if (inspectorVisible) {
+              renderTreeView(msg.metadata);
+            }
+          }
+        };
+        var buildSec = (msg.buildTime / 1000).toFixed(1);
+        buildTimeText.textContent = 'Built in ' + buildSec + 's (' + (msg.frameCount || 0) + ' frames)';
+        timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        break;
+      }
+
       case 'updateImage':
         overlayWelcome.classList.add('hidden');
         overlayError.classList.add('hidden');
         overlayLoading.classList.add('hidden');
         previewGrid.classList.add('hidden');
         previewArea.classList.remove('hidden');
+        // Hide animation container when switching back to static mode
+        animationContainer.classList.add('hidden');
+        animMode = false;
         previewImage.classList.remove('hidden');
         dimensionsLabel.classList.remove('hidden');
         previewImage.src = msg.uri + '?t=' + Date.now();
@@ -1909,6 +2067,8 @@
         overlayLoading.classList.add('hidden');
         overlayError.classList.add('hidden');
         previewImage.classList.add('hidden');
+        animationContainer.classList.add('hidden');
+        animMode = false;
         dimensionsLabel.classList.add('hidden');
         overlayWelcome.classList.remove('hidden');
         previewArea.classList.remove('hidden');
