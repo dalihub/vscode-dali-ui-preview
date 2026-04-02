@@ -13,6 +13,10 @@ export class PreviewManager {
     private bgChangeCallbacks: Array<(color: string) => void> = [];
     private inspectorToggleCallbacks: Array<(visible: boolean) => void> = [];
     private editPropertyCallbacks: Array<(sourceLine: number, propName: string, value: string) => void> = [];
+    private startVncCallbacks: Array<() => void> = [];
+    private stopVncCallbacks: Array<() => void> = [];
+    private vncConnectedCallbacks: Array<() => void> = [];
+    private vncDisconnectedCallbacks: Array<(reason: string) => void> = [];
     private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
@@ -36,6 +40,7 @@ export class PreviewManager {
                 localResourceRoots: [
                     vscode.Uri.file('/tmp/dali_preview'),
                     vscode.Uri.file(mediaPath),
+                    vscode.Uri.file(path.join(mediaPath, 'vendor', 'noVNC')),
                 ],
             }
         );
@@ -188,6 +193,86 @@ export class PreviewManager {
         this.panel.webview.postMessage({ command: 'highlightElement', line });
     }
 
+    /** Show the VNC toggle button in the webview toolbar. */
+    notifyVncAvailable(): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'vncAvailable' });
+    }
+
+    /** Tell webview to switch to VNC mode and connect to wsUrl. */
+    startVncMode(wsUrl: string): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'startVnc', wsUrl });
+    }
+
+    /** Tell webview to switch back to static PNG mode. */
+    stopVncMode(): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'stopVnc' });
+    }
+
+    /** Tell webview that the DALi app is reloading (hot reload). */
+    notifyVncReloading(): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'vncReloading' });
+    }
+
+    /** Tell webview that hot reload is done — reconnect VNC. */
+    notifyVncReloaded(wsUrl: string): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ command: 'vncReloaded', wsUrl });
+    }
+
+    onStartVnc(callback: () => void): vscode.Disposable {
+        this.startVncCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.startVncCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.startVncCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
+    onStopVnc(callback: () => void): vscode.Disposable {
+        this.stopVncCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.stopVncCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.stopVncCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
+    onVncConnected(callback: () => void): vscode.Disposable {
+        this.vncConnectedCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.vncConnectedCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.vncConnectedCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
+    onVncDisconnected(callback: (reason: string) => void): vscode.Disposable {
+        this.vncDisconnectedCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.vncDisconnectedCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.vncDisconnectedCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     setInspectorVisible(visible: boolean): void {
         this._inspectorVisible = visible;
         if (!this.panel) {
@@ -261,6 +346,10 @@ export class PreviewManager {
         this.bgChangeCallbacks = [];
         this.inspectorToggleCallbacks = [];
         this.editPropertyCallbacks = [];
+        this.startVncCallbacks = [];
+        this.stopVncCallbacks = [];
+        this.vncConnectedCallbacks = [];
+        this.vncDisconnectedCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -337,6 +426,31 @@ export class PreviewManager {
                 }
                 break;
             }
+            case 'startVnc': {
+                for (const cb of this.startVncCallbacks) {
+                    cb();
+                }
+                break;
+            }
+            case 'stopVnc': {
+                for (const cb of this.stopVncCallbacks) {
+                    cb();
+                }
+                break;
+            }
+            case 'vncConnected': {
+                for (const cb of this.vncConnectedCallbacks) {
+                    cb();
+                }
+                break;
+            }
+            case 'vncDisconnected': {
+                const reason = (message.reason as string) || '';
+                for (const cb of this.vncDisconnectedCallbacks) {
+                    cb(reason);
+                }
+                break;
+            }
         }
     }
 
@@ -355,6 +469,9 @@ export class PreviewManager {
 
         if (this.panel) {
             html = html.replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource);
+            const rfbPath = path.join(this.context.extensionPath, 'media', 'vendor', 'noVNC', 'rfb.js');
+            const rfbUri = this.panel.webview.asWebviewUri(vscode.Uri.file(rfbPath));
+            html = html.replace(/\{\{rfbScriptUri\}\}/g, rfbUri.toString());
         }
 
         return html;

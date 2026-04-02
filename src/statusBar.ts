@@ -44,8 +44,11 @@ export class StatusBarManager {
         }, 5000);
     }
 
-    showMode(mode: 'server' | 'compile'): void {
-        const label = mode === 'server' ? '⚡ Server' : '🔨 Compile';
+    showMode(mode: 'server' | 'compile' | 'vnc'): void {
+        const label = mode === 'server' ? '⚡ Server' : mode === 'vnc' ? '🖥 VNC' : '🔨 Compile';
+        if (mode === 'vnc') {
+            this.statusBarItem.text = '$(vm-active) DALi: Interactive';
+        }
         this.statusBarItem.tooltip = `DALi Preview mode: ${label}`;
     }
 

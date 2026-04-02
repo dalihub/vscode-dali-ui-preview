@@ -1,0 +1,408 @@
+import { spawn, execSync, ChildProcess } from 'child_process';
+import * as net from 'net';
+import * as vscode from 'vscode';
+
+export interface VncStartParams {
+    daliBinaryPath: string;
+    display: string;
+    width: number;
+    height: number;
+    env: NodeJS.ProcessEnv;
+}
+
+export interface VncStartResult {
+    success: boolean;
+    wsUrl?: string;
+    error?: string;
+}
+
+const VNC_PORT_RANGE_START = 5900;
+const VNC_PORT_RANGE_END = 5910;
+const WS_PORT_RANGE_START = 6080;
+const WS_PORT_RANGE_END = 6090;
+const PROCESS_STARTUP_WAIT_MS = 800;
+const DALI_READY_TIMEOUT_MS = 8000;
+
+export class VncManager {
+    private x11vncProcess: ChildProcess | undefined;
+    private websockifyProcess: ChildProcess | undefined;
+    private daliAppProcess: ChildProcess | undefined;
+    private vncPort: number = VNC_PORT_RANGE_START;
+    private wsPort: number = WS_PORT_RANGE_START;
+    private _isRunning = false;
+    onDaliAppExitCallback: (() => void) | undefined;
+
+    constructor(private outputChannel: vscode.OutputChannel) {}
+
+    get isRunning(): boolean {
+        return this._isRunning;
+    }
+
+    getWebSocketUrl(): string {
+        return `ws://localhost:${this.wsPort}`;
+    }
+
+    /**
+     * Checks that x11vnc and websockify are installed.
+     * Returns the name of the first missing binary, or null if all found.
+     */
+    static checkDependencies(): string | null {
+        for (const bin of ['x11vnc', 'websockify']) {
+            try {
+                execSync(`which ${bin}`, { stdio: 'pipe' });
+            } catch {
+                return bin;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Starts the interactive VNC session:
+     * 1. Spawn DALi app (long-running event loop)
+     * 2. Start x11vnc on the same display
+     * 3. Start websockify to bridge WS ↔ TCP
+     */
+    async startInteractiveMode(params: VncStartParams): Promise<VncStartResult> {
+        if (this._isRunning) {
+            await this.stopInteractiveMode();
+        }
+
+        const missing = VncManager.checkDependencies();
+        if (missing) {
+            const msg = `'${missing}' is not installed. Install with: sudo apt install ${missing === 'websockify' ? 'websockify' : 'x11vnc'}`;
+            vscode.window.showWarningMessage(`DALi Interactive Mode: ${msg}`);
+            return { success: false, error: msg };
+        }
+
+        // Find available ports
+        this.vncPort = await this.findAvailablePort(VNC_PORT_RANGE_START, VNC_PORT_RANGE_END);
+        if (this.vncPort === -1) {
+            return { success: false, error: 'No available VNC port in range 5900-5910' };
+        }
+        this.wsPort = await this.findAvailablePort(WS_PORT_RANGE_START, WS_PORT_RANGE_END);
+        if (this.wsPort === -1) {
+            return { success: false, error: 'No available WebSocket port in range 6080-6090' };
+        }
+
+        // Step 1: Spawn DALi app
+        const daliStarted = await this.spawnDaliApp(params);
+        if (!daliStarted) {
+            return { success: false, error: 'Failed to start DALi interactive app' };
+        }
+
+        // Step 2: Start x11vnc
+        const x11vncStarted = await this.startX11vnc(params.display);
+        if (!x11vncStarted) {
+            this.killDaliApp();
+            return { success: false, error: 'Failed to start x11vnc' };
+        }
+
+        // Step 3: Start websockify
+        const websockifyStarted = await this.startWebsockify();
+        if (!websockifyStarted) {
+            this.killDaliApp();
+            this.killX11vnc();
+            return { success: false, error: 'Failed to start websockify' };
+        }
+
+        this._isRunning = true;
+        const wsUrl = this.getWebSocketUrl();
+        this.outputChannel.appendLine(`[VncManager] Interactive mode started: VNC :${this.vncPort}, WS :${this.wsPort}`);
+        return { success: true, wsUrl };
+    }
+
+    /**
+     * Stops all VNC-related processes.
+     */
+    async stopInteractiveMode(): Promise<void> {
+        this._isRunning = false;
+        this.killDaliApp();
+        this.killX11vnc();
+        this.killWebsockify();
+        this.outputChannel.appendLine('[VncManager] Interactive mode stopped');
+    }
+
+    /**
+     * Restarts only the DALi app with a new binary (hot reload).
+     * x11vnc and websockify stay running — same display, new process.
+     */
+    async restartDaliApp(newBinaryPath: string, params: Omit<VncStartParams, 'daliBinaryPath'>): Promise<boolean> {
+        this.outputChannel.appendLine('[VncManager] Hot-reloading DALi app...');
+        this.killDaliApp();
+        return this.spawnDaliApp({ ...params, daliBinaryPath: newBinaryPath });
+    }
+
+    dispose(): void {
+        this.stopInteractiveMode().catch(() => {
+            // best-effort cleanup
+        });
+    }
+
+    // ---- Private helpers ----
+
+    private async spawnDaliApp(params: VncStartParams): Promise<boolean> {
+        return new Promise((resolve) => {
+            try {
+                const child = spawn(params.daliBinaryPath, [], {
+                    env: params.env,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                });
+
+                let readyReceived = false;
+                let stdoutBuf = '';
+
+                child.stdout?.on('data', (data: Buffer) => {
+                    stdoutBuf += data.toString();
+                    const lines = stdoutBuf.split('\n');
+                    stdoutBuf = lines.pop() ?? '';
+                    for (const line of lines) {
+                        this.outputChannel.appendLine(`[DALi-VNC] ${line}`);
+                        if (!readyReceived && line.includes('READY')) {
+                            readyReceived = true;
+                            resolve(true);
+                        }
+                    }
+                });
+
+                child.stderr?.on('data', (data: Buffer) => {
+                    this.outputChannel.appendLine(`[DALi-VNC stderr] ${data.toString().trim()}`);
+                });
+
+                child.on('error', (err) => {
+                    this.outputChannel.appendLine(`[VncManager] DALi app spawn error: ${err.message}`);
+                    resolve(false);
+                });
+
+                child.on('exit', (code) => {
+                    this.outputChannel.appendLine(`[VncManager] DALi app exited with code ${code}`);
+                    if (this._isRunning) {
+                        // Unexpected exit — clean up companion processes and notify extension
+                        this._isRunning = false;
+                        this.killX11vnc();
+                        this.killWebsockify();
+                        this.onDaliAppExitCallback?.();
+                    }
+                    if (!readyReceived) {
+                        resolve(false);
+                    }
+                });
+
+                this.daliAppProcess = child;
+
+                // Timeout fallback: if no READY signal, assume started after delay
+                setTimeout(() => {
+                    if (!readyReceived && this.isProcessAlive(child)) {
+                        readyReceived = true;
+                        resolve(true);
+                    } else if (!readyReceived) {
+                        resolve(false);
+                    }
+                }, DALI_READY_TIMEOUT_MS);
+
+            } catch (err: any) {
+                this.outputChannel.appendLine(`[VncManager] Failed to spawn DALi app: ${err.message}`);
+                resolve(false);
+            }
+        });
+    }
+
+    private async startX11vnc(display: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            try {
+                const args = [
+                    '-display', display,
+                    '-rfbport', String(this.vncPort),
+                    '-localhost',
+                    '-nopw',
+                    '-shared',
+                    '-forever',
+                    '-noxdamage',
+                    '-quiet',
+                ];
+
+                const child = spawn('x11vnc', args, {
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    detached: false,
+                });
+
+                let started = false;
+
+                child.stdout?.on('data', (data: Buffer) => {
+                    const text = data.toString();
+                    this.outputChannel.appendLine(`[x11vnc] ${text.trim()}`);
+                    if (!started && (text.includes('PORT=') || text.includes('listening'))) {
+                        started = true;
+                        resolve(true);
+                    }
+                });
+
+                child.stderr?.on('data', (data: Buffer) => {
+                    const text = data.toString();
+                    this.outputChannel.appendLine(`[x11vnc] ${text.trim()}`);
+                    if (!started && text.includes('PORT=')) {
+                        started = true;
+                        resolve(true);
+                    }
+                });
+
+                child.on('error', (err) => {
+                    this.outputChannel.appendLine(`[VncManager] x11vnc error: ${err.message}`);
+                    resolve(false);
+                });
+
+                child.on('exit', (code) => {
+                    if (!started) {
+                        this.outputChannel.appendLine(`[VncManager] x11vnc exited early with code ${code}`);
+                        resolve(false);
+                    }
+                });
+
+                this.x11vncProcess = child;
+
+                // Wait for startup
+                setTimeout(() => {
+                    if (!started && this.isProcessAlive(child)) {
+                        started = true;
+                        resolve(true);
+                    } else if (!started) {
+                        resolve(false);
+                    }
+                }, PROCESS_STARTUP_WAIT_MS);
+
+            } catch (err: any) {
+                this.outputChannel.appendLine(`[VncManager] Failed to spawn x11vnc: ${err.message}`);
+                resolve(false);
+            }
+        });
+    }
+
+    private async startWebsockify(): Promise<boolean> {
+        return new Promise((resolve) => {
+            try {
+                const args = [
+                    `127.0.0.1:${this.wsPort}`,
+                    `127.0.0.1:${this.vncPort}`,
+                ];
+
+                const child = spawn('websockify', args, {
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    detached: false,
+                });
+
+                let started = false;
+
+                child.stdout?.on('data', (data: Buffer) => {
+                    this.outputChannel.appendLine(`[websockify] ${data.toString().trim()}`);
+                });
+
+                child.stderr?.on('data', (data: Buffer) => {
+                    const text = data.toString();
+                    this.outputChannel.appendLine(`[websockify] ${text.trim()}`);
+                    if (!started && (text.includes('listening') || text.includes('handler'))) {
+                        started = true;
+                        resolve(true);
+                    }
+                });
+
+                child.on('error', (err) => {
+                    this.outputChannel.appendLine(`[VncManager] websockify error: ${err.message}`);
+                    resolve(false);
+                });
+
+                child.on('exit', (code) => {
+                    if (!started) {
+                        this.outputChannel.appendLine(`[VncManager] websockify exited early with code ${code}`);
+                        resolve(false);
+                    }
+                });
+
+                this.websockifyProcess = child;
+
+                // Startup delay fallback
+                setTimeout(() => {
+                    if (!started && this.isProcessAlive(child)) {
+                        started = true;
+                        resolve(true);
+                    } else if (!started) {
+                        resolve(false);
+                    }
+                }, PROCESS_STARTUP_WAIT_MS);
+
+            } catch (err: any) {
+                this.outputChannel.appendLine(`[VncManager] Failed to spawn websockify: ${err.message}`);
+                resolve(false);
+            }
+        });
+    }
+
+    private killDaliApp(): void {
+        if (this.daliAppProcess) {
+            try {
+                this.daliAppProcess.kill('SIGTERM');
+            } catch { /* already dead */ }
+            this.daliAppProcess = undefined;
+        }
+    }
+
+    private killX11vnc(): void {
+        if (this.x11vncProcess) {
+            try {
+                this.x11vncProcess.kill('SIGTERM');
+            } catch { /* already dead */ }
+            this.x11vncProcess = undefined;
+        }
+    }
+
+    private killWebsockify(): void {
+        if (this.websockifyProcess) {
+            try {
+                this.websockifyProcess.kill('SIGTERM');
+            } catch { /* already dead */ }
+            this.websockifyProcess = undefined;
+        }
+    }
+
+    private isProcessAlive(child: ChildProcess): boolean {
+        if (!child.pid) {
+            return false;
+        }
+        try {
+            process.kill(child.pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Finds an available TCP port in [start, end].
+     * Returns -1 if none found.
+     */
+    static findAvailablePort(start: number, end: number): Promise<number> {
+        return new Promise((resolve) => {
+            let current = start;
+
+            const tryNext = () => {
+                if (current > end) {
+                    resolve(-1);
+                    return;
+                }
+                const port = current++;
+                const server = net.createServer();
+                server.listen(port, '127.0.0.1', () => {
+                    server.close(() => resolve(port));
+                });
+                server.on('error', () => {
+                    tryNext();
+                });
+            };
+
+            tryNext();
+        });
+    }
+
+    private findAvailablePort(start: number, end: number): Promise<number> {
+        return VncManager.findAvailablePort(start, end);
+    }
+}

@@ -7,7 +7,11 @@
         "sourceMap": true,
         "rootDir": ".",
         "strict": true,
-        "esModuleInterop": true
+        "esModuleInterop": true,
+        "typeRoots": [
+            "/home/woochan/tizen/dali_preview/node_modules/@types",
+            "node_modules/@types"
+        ]
     },
     "include": ["src/**/*.ts", "test/**/*.ts"],
     "exclude": ["node_modules", ".vscode-test"]

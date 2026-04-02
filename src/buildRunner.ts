@@ -12,9 +12,16 @@ export interface BuildResult {
     error?: string;
 }
 
+export interface InteractiveBuildResult {
+    success: boolean;
+    binPath?: string;
+    error?: string;
+}
+
 export class BuildRunner {
     private daliPrefix: string = '';
     private templateContent: string;
+    private interactiveTemplateContent: string;
     private pluginTemplateContent: string;
     private tmpDir: string;
     private hasCcache: boolean = false;
@@ -28,6 +35,9 @@ export class BuildRunner {
         this.extensionPath = context.extensionPath;
         const templatePath = path.join(context.extensionPath, 'server', 'preview_harness.cpp.template');
         this.templateContent = fs.readFileSync(templatePath, 'utf-8');
+
+        const interactiveTemplatePath = path.join(context.extensionPath, 'server', 'preview_interactive.cpp.template');
+        this.interactiveTemplateContent = fs.readFileSync(interactiveTemplatePath, 'utf-8');
 
         const pluginTemplatePath = path.join(context.extensionPath, 'server', 'preview_plugin.cpp.template');
         this.pluginTemplateContent = fs.readFileSync(pluginTemplatePath, 'utf-8');
@@ -56,6 +66,10 @@ export class BuildRunner {
 
     getPluginTemplateContent(): string {
         return this.pluginTemplateContent;
+    }
+
+    getInteractiveTemplateContent(): string {
+        return this.interactiveTemplateContent;
     }
 
     async getDaliPrefix(): Promise<string> {
@@ -303,6 +317,84 @@ export class BuildRunner {
                 }
             });
         });
+    }
+
+    /**
+     * Compile user code with the interactive harness template.
+     * The resulting binary enters app.MainLoop() and stays running
+     * (for VNC mode), rather than capturing a PNG and exiting.
+     */
+    async buildInteractive(
+        userCode: string,
+        width?: number,
+        height?: number,
+        theme: 'light' | 'dark' = 'dark',
+        bgColor?: string,
+        font?: string
+    ): Promise<InteractiveBuildResult> {
+        if (!(await this.ensureDaliPrefix())) {
+            return {
+                success: false,
+                error: 'DALi installation not found.\nUse "DALi: Open Preview" command and configure the DALi path in settings.'
+            };
+        }
+
+        if (!width || !height) {
+            const config = vscode.workspace.getConfiguration('daliPreview');
+            width = config.get('previewWidth', 1024);
+            height = config.get('previewHeight', 600);
+        }
+
+        const metadataPath = path.join(this.tmpDir, 'preview_interactive_metadata.json');
+        const harnessPath  = path.join(this.tmpDir, 'preview_interactive.cpp');
+        const binPath      = path.join(this.tmpDir, 'preview_interactive_bin');
+
+        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
+            ? BuildRunner.hexToVector4(bgColor)
+            : BuildRunner.themeToBackgroundColor(theme);
+
+        let fontSetup = '';
+        if (font) {
+            const config = vscode.workspace.getConfiguration('daliPreview');
+            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDir = fontDirs.find(d => {
+                try {
+                    return fs.existsSync(path.join(d, font!));
+                } catch {
+                    return false;
+                }
+            }) || path.dirname(font);
+            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
+        }
+
+        const harness = this.interactiveTemplateContent
+            .replace(/\{\{USER_CODE\}\}/g, userCode)
+            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
+            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
+            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
+            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+
+        fs.writeFileSync(harnessPath, harness);
+
+        const compileResult = await this.compile(harnessPath, binPath);
+        if (!compileResult.success) {
+            return { success: false, error: compileResult.error };
+        }
+
+        return { success: true, binPath };
+    }
+
+    /**
+     * Returns the environment vars needed to run a DALi binary.
+     */
+    buildEnv(display: string): NodeJS.ProcessEnv {
+        return {
+            ...process.env,
+            LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
+            DISPLAY: display,
+        };
     }
 
     dispose() {

@@ -272,3 +272,76 @@ describe('BuildRunner.sanitizeConfigName()', () => {
         expect(BuildRunner.sanitizeConfigName('_test_')).to.equal('test');
     });
 });
+
+describe('BuildRunner — buildInteractive()', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('returns {success:false} when DALi prefix is not found', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(false);
+        sinon.stub(daliEnv, 'findDaliPrefix').resolves(null);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        const result = await runner.buildInteractive('return Button::New();');
+
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('DALi');
+    });
+
+    it('substitutes USER_CODE, PREVIEW_WIDTH, PREVIEW_HEIGHT, BACKGROUND_COLOR in template', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        let capturedContent = '';
+        (runner as any).compile = async (srcPath: string) => {
+            capturedContent = fs.readFileSync(srcPath, 'utf-8');
+            return { success: true };
+        };
+
+        const userCode = 'return TextLabel::New("hello");';
+        await runner.buildInteractive(userCode, 800, 480, 'dark');
+
+        expect(capturedContent).to.include(userCode);
+        expect(capturedContent).not.to.include('{{USER_CODE}}');
+        expect(capturedContent).to.include('800.0f');
+        expect(capturedContent).to.include('480.0f');
+        expect(capturedContent).not.to.include('{{PREVIEW_WIDTH}}');
+        expect(capturedContent).not.to.include('{{PREVIEW_HEIGHT}}');
+        expect(capturedContent).not.to.include('{{BACKGROUND_COLOR}}');
+    });
+
+    it('returns {success:false, error} when compile fails', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const stderrMsg = "error: 'Foo' was not declared";
+        (runner as any).compile = async () => ({ success: false, error: stderrMsg });
+
+        const result = await runner.buildInteractive('return Foo::New();', 1024, 600);
+
+        expect(result.success).to.equal(false);
+        expect(result.error).to.equal(stderrMsg);
+    });
+
+    it('returns {success:true, binPath} when compile succeeds', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        (runner as any).compile = async (_srcPath: string, binPath: string) => {
+            return { success: true };
+        };
+
+        const result = await runner.buildInteractive('return View::New();', 1024, 600);
+
+        expect(result.success).to.equal(true);
+        expect(result.binPath).to.be.a('string');
+        expect(result.binPath).to.include('preview_interactive_bin');
+    });
+});

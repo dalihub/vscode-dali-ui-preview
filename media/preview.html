@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; img-src {{cspSource}} vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+  content="default-src 'none'; img-src {{cspSource}} vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline' {{cspSource}}; connect-src ws://localhost:*;">
 <title>DALi Preview</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -828,6 +828,67 @@
     background: #0e639c;
     border-color: #007acc;
   }
+
+  /* ── VNC interactive mode ── */
+  .btn-vnc {
+    font-size: 14px;
+    padding: 2px 8px;
+  }
+
+  .btn-vnc.active {
+    background: #0e639c;
+    border-color: #007acc;
+    color: #ffffff;
+  }
+
+  .vnc-container {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    background: #000;
+  }
+
+  .vnc-container canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .vnc-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #cccccc;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 8px 18px;
+    border-radius: 4px;
+    font-size: 13px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .vnc-reload-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #cccccc;
+    font-size: 13px;
+    z-index: 10;
+  }
 </style>
 </head>
 <body>
@@ -870,6 +931,9 @@
     <div class="toolbar-separator"></div>
 
     <button id="btnInspector" class="btn-inspector" title="Widget Inspector 토글">&#x1F50D;</button>
+
+    <div class="toolbar-separator" id="vncSeparator" style="display:none;"></div>
+    <button id="btnVnc" class="btn-vnc" title="인터랙티브 모드 전환 (VNC)" style="display:none;">&#x1F5A5;</button>
   </div>
 
   <!-- Background color picker popup -->
@@ -912,6 +976,11 @@
           <div class="dimensions-label hidden" id="dimensionsLabel"></div>
         </div>
 
+        <!-- VNC container (shown in interactive mode) -->
+        <div id="vncContainer" class="vnc-container hidden">
+          <div id="vncStatus" class="vnc-status">연결 중...</div>
+        </div>
+
         <!-- Overlays -->
         <div class="overlay overlay-loading hidden" id="overlayLoading">
           <div class="spinner"></div>
@@ -950,6 +1019,7 @@
     <span id="timestampText"></span>
   </div>
 
+<script src="{{rfbScriptUri}}"></script>
 <script>
 (function () {
   var vscode = acquireVsCodeApi();
@@ -976,6 +1046,10 @@
   var previewGrid = document.getElementById('previewGrid');
   var btnBgColor = document.getElementById('btnBgColor');
   var colorPickerPopup = document.getElementById('colorPickerPopup');
+  var btnVnc = document.getElementById('btnVnc');
+  var vncSeparator = document.getElementById('vncSeparator');
+  var vncContainer = document.getElementById('vncContainer');
+  var vncStatus = document.getElementById('vncStatus');
   var cpNative = document.getElementById('cpNative');
   var cpHex = document.getElementById('cpHex');
   var cpR = document.getElementById('cpR');
@@ -990,6 +1064,10 @@
   var resizeDebounceTimer = null;
   var currentWidth = 1024;
   var currentHeight = 600;
+
+  // VNC state
+  var rfbClient = null;
+  var vncMode = false;
 
   // ── Presets ──
   var presets = {
@@ -1045,6 +1123,50 @@
   btnRefresh.addEventListener('click', function () {
     vscode.postMessage({ command: 'refresh' });
   });
+
+  // ── VNC toggle ──
+  btnVnc.addEventListener('click', function () {
+    if (vncMode) {
+      vscode.postMessage({ command: 'stopVnc' });
+    } else {
+      vscode.postMessage({ command: 'startVnc' });
+    }
+  });
+
+  function startVncClient(wsUrl) {
+    if (rfbClient) {
+      rfbClient.disconnect();
+      rfbClient = null;
+    }
+    vncStatus.textContent = '연결 중...';
+    vncStatus.style.display = '';
+    if (typeof RFB === 'undefined') {
+      vncStatus.textContent = 'RFB 클라이언트를 로드할 수 없습니다';
+      return;
+    }
+    if (!/^ws:\/\/localhost:[0-9]{4,5}$/.test(wsUrl)) {
+      vncStatus.textContent = '잘못된 WebSocket URL';
+      return;
+    }
+    rfbClient = new RFB(vncContainer, wsUrl);
+    rfbClient.scaleViewport = true;
+    rfbClient.addEventListener('connect', function () {
+      vncStatus.style.display = 'none';
+      vscode.postMessage({ command: 'vncConnected' });
+    });
+    rfbClient.addEventListener('disconnect', function (e) {
+      vncStatus.textContent = '연결 끊김: ' + (e.detail && e.detail.reason ? e.detail.reason : '알 수 없는 이유');
+      vncStatus.style.display = '';
+      vscode.postMessage({ command: 'vncDisconnected', reason: (e.detail && e.detail.reason) || '' });
+    });
+  }
+
+  function stopVncClient() {
+    if (rfbClient) {
+      rfbClient.disconnect();
+      rfbClient = null;
+    }
+  }
 
   // ── Background color picker ──
   var DEFAULT_BG_COLOR = '#1a1a2e';
@@ -1827,6 +1949,63 @@
           setInspectorVisible(msg.visible);
         }
         break;
+
+      case 'vncAvailable':
+        // Show the VNC toggle button
+        btnVnc.style.display = '';
+        vncSeparator.style.display = '';
+        break;
+
+      case 'startVnc': {
+        // Switch to VNC mode: hide static preview, show VNC canvas
+        previewContainer.style.display = 'none';
+        vncContainer.classList.remove('hidden');
+        overlayWelcome.classList.add('hidden');
+        overlayError.classList.add('hidden');
+        overlayLoading.classList.add('hidden');
+        btnVnc.classList.add('active');
+        btnVnc.title = '정적 모드로 전환';
+        vncMode = true;
+        startVncClient(msg.wsUrl);
+        timestampText.textContent = '인터랙티브 모드';
+        break;
+      }
+
+      case 'stopVnc': {
+        // Switch back to static PNG mode
+        stopVncClient();
+        vncContainer.classList.add('hidden');
+        previewContainer.style.display = '';
+        btnVnc.classList.remove('active');
+        btnVnc.title = '인터랙티브 모드 전환 (VNC)';
+        vncMode = false;
+        timestampText.textContent = '';
+        break;
+      }
+
+      case 'vncReloading': {
+        // Show overlay while DALi app restarts
+        if (vncMode) {
+          var overlay = document.createElement('div');
+          overlay.className = 'vnc-reload-overlay';
+          overlay.id = 'vncReloadOverlay';
+          overlay.textContent = '다시 로딩 중...';
+          vncContainer.appendChild(overlay);
+        }
+        break;
+      }
+
+      case 'vncReloaded': {
+        var oldOverlay = document.getElementById('vncReloadOverlay');
+        if (oldOverlay) {
+          oldOverlay.remove();
+        }
+        if (msg.wsUrl && rfbClient) {
+          // Reconnect to updated app
+          startVncClient(msg.wsUrl);
+        }
+        break;
+      }
     }
   });
 

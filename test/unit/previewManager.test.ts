@@ -197,3 +197,98 @@ describe('PreviewManager — show(preserveFocus)', () => {
         expect(revealCalls[0].preserveFocus).to.equal(false);
     });
 });
+
+// ---------------------------------------------------------------------------
+// VNC postMessage methods
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — startVncMode()', () => {
+    it('sends startVnc postMessage with the given wsUrl', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.startVncMode('ws://localhost:6080');
+        const msg = postedMessages.find(m => m.command === 'startVnc');
+        expect(msg).to.exist;
+        expect(msg!.wsUrl).to.equal('ws://localhost:6080');
+    });
+});
+
+describe('PreviewManager — stopVncMode()', () => {
+    it('sends stopVnc postMessage', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.stopVncMode();
+        const msg = postedMessages.find(m => m.command === 'stopVnc');
+        expect(msg).to.exist;
+    });
+});
+
+describe('PreviewManager — notifyVncAvailable()', () => {
+    it('sends vncAvailable postMessage', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.notifyVncAvailable();
+        const msg = postedMessages.find(m => m.command === 'vncAvailable');
+        expect(msg).to.exist;
+    });
+});
+
+describe('PreviewManager — notifyVncReloading()', () => {
+    it('sends vncReloading postMessage', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.notifyVncReloading();
+        const msg = postedMessages.find(m => m.command === 'vncReloading');
+        expect(msg).to.exist;
+    });
+});
+
+describe('PreviewManager — notifyVncReloaded()', () => {
+    it('sends vncReloaded postMessage with wsUrl', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.notifyVncReloaded('ws://localhost:6081');
+        const msg = postedMessages.find(m => m.command === 'vncReloaded');
+        expect(msg).to.exist;
+        expect(msg!.wsUrl).to.equal('ws://localhost:6081');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// VNC inbound message callbacks
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — onStartVnc()', () => {
+    it('fires callback when startVnc message is received', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        let called = false;
+        mgr.onStartVnc(() => { called = true; });
+        simulate({ command: 'startVnc' });
+        expect(called).to.equal(true);
+    });
+});
+
+describe('PreviewManager — onStopVnc()', () => {
+    it('fires callback when stopVnc message is received', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        let called = false;
+        mgr.onStopVnc(() => { called = true; });
+        simulate({ command: 'stopVnc' });
+        expect(called).to.equal(true);
+    });
+});
+
+describe('PreviewManager — onVncConnected()', () => {
+    it('fires callback when vncConnected message is received', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        let called = false;
+        mgr.onVncConnected(() => { called = true; });
+        simulate({ command: 'vncConnected' });
+        expect(called).to.equal(true);
+    });
+});
+
+describe('PreviewManager — onVncDisconnected()', () => {
+    it('fires callback with reason when vncDisconnected message is received', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const reasons: string[] = [];
+        mgr.onVncDisconnected((r) => reasons.push(r));
+        simulate({ command: 'vncDisconnected', reason: 'network error' });
+        expect(reasons).to.deep.equal(['network error']);
+    });
+});

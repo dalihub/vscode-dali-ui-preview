@@ -3,6 +3,7 @@ import { PreviewManager } from './previewManager';
 import { BuildRunner } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { XvfbManager } from './xvfbManager';
+import { VncManager } from './vncManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
@@ -17,8 +18,12 @@ let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
 let previewServer: PreviewServer | undefined;
 let xvfbManager: XvfbManager | undefined;
+let vncManager: VncManager | undefined;
 let statusBar: StatusBarManager | undefined;
 let themeStatusBar: ThemeStatusBarItem | undefined;
+let isVncMode = false;
+let vncStarting = false;
+let hotReloading = false;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let building = false;
 let outputChannel: vscode.OutputChannel;
@@ -98,6 +103,17 @@ export async function activate(context: vscode.ExtensionContext) {
     // Build runner
     buildRunner = new BuildRunner(context, xvfbManager, outputChannel);
 
+    // VNC manager
+    vncManager = new VncManager(outputChannel);
+    vncManager.onDaliAppExitCallback = () => {
+        if (isVncMode) {
+            isVncMode = false;
+            previewManager?.stopVncMode();
+            statusBar?.showReady();
+            outputChannel.appendLine('[VNC] DALi app exited unexpectedly — interactive mode stopped');
+        }
+    };
+
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable
     const initPreviewServer = async () => {
         const daliPrefix = await buildRunner!.getDaliPrefix();
@@ -145,6 +161,20 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Command: DALi: Toggle Interactive Mode (VNC)
+    const toggleInteractiveCmd = vscode.commands.registerCommand('dali.toggleInteractiveMode', async () => {
+        if (!buildRunner || !previewManager || !vncManager) {
+            return;
+        }
+        if (isVncMode) {
+            await stopVncMode();
+        } else {
+            await startVncMode();
+        }
+    });
+
+    context.subscriptions.push(toggleInteractiveCmd);
+
     // Auto-preview on save
     const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
         if (!isPreviewable(doc)) {
@@ -156,6 +186,13 @@ export async function activate(context: vscode.ExtensionContext) {
         if (currentBgColor) {
             previewManager!.setBackgroundColor(currentBgColor);
         }
+
+        // VNC mode: hot reload the DALi app
+        if (isVncMode && vncManager?.isRunning) {
+            await hotReloadVnc(doc);
+            return;
+        }
+
         await runPreview(doc);
     });
 
@@ -174,6 +211,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // Live preview: auto-refresh on text change with debounce
     const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
         if (!isPreviewable(event.document)) {
+            return;
+        }
+        if (isVncMode) {
             return;
         }
         const config = vscode.workspace.getConfiguration('daliPreview');
@@ -327,6 +367,37 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
                 }
             })
         );
+
+        // VNC: webview requests start/stop
+        context.subscriptions.push(
+            previewManager.onStartVnc(async () => {
+                if (!isVncMode) {
+                    await startVncMode();
+                }
+            })
+        );
+        context.subscriptions.push(
+            previewManager.onStopVnc(async () => {
+                if (isVncMode) {
+                    await stopVncMode();
+                }
+            })
+        );
+        context.subscriptions.push(
+            previewManager.onVncConnected(() => {
+                outputChannel.appendLine('[VNC] Client connected');
+            })
+        );
+        context.subscriptions.push(
+            previewManager.onVncDisconnected((reason) => {
+                outputChannel.appendLine(`[VNC] Client disconnected: ${reason}`);
+            })
+        );
+
+        // Show VNC toggle if dependencies are present
+        if (VncManager.checkDependencies() === null) {
+            previewManager.notifyVncAvailable();
+        }
 
         // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
         context.subscriptions.push(
@@ -627,9 +698,145 @@ function sanitizeForPath(name: string): string {
     return BuildRunner.sanitizeConfigName(name);
 }
 
+async function startVncMode() {
+    if (!buildRunner || !previewManager || !vncManager) {
+        return;
+    }
+    if (vncStarting) {
+        return;
+    }
+    vncStarting = true;
+    try {
+        const editor = vscode.window.activeTextEditor;
+        const doc = editor && isPreviewable(editor.document) ? editor.document : lastPreviewedDoc;
+        if (!doc) {
+            vscode.window.showWarningMessage('DALi: 프리뷰 가능한 파일이 없습니다. 먼저 .preview.dali.cpp 파일을 열어주세요.');
+            return;
+        }
+
+        const extraction = extractPreviewCode(doc);
+        if (!extraction) {
+            return;
+        }
+
+        statusBar?.showBuilding();
+        previewManager.showLoading();
+
+        const instrumented = instrumentCode(extraction.code, extraction.startLine);
+        const buildResult = await buildRunner.buildInteractive(
+            instrumented, currentWidth, currentHeight, currentTheme, currentBgColor
+        );
+
+        if (!buildResult.success || !buildResult.binPath) {
+            statusBar?.showError('VNC 빌드 실패');
+            const interactiveTemplate = buildRunner.getInteractiveTemplateContent();
+            const offset = getHarnessCodeOffset(interactiveTemplate);
+            const errors = parseGccErrors(buildResult.error || '', offset, false, true);
+            if (errors.length > 0) {
+                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
+                diagnosticCollection.set(doc.uri, diagnostics);
+                scheduleShowError(formatErrorsForDisplay(errors));
+            } else {
+                scheduleShowError(buildResult.error || 'Interactive build failed');
+            }
+            return;
+        }
+
+        const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
+        const env = {
+            ...buildRunner.buildEnv(display),
+            DALI_WINDOW_WIDTH: String(currentWidth),
+            DALI_WINDOW_HEIGHT: String(currentHeight),
+        };
+
+        const vncResult = await vncManager.startInteractiveMode({
+            daliBinaryPath: buildResult.binPath,
+            display,
+            width: currentWidth,
+            height: currentHeight,
+            env,
+        });
+
+        if (!vncResult.success || !vncResult.wsUrl) {
+            statusBar?.showError('VNC 시작 실패');
+            scheduleShowError(vncResult.error || 'Failed to start VNC');
+            return;
+        }
+
+        isVncMode = true;
+        previewManager.startVncMode(vncResult.wsUrl);
+        statusBar?.showMode('vnc');
+        outputChannel.appendLine(`[VNC] Interactive mode started: ${vncResult.wsUrl}`);
+    } finally {
+        vncStarting = false;
+    }
+}
+
+async function stopVncMode() {
+    if (!vncManager || !previewManager) {
+        return;
+    }
+    await vncManager.stopInteractiveMode();
+    isVncMode = false;
+    previewManager.stopVncMode();
+    statusBar?.showReady();
+    outputChannel.appendLine('[VNC] Interactive mode stopped');
+}
+
+async function hotReloadVnc(doc: vscode.TextDocument) {
+    if (!buildRunner || !previewManager || !vncManager) {
+        return;
+    }
+    if (hotReloading) {
+        return;
+    }
+    hotReloading = true;
+    try {
+        const extraction = extractPreviewCode(doc);
+        if (!extraction) {
+            return;
+        }
+
+        previewManager.notifyVncReloading();
+        const instrumented = instrumentCode(extraction.code, extraction.startLine);
+        const buildResult = await buildRunner.buildInteractive(
+            instrumented, currentWidth, currentHeight, currentTheme, currentBgColor
+        );
+
+        if (!buildResult.success || !buildResult.binPath) {
+            outputChannel.appendLine('[VNC] Hot reload build failed');
+            return;
+        }
+
+        const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
+        const env = {
+            ...buildRunner.buildEnv(display),
+            DALI_WINDOW_WIDTH: String(currentWidth),
+            DALI_WINDOW_HEIGHT: String(currentHeight),
+        };
+
+        const ok = await vncManager.restartDaliApp(buildResult.binPath, {
+            display,
+            width: currentWidth,
+            height: currentHeight,
+            env,
+        });
+
+        if (ok) {
+            previewManager.notifyVncReloaded(vncManager.getWebSocketUrl());
+            outputChannel.appendLine('[VNC] Hot reload succeeded');
+        } else {
+            outputChannel.appendLine('[VNC] Hot reload: DALi app restart failed');
+        }
+    } finally {
+        hotReloading = false;
+    }
+}
+
 export function deactivate() {
     liveDebouncer?.dispose();
     previewServer?.stop();
+    vncManager?.dispose();
     previewManager?.dispose();
     buildRunner?.dispose();
     xvfbManager?.stop();
