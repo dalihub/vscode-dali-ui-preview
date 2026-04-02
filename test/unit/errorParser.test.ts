@@ -5,6 +5,7 @@ import {
     parseGccErrors,
     getHarnessCodeOffset,
     formatErrorsForDisplay,
+    formatRawError,
     ParsedError,
 } from '../../src/errorParser';
 
@@ -146,6 +147,46 @@ describe('errorParser', () => {
             const result = formatErrorsForDisplay(errors);
             const lines = result.split('\n');
             expect(lines).to.have.length(2);
+        });
+    });
+
+    // -----------------------------------------------------------------
+    // formatRawError
+    // -----------------------------------------------------------------
+    describe('formatRawError()', () => {
+        it('returns "Build failed (no output)." for empty input', () => {
+            expect(formatRawError('')).to.equal('Build failed (no output).');
+            expect(formatRawError('   ')).to.equal('Build failed (no output).');
+        });
+
+        it('maps a standard gcc error line to "Line N, Col M: ..."', () => {
+            const raw = '/tmp/dali_preview/preview_harness.cpp:5:3: error: expected \';\' after expression';
+            const result = formatRawError(raw);
+            expect(result).to.include('Line 5, Col 3:');
+            expect(result).to.include("expected ';'");
+        });
+
+        it('prefers the first ": error:" line over the first line overall', () => {
+            const raw = [
+                'In file included from /tmp/preview_harness.cpp:1:',
+                '/tmp/preview_harness.cpp:8:2: error: unknown type name \'Foo\'',
+            ].join('\n');
+            const result = formatRawError(raw);
+            expect(result).to.include('Line 8, Col 2:');
+            expect(result).to.include("unknown type name");
+        });
+
+        it('falls back to the first non-empty line when no ": error:" line exists', () => {
+            // Neither line matches the gcc diagnostic regex, so first line is returned
+            const raw = 'ld: cannot find -ldali2-core\nsome other linker note';
+            const result = formatRawError(raw);
+            expect(result).to.include('ld:');
+        });
+
+        it('truncates very long messages to at most 200 characters', () => {
+            const raw = 'a'.repeat(300);
+            const result = formatRawError(raw);
+            expect(result.length).to.be.at.most(200);
         });
     });
 });
