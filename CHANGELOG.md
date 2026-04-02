@@ -5,6 +5,19 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Phase 4-2: C++ 파서 기반 즉시 프리뷰 (~200ms) — DAL-30
+
+### Added
+
+- **`src/cppParser.ts`** (신규): dali-ui 체이닝 C++ 코드를 SceneNode JSON AST로 변환하는 재귀 하강 파서. 삼항 연산자·제어 흐름·전처리기 감지 시 `null` 반환 → 컴파일 폴백 트리거. LRU 캐시 10개.
+- **`server/preview_server.cpp`**: `RENDER_JSON` IPC 명령 추가. 미니멀 JSON 파서 + 씬 빌더 (`FlexLayout`, `StackLayout`, `Label`, `View` 지원).
+- **`src/previewServer.ts`**: `renderJson(scene, ...)` 메서드 추가.
+- **`src/extension.ts`**: 파서-우선 하이브리드 로직 (파서 성공 ~200ms / 실패 → 컴파일 ~500ms 폴백).
+- **`src/statusBar.ts`**: `showMode('parser')` 지원.
+- **`test/unit/cppParser.test.ts`** (신규): 파서 단위 테스트 35개.
+
+---
+
 ## [0.16.0] - 2026-04-02 — 프로젝트 안정화 — DAL-28
 
 ### Fixed
@@ -24,10 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (QA 리뷰)
 
-- **g++ 체크 버그 수정** (`src/daliEnvironment.ts`): `checkDependencies()`에서 `gcc` 대신 `g++`를 체크하도록 수정. `gcc`만 설치된 환경에서 환경 검증을 통과했으나 실제 빌드 시 실패하는 문제 해결.
-- **불필요한 동적 import 제거** (`src/extension.ts`): `findDaliPrefix`를 정적 import로 변경하여 활성화 경로 간소화.
-- **Raw `.then()` 제거** (`src/extension.ts`): `showWarningMessage` 호출을 `await`로 변환 (프로젝트 코드 스타일 준수).
-- **Shell 스크립트 symlink 감지 수정** (`scripts/check-harness-compiles.sh`): `libdali2-core.so` 존재 여부 확인 시 `-f` → `-e`로 변경하여 symlink 설치 환경에서도 정상 동작.
+- **g++ 체크 버그 수정** (`src/daliEnvironment.ts`): `checkDependencies()`에서 `gcc` 대신 `g++`를 체크하도록 수정.
+- **불필요한 동적 import 제거** (`src/extension.ts`): `findDaliPrefix`를 정적 import로 변경.
+- **Raw `.then()` 제거** (`src/extension.ts`): `showWarningMessage` 호출을 `await`로 변환.
+- **Shell 스크립트 symlink 감지 수정** (`scripts/check-harness-compiles.sh`): `-f` → `-e`로 변경.
 
 ---
 
