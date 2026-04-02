@@ -5,6 +5,14 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.3] - 2026-04-02 — 버그픽스: Dali::String.CStr() 완전 수정 — DAL-26
+
+### Fixed
+
+- **Dali::String.CStr() 변환** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`, `server/preview_interactive.cpp.template`, `test/golden/red-box.harness.cpp`): DAL-25 수정이 불완전 — `std::string(actor.GetTypeName())`은 `std::string` 생성자가 `Dali::String`을 받을 수 없어 동일 에러 재발. `.CStr()` 메서드로 `const char*` 변환 후 `std::string` 생성: `std::string(actor.GetTypeName().CStr())`.
+
+---
+
 ## [0.15.2] - 2026-04-02 — 버그픽스: Dali::String → std::string 타입 불일치 수정 — DAL-25
 
 ### Fixed
