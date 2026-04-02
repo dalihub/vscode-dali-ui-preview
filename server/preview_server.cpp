@@ -16,7 +16,7 @@
  */
 #include <dali/dali.h>
 #include <dali/public-api/adaptor-framework/capture.h>
-#include <dali/devel-api/adaptor-framework/font-client.h>
+#include <dali/devel-api/text-abstraction/font-client.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
 
 #include <dlfcn.h>
