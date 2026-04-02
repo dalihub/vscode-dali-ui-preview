@@ -87,7 +87,7 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
     float x = pX + pW * parentOrigin.x + pos.x - w * anchor.x;
     float y = pY + pH * parentOrigin.y + pos.y - h * anchor.y;
 
-    std::string typeName = ShortTypeName(actor.GetTypeName());
+    std::string typeName = ShortTypeName(std::string(actor.GetTypeName()));
     if(typeName.empty()) typeName = "Actor";
 
     bool    visible = actor.GetCurrentProperty<bool>(Actor::Property::VISIBLE);
