@@ -5,6 +5,25 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-04-02 — 프로젝트 안정화 — DAL-28
+
+### Fixed
+
+- **preview_interactive 템플릿 font-client.h 경로 수정** (`server/preview_interactive.cpp.template`): DAL-23에서 `preview_harness`·`preview_server`의 경로를 수정했으나 `preview_interactive.cpp.template`가 누락됨. `dali/devel-api/adaptor-framework/font-client.h` → `dali/devel-api/text-abstraction/font-client.h`로 통일.
+
+### Added
+
+- **시작 시 환경 검증 강화** (`src/daliEnvironment.ts`, `src/extension.ts`): 확장 활성화 시 `validateEnvironment()`로 g++, pkg-config, Xvfb, DALi SDK 유무를 사전 체크. 누락된 의존성은 `outputChannel`에 구체적인 설치 명령(`apt-get install ...`)과 함께 기록되고 VS Code 경고 알림으로 표시됨.
+- **에러 메시지 UX 개선** (`src/errorParser.ts`, `src/extension.ts`): `formatRawError()` 함수 추가. `parseGccErrors()`가 사용자 코드 에러를 찾지 못할 때 raw g++ 출력 대신 첫 번째 의미 있는 오류 줄을 `"Line N, Col M: ..."` 형식으로 변환해 표시.
+- **하니스 컴파일 통합 테스트 스크립트** (`scripts/check-harness-compiles.sh`): DALi SDK 환경에서 세 개 C++ 하니스 템플릿(`preview_harness`, `preview_interactive`, `preview_plugin`)을 실제 g++로 컴파일해 include 경로·타입 오류를 CI 단계에서 조기 발견.
+
+### Tests
+
+- `test/unit/errorParser.test.ts`: `formatRawError()` 케이스 5개 추가.
+- `test/unit/daliEnvironment.test.ts`: `validateEnvironment()` 케이스 6개 신규 추가 (의존성 주입으로 실제 셸 명령 없이 테스트).
+
+---
+
 ## [0.15.3] - 2026-04-02 — 버그픽스: Dali::String.CStr() 완전 수정 — DAL-26
 
 ### Fixed
