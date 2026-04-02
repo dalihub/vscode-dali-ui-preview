@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `test/unit/errorParser.test.ts`: `formatRawError()` 케이스 5개 추가.
 - `test/unit/daliEnvironment.test.ts`: `validateEnvironment()` 케이스 6개 신규 추가 (의존성 주입으로 실제 셸 명령 없이 테스트).
 
+### Fixed (QA 리뷰)
+
+- **g++ 체크 버그 수정** (`src/daliEnvironment.ts`): `checkDependencies()`에서 `gcc` 대신 `g++`를 체크하도록 수정. `gcc`만 설치된 환경에서 환경 검증을 통과했으나 실제 빌드 시 실패하는 문제 해결.
+- **불필요한 동적 import 제거** (`src/extension.ts`): `findDaliPrefix`를 정적 import로 변경하여 활성화 경로 간소화.
+- **Raw `.then()` 제거** (`src/extension.ts`): `showWarningMessage` 호출을 `await`로 변환 (프로젝트 코드 스타일 준수).
+- **Shell 스크립트 symlink 감지 수정** (`scripts/check-harness-compiles.sh`): `libdali2-core.so` 존재 여부 확인 시 `-f` → `-e`로 변경하여 symlink 설치 환경에서도 정상 동작.
+
 ---
 
 ## [0.15.3] - 2026-04-02 — 버그픽스: Dali::String.CStr() 완전 수정 — DAL-26

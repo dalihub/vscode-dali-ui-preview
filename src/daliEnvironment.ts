@@ -101,7 +101,7 @@ export async function checkDependencies(
     _daliPrefix: string
 ): Promise<{ gcc: boolean; xvfb: boolean; ccache: boolean; pkgconfig: boolean }> {
     const [gcc, xvfb, ccache, pkgconfig] = await Promise.all([
-        isCommandAvailable('gcc'),
+        isCommandAvailable('g++'),
         isCommandAvailable('Xvfb'),
         isCommandAvailable('ccache'),
         isCommandAvailable('pkg-config'),

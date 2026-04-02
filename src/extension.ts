@@ -9,7 +9,7 @@ import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtract
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
-import { validateEnvironment } from './daliEnvironment';
+import { validateEnvironment, findDaliPrefix } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { PropertyEditor } from './propertyEditor';
 import * as fs from 'fs';
@@ -103,10 +103,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Validate runtime environment and show actionable messages for missing deps
     try {
-        const daliPrefixForCheck = await (async () => {
-            const { findDaliPrefix } = await import('./daliEnvironment');
-            return findDaliPrefix();
-        })();
+        const daliPrefixForCheck = await findDaliPrefix();
         const envIssues = await validateEnvironment(daliPrefixForCheck);
         if (envIssues.length > 0) {
             for (const issue of envIssues) {
@@ -115,14 +112,13 @@ export async function activate(context: vscode.ExtensionContext) {
             const criticalDeps = envIssues.filter(i => i.kind === 'missing_dep');
             if (criticalDeps.length > 0) {
                 const lines = criticalDeps.map(i => `• ${i.message}\n  조치: ${i.action}`).join('\n');
-                vscode.window.showWarningMessage(
+                const choice = await vscode.window.showWarningMessage(
                     `DALi Preview: 필수 의존성이 없어 프리뷰가 동작하지 않을 수 있습니다.\n${lines}`,
                     '출력 패널 보기'
-                ).then(choice => {
-                    if (choice === '출력 패널 보기') {
-                        outputChannel.show();
-                    }
-                });
+                );
+                if (choice === '출력 패널 보기') {
+                    outputChannel.show();
+                }
             }
         }
     } catch (err: any) {

@@ -40,7 +40,7 @@ if [[ -z "${DALI_PREFIX}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "${DALI_PREFIX}/lib/libdali2-core.so" ]]; then
+if [[ ! -e "${DALI_PREFIX}/lib/libdali2-core.so" ]]; then
     echo "ERROR: DALi SDK를 찾을 수 없습니다: ${DALI_PREFIX}/lib/libdali2-core.so"
     exit 1
 fi
