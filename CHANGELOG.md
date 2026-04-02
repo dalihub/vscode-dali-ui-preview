@@ -5,6 +5,14 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.2] - 2026-04-02 — 버그픽스: Dali::String → std::string 타입 불일치 수정 — DAL-25
+
+### Fixed
+
+- **Dali::String 명시적 변환** (`server/preview_harness.cpp.template`, `server/preview_server.cpp`, `server/preview_interactive.cpp.template`): `actor.GetTypeName()`이 반환하는 `Dali::String`을 `ShortTypeName(const std::string&)` 에 전달할 때 발생하는 타입 불일치 에러 수정. `std::string(actor.GetTypeName())`으로 명시적 변환 추가.
+
+---
+
 ## [0.15.1] - 2026-04-02 — 버그픽스: font-client.h 경로 수정 — DAL-23
 
 ### Fixed
