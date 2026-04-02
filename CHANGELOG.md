@@ -5,16 +5,31 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Phase 4-2: C++ 파서 기반 즉시 프리뷰 (~200ms) — DAL-30
+## [0.16.0] - 2026-04-02 — Phase 4-2: C++ 파서 기반 즉시 프리뷰 (~200ms) — DAL-30
 
 ### Added
 
 - **`src/cppParser.ts`** (신규): dali-ui 체이닝 C++ 코드를 SceneNode JSON AST로 변환하는 재귀 하강 파서. 삼항 연산자·제어 흐름·전처리기 감지 시 `null` 반환 → 컴파일 폴백 트리거. LRU 캐시 10개.
 - **`server/preview_server.cpp`**: `RENDER_JSON` IPC 명령 추가. 미니멀 JSON 파서 + 씬 빌더 (`FlexLayout`, `StackLayout`, `Label`, `View` 지원).
-- **`src/previewServer.ts`**: `renderJson(scene, ...)` 메서드 추가.
-- **`src/extension.ts`**: 파서-우선 하이브리드 로직 (파서 성공 ~200ms / 실패 → 컴파일 ~500ms 폴백).
-- **`src/statusBar.ts`**: `showMode('parser')` 지원.
-- **`test/unit/cppParser.test.ts`** (신규): 파서 단위 테스트 35개.
+- **`src/previewServer.ts`**: `renderJson(scene, ...)` 메서드 추가 (async, 요청별 고유 임시 파일 사용).
+- **`src/extension.ts`**: 파서-우선 하이브리드 로직 (파서 성공 ~200ms / 실패 → 컴파일 ~500ms 폴백). renderJson 실패 후 generation check 추가.
+- **`src/statusBar.ts`**: `showMode('parser')` 지원. non-vnc 모드 status bar text 업데이트 버그 수정.
+- **`test/unit/cppParser.test.ts`** (신규): 파서 단위 테스트 (빈 입력, 블록 커멘트, 음수, new/delete 키워드, LRU 정확성 포함).
+- **`test/unit/previewServer.test.ts`**: `renderJson()` IPC 테스트 8건, `RENDER_JSON` 구조 테스트 5건 추가.
+- **`test/unit/statusBar.test.ts`**: `showMode('parser')` 및 non-vnc 모드 text 테스트 4건 추가.
+
+### Fixed
+
+- **`src/previewServer.ts`**: `renderJson()` 내 `fs.writeFileSync` → `fs.promises.writeFile` 비동기화.
+- **`src/previewServer.ts`**: 경쟁 조건 방지를 위해 요청별 고유 `scene-<timestamp>.json` 임시 파일 사용.
+- **`src/cppParser.ts`**: LRU 캐시가 FIFO로 동작하던 버그 수정 (cache hit 시 `_cacheOrder` 순서 갱신).
+- **`src/cppParser.ts`**: `FAIL_KEYWORDS`에서 `'auto'` 중복 제거, `new`/`delete`/`throw`/`operator` 추가.
+- **`server/preview_server.cpp`**: `JReadStringArray`/`JReadNodeArray` 예상치 못한 토큰 시 무한루프 방지.
+- **`src/statusBar.ts`**: `showMode()` non-vnc 모드에서 `statusBarItem.text` 미업데이트 버그 수정.
+
+### Tests
+
+- 테스트 총계: **308개** (이전 283개 → +25).
 
 ---
 
