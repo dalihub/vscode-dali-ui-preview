@@ -44,8 +44,10 @@ export class StatusBarManager {
         }, 5000);
     }
 
-    showMode(mode: 'server' | 'compile' | 'vnc'): void {
-        const label = mode === 'server' ? '⚡ Server' : mode === 'vnc' ? '🖥 VNC' : '🔨 Compile';
+    showMode(mode: 'server' | 'compile' | 'vnc' | 'parser'): void {
+        const label = mode === 'parser'
+            ? '⚡ Parser'
+            : mode === 'server' ? '⚡ Server' : mode === 'vnc' ? '🖥 VNC' : '🔨 Compile';
         if (mode === 'vnc') {
             this.statusBarItem.text = '$(vm-active) DALi: Interactive';
         }

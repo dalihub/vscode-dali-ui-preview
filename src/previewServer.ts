@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildResult } from './buildRunner';
+import { SceneNode } from './cppParser';
 
 const execAsync = promisify(exec);
 
@@ -125,6 +126,50 @@ export class PreviewServer {
             const fontScaleField = fontScale !== undefined ? String(fontScale) : '-';
             const fontField = font || '-';
             const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField} ${localeField} ${fontScaleField} ${fontField}\n`;
+            this.serverProcess.stdin!.write(cmd);
+        });
+    }
+
+    /**
+     * Send a RENDER_JSON command. Resolves with BuildResult when server responds.
+     * The scene tree is serialised to a temp JSON file and passed to the server.
+     */
+    renderJson(scene: SceneNode, pngPath: string, metadataPath: string,
+               width: number, height: number, theme: 'light' | 'dark' = 'dark',
+               bgColor?: string): Promise<BuildResult> {
+        return new Promise((resolve) => {
+            if (!this.isRunning || !this.serverProcess) {
+                resolve({ success: false, error: 'Preview server is not running' });
+                return;
+            }
+
+            if (/[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath)) {
+                resolve({ success: false, error: 'path contains invalid characters' });
+                return;
+            }
+
+            if (this.pendingRequest) {
+                this.pendingRequest.resolve({ success: false, error: 'reload already in progress' });
+                this.pendingRequest = undefined;
+            }
+
+            // Write scene JSON to temp file
+            const jsonPath = '/tmp/dali_preview/scene.json';
+            try {
+                const tmpDir = '/tmp/dali_preview';
+                if (!fs.existsSync(tmpDir)) {
+                    fs.mkdirSync(tmpDir, { recursive: true });
+                }
+                fs.writeFileSync(jsonPath, JSON.stringify(scene));
+            } catch (err: any) {
+                resolve({ success: false, error: `Failed to write scene JSON: ${err.message}` });
+                return;
+            }
+
+            this.pendingRequest = { resolve, metadataPath };
+
+            const colorField = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor) ? bgColor : '-';
+            const cmd = `RENDER_JSON ${jsonPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField}\n`;
             this.serverProcess.stdin!.write(cmd);
         });
     }
