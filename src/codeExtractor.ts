@@ -20,8 +20,17 @@ const CONFIG_LOCALE_RE = /locale\s*=\s*([a-zA-Z][a-zA-Z0-9_\-]+)/;
 const CONFIG_FONTSCALE_RE = /fontScale\s*=\s*([\d.]+)/;
 const CONFIG_FONT_RE = /(?<![a-zA-Z])font\s*=\s*([\w.\-/]+)/;
 
+const CONFIG_ANIMATION_RE = /(?<![a-zA-Z])animation\s*=\s*(true|false)/;
+const CONFIG_DURATION_RE = /duration\s*=\s*(\d+)/;
+const CONFIG_FPS_RE = /fps\s*=\s*(\d+)/;
+
 const FONTSCALE_MIN = 0.5;
 const FONTSCALE_MAX = 2.0;
+
+const ANIMATION_DURATION_MIN = 500;
+const ANIMATION_DURATION_MAX = 10000;
+const ANIMATION_FPS_MIN = 5;
+const ANIMATION_FPS_MAX = 30;
 
 function parsePreviewConfigLine(line: string): PreviewConfig | null {
     const m = PREVIEW_CONFIG_RE.exec(line.trim());
@@ -61,6 +70,24 @@ function parsePreviewConfigLine(line: string): PreviewConfig | null {
     const fontMatch = CONFIG_FONT_RE.exec(body);
     if (fontMatch) {
         config.font = fontMatch[1];
+    }
+    const animationMatch = CONFIG_ANIMATION_RE.exec(body);
+    if (animationMatch) {
+        config.animation = animationMatch[1] === 'true';
+    }
+    const durationMatch = CONFIG_DURATION_RE.exec(body);
+    if (durationMatch) {
+        const dur = parseInt(durationMatch[1], 10);
+        if (dur >= ANIMATION_DURATION_MIN && dur <= ANIMATION_DURATION_MAX) {
+            config.duration = dur;
+        }
+    }
+    const fpsMatch = CONFIG_FPS_RE.exec(body);
+    if (fpsMatch) {
+        const fps = parseInt(fpsMatch[1], 10);
+        if (fps >= ANIMATION_FPS_MIN && fps <= ANIMATION_FPS_MAX) {
+            config.fps = fps;
+        }
     }
     return config;
 }
