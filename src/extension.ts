@@ -6,9 +6,10 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
-import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, errorsToDiagnostics } from './errorParser';
+import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
+import { validateEnvironment } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { PropertyEditor } from './propertyEditor';
 import * as fs from 'fs';
@@ -98,6 +99,34 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     } catch (err: any) {
         outputChannel.appendLine(`Setup wizard error: ${err.message || err}`);
+    }
+
+    // Validate runtime environment and show actionable messages for missing deps
+    try {
+        const daliPrefixForCheck = await (async () => {
+            const { findDaliPrefix } = await import('./daliEnvironment');
+            return findDaliPrefix();
+        })();
+        const envIssues = await validateEnvironment(daliPrefixForCheck);
+        if (envIssues.length > 0) {
+            for (const issue of envIssues) {
+                outputChannel.appendLine(`[환경 경고] ${issue.message} → ${issue.action}`);
+            }
+            const criticalDeps = envIssues.filter(i => i.kind === 'missing_dep');
+            if (criticalDeps.length > 0) {
+                const lines = criticalDeps.map(i => `• ${i.message}\n  조치: ${i.action}`).join('\n');
+                vscode.window.showWarningMessage(
+                    `DALi Preview: 필수 의존성이 없어 프리뷰가 동작하지 않을 수 있습니다.\n${lines}`,
+                    '출력 패널 보기'
+                ).then(choice => {
+                    if (choice === '출력 패널 보기') {
+                        outputChannel.show();
+                    }
+                });
+            }
+        }
+    } catch (err: any) {
+        outputChannel.appendLine(`[환경 검증] 오류: ${err?.message ?? err}`);
     }
 
     // Build runner
@@ -518,7 +547,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                     diagnosticCollection.set(doc.uri, diagnostics);
                     scheduleShowError(formatErrorsForDisplay(errors));
                 } else {
-                    scheduleShowError(pluginResult.error || 'Plugin compile failed');
+                    scheduleShowError(formatRawError(pluginResult.error || ''));
                 }
                 statusBar?.showError(pluginResult.error?.split('\n')[0] || 'Build failed');
                 outputChannel.appendLine(`Plugin compile failed in ${(buildTimeMs / 1000).toFixed(1)}s`);
@@ -565,7 +594,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 diagnosticCollection.set(doc.uri, diagnostics);
                 scheduleShowError(formatErrorsForDisplay(errors));
             } else {
-                scheduleShowError(result!.error || 'Unknown error');
+                scheduleShowError(formatRawError(result!.error || ''));
             }
 
             statusBar?.showError(result!.error?.split('\n')[0] || 'Build failed');
