@@ -537,6 +537,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                     // Parser path failed at render time → fall through to compile
                     outputChannel.appendLine('[Parser] renderJson failed, falling back to compile path');
                     result = undefined;
+                    if (myGeneration !== buildGeneration) { return; }
                 }
             }
         }

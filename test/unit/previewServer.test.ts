@@ -468,6 +468,132 @@ describe('PreviewServer — IPC behavior', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PreviewServer — renderJson() IPC behavior
+// ---------------------------------------------------------------------------
+
+describe('PreviewServer — renderJson() IPC behavior', () => {
+    let fsMkdirStub: sinon.SinonStub;
+    let fsWriteFileStub: sinon.SinonStub;
+
+    beforeEach(() => {
+        fsMkdirStub  = sinon.stub(fs.promises, 'mkdir').resolves();
+        fsWriteFileStub = sinon.stub(fs.promises, 'writeFile').resolves();
+    });
+
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    const scene = {
+        type: 'View',
+        constructorArgs: [],
+        properties: {},
+        children: [],
+    };
+
+    it('resolves {success:true, pngPath} when server responds OK:', async () => {
+        const { server, proc } = await startedServer();
+
+        const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        // Wait for async mkdir/writeFile stubs to resolve so pendingRequest is set
+        await Promise.resolve(); await Promise.resolve();
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+
+        const result = await renderPromise;
+        expect(result.success).to.equal(true);
+        expect(result.pngPath).to.equal('/tmp/a.png');
+        expect(result.metadataPath).to.equal('/tmp/a_meta.json');
+    });
+
+    it('resolves {success:false} when server responds ERROR:', async () => {
+        const { server, proc } = await startedServer();
+
+        const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        await Promise.resolve(); await Promise.resolve();
+        proc.stdout.emit('data', Buffer.from('ERROR:scene parse failed\n'));
+
+        const result = await renderPromise;
+        expect(result.success).to.equal(false);
+        expect(result.error).to.equal('scene parse failed');
+    });
+
+    it('returns {success:false} immediately when server is not running', async () => {
+        const { server } = makeServer();
+        const result = await server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('not running');
+    });
+
+    it('rejects pngPath containing whitespace', async () => {
+        const { server } = await startedServer();
+        const result = await server.renderJson(scene, '/tmp/a b.png', '/tmp/a_meta.json', 1024, 600);
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('invalid characters');
+    });
+
+    it('rejects metadataPath containing newline', async () => {
+        const { server } = await startedServer();
+        const result = await server.renderJson(scene, '/tmp/a.png', '/tmp/a\nmeta.json', 1024, 600);
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('invalid characters');
+    });
+
+    it('writes scene JSON to a unique /tmp/dali_preview/scene-*.json file', async () => {
+        const { server, proc } = await startedServer();
+
+        const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        await Promise.resolve(); await Promise.resolve();
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await renderPromise;
+
+        expect(fsWriteFileStub.calledOnce).to.be.true;
+        const writtenPath: string = fsWriteFileStub.firstCall.args[0];
+        expect(writtenPath).to.match(/^\/tmp\/dali_preview\/scene-\d+\.json$/);
+    });
+
+    it('sends RENDER_JSON command to server stdin', async () => {
+        const { server, proc } = await startedServer();
+
+        const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        await Promise.resolve(); await Promise.resolve();
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        await renderPromise;
+
+        const writtenCmd: string = proc.stdin.write.lastCall.args[0];
+        expect(writtenCmd).to.include('RENDER_JSON');
+        expect(writtenCmd).to.include('/tmp/a.png');
+        expect(writtenCmd).to.include('/tmp/a_meta.json');
+    });
+
+    it('concurrent renderJson() — first caller receives "already in progress" error', async () => {
+        const { server, proc } = await startedServer();
+
+        // Both calls are started; first is displaced by second during the async setup
+        const first  = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        await Promise.resolve(); await Promise.resolve();
+        const second = server.renderJson(scene, '/tmp/b.png', '/tmp/b_meta.json', 1024, 600);
+        await Promise.resolve(); await Promise.resolve();
+
+        const firstResult = await first;
+        expect(firstResult.success).to.equal(false);
+        expect(firstResult.error).to.include('already in progress');
+
+        proc.stdout.emit('data', Buffer.from('OK:/tmp/b.png\n'));
+        const secondResult = await second;
+        expect(secondResult.success).to.equal(true);
+    });
+
+    it('resolves {success:false} when writeFile throws', async () => {
+        fsWriteFileStub.rejects(new Error('disk full'));
+        const { server } = await startedServer();
+
+        const result = await server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('disk full');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // preview_server.cpp — HexToColor structure tests
 // ---------------------------------------------------------------------------
 
@@ -504,5 +630,38 @@ describe('previewServer — preview_server.cpp HexToColor', () => {
     it('preview_server.cpp applies font directory via FontClient::Get().AddCustomFontDirectory', () => {
         const content = fs.readFileSync(SERVER_CPP, 'utf-8');
         expect(content).to.include('AddCustomFontDirectory');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// preview_server.cpp — RENDER_JSON structure tests
+// ---------------------------------------------------------------------------
+
+describe('previewServer — preview_server.cpp RENDER_JSON', () => {
+    const SERVER_CPP = path.resolve(__dirname, '../../../server/preview_server.cpp');
+
+    it('implements RENDER_JSON command handling', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('RENDER_JSON');
+    });
+
+    it('contains DoRenderJson function', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('DoRenderJson');
+    });
+
+    it('contains JSON parser for scene data (JParseNode)', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('JParseNode');
+    });
+
+    it('contains scene builder (SBBuildNode)', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('SBBuildNode');
+    });
+
+    it('isJson flag dispatches from RELOAD to RENDER_JSON path', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('isJson');
     });
 });

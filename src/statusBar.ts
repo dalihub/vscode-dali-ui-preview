@@ -50,6 +50,8 @@ export class StatusBarManager {
             : mode === 'server' ? '⚡ Server' : mode === 'vnc' ? '🖥 VNC' : '🔨 Compile';
         if (mode === 'vnc') {
             this.statusBarItem.text = '$(vm-active) DALi: Interactive';
+        } else {
+            this.statusBarItem.text = `$(zap) DALi: ${label}`;
         }
         this.statusBarItem.tooltip = `DALi Preview mode: ${label}`;
     }

@@ -147,6 +147,24 @@ describe('cppParser', () => {
             expect(node!.properties['Direction']).to.deep.equal(['FlexDirection::ROW']);
         });
 
+        it('skips C++ block comments', () => {
+            const code = [
+                'return FlexLayout::New()',
+                '    /* block comment */',
+                '    .Direction(FlexDirection::ROW);',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.properties['Direction']).to.deep.equal(['FlexDirection::ROW']);
+        });
+
+        it('parses negative number arguments', () => {
+            const code = 'return View::New().SetRequestedWidth(-100.0f);';
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.properties['SetRequestedWidth']).to.deep.equal(['-100.0f']);
+        });
+
         it('parses hex numbers in arguments', () => {
             const code = 'return View::New().SetBackgroundColor(UiColor(0x1a1a2e));';
             const node = parseChainExpression(code);
@@ -196,6 +214,20 @@ describe('cppParser', () => {
             const code = 'return View::New(); View::New();';
             expect(parseChainExpression(code)).to.be.null;
         });
+
+        it('returns null for empty input', () => {
+            expect(parseChainExpression('')).to.be.null;
+        });
+
+        it('returns null for new keyword (C++ operator new)', () => {
+            const code = 'return new View();';
+            expect(parseChainExpression(code)).to.be.null;
+        });
+
+        it('returns null for delete keyword', () => {
+            const code = 'delete view;';
+            expect(parseChainExpression(code)).to.be.null;
+        });
     });
 
     // -----------------------------------------------------------------------
@@ -217,19 +249,35 @@ describe('cppParser', () => {
         });
 
         it('evicts oldest entry when cache exceeds 10 entries', () => {
-            // Fill cache with 10 distinct entries
+            // Fill cache with 10 distinct entries (entry 0 added first = LRU)
+            const first = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
+            for (let i = 1; i < 10; i++) {
+                parseChainExpression(`return View::New().SetRequestedWidth(${i}.0f);`);
+            }
+            // Do NOT access entry 0 again — it remains the LRU entry
+            // Adding 11th entry should evict entry 0 (oldest)
+            parseChainExpression('return View::New().SetRequestedWidth(100.0f);');
+            // Entry 0 has been evicted — re-parsing produces a new object
+            const refetched = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
+            expect(refetched).to.not.be.null;
+            expect(refetched).to.not.equal(first); // new object confirms eviction
+        });
+
+        it('LRU hit refreshes entry order (frequently used entries not evicted first)', () => {
+            // Fill cache with 10 entries
             for (let i = 0; i < 10; i++) {
                 parseChainExpression(`return View::New().SetRequestedWidth(${i}.0f);`);
             }
-            // First entry should still be in cache (exactly 10 entries)
-            const first = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
-            expect(first).to.not.be.null;
-
-            // Adding an 11th entry should evict the oldest
-            parseChainExpression('return View::New().SetRequestedWidth(100.0f);');
-            // Now the first entry has been evicted — re-parsing should still work
-            const refetched = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
-            expect(refetched).to.not.be.null;
+            // Access entry #0 to make it recently used
+            const kept = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
+            // Add 11th entry — should evict entry #1 (now LRU), not #0
+            parseChainExpression('return View::New().SetRequestedWidth(99.0f);');
+            // Entry #0 should still be cached (same reference)
+            const stillCached = parseChainExpression('return View::New().SetRequestedWidth(0.0f);');
+            expect(stillCached).to.equal(kept);
+            // Entry #1 should have been evicted (new object)
+            const evicted = parseChainExpression('return View::New().SetRequestedWidth(1.0f);');
+            expect(evicted).to.not.be.null;
         });
     });
 

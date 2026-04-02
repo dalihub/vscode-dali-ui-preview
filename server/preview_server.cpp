@@ -215,7 +215,8 @@ static std::vector<std::string> JReadStringArray(const std::string& s, size_t& p
     JSkipWs(s, p);
     while (p < s.size() && s[p] != ']')
     {
-        if (s[p] == '"') out.push_back(JReadString(s, p));
+        if (s[p] == '"') { out.push_back(JReadString(s, p)); }
+        else { ++p; } // skip unexpected token to prevent infinite loop
         JSkipWs(s, p);
         if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
     }
@@ -255,7 +256,8 @@ static std::vector<SceneNodeJson> JReadNodeArray(const std::string& s, size_t& p
     JSkipWs(s, p);
     while (p < s.size() && s[p] != ']')
     {
-        if (s[p] == '{') out.push_back(JParseNode(s, p));
+        if (s[p] == '{') { out.push_back(JParseNode(s, p)); }
+        else { ++p; } // skip unexpected token to prevent infinite loop
         JSkipWs(s, p);
         if (p < s.size() && s[p] == ',') { ++p; JSkipWs(s, p); }
     }

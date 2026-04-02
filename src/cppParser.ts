@@ -38,14 +38,16 @@ function _cacheGet(key: string): SceneNode | null | undefined {
     if (!_cache.has(key)) {
         return undefined;
     }
+    // Refresh LRU order on hit
+    const idx = _cacheOrder.indexOf(key);
+    if (idx !== -1) {
+        _cacheOrder.splice(idx, 1);
+        _cacheOrder.push(key);
+    }
     return _cache.get(key);
 }
 
 function _cacheSet(key: string, result: SceneNode | null): void {
-    if (_cache.has(key)) {
-        _cache.set(key, result);
-        return;
-    }
     if (_cacheOrder.length >= CACHE_SIZE) {
         const oldest = _cacheOrder.shift()!;
         _cache.delete(oldest);
@@ -75,7 +77,8 @@ const FAIL_KEYWORDS = new Set([
     'if', 'for', 'while', 'do', 'switch', 'else', 'goto',
     'auto', 'int', 'float', 'bool', 'char', 'double', 'void',
     'const', 'static', 'class', 'struct', 'namespace',
-    'using', 'template', 'typename', 'auto',
+    'using', 'template', 'typename',
+    'new', 'delete', 'throw', 'operator',
 ]);
 
 /**
