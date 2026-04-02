@@ -99,13 +99,68 @@ export function validateDaliPrefix(prefix: string): boolean {
  */
 export async function checkDependencies(
     _daliPrefix: string
-): Promise<{ gcc: boolean; xvfb: boolean; ccache: boolean }> {
-    const [gcc, xvfb, ccache] = await Promise.all([
-        isCommandAvailable('gcc'),
+): Promise<{ gcc: boolean; xvfb: boolean; ccache: boolean; pkgconfig: boolean }> {
+    const [gcc, xvfb, ccache, pkgconfig] = await Promise.all([
+        isCommandAvailable('g++'),
         isCommandAvailable('Xvfb'),
         isCommandAvailable('ccache'),
+        isCommandAvailable('pkg-config'),
     ]);
-    return { gcc, xvfb, ccache };
+    return { gcc, xvfb, ccache, pkgconfig };
+}
+
+export interface EnvironmentIssue {
+    kind: 'missing_dep' | 'missing_dali';
+    message: string;
+    action: string;
+}
+
+/**
+ * Validates the runtime environment and returns a list of issues found.
+ * Returns an empty array when everything is in order.
+ *
+ * @param daliPrefix  Resolved DALi SDK prefix, or null if not found.
+ * @param deps        Optional pre-resolved dependency flags — supply in tests
+ *                    to avoid spawning real shell commands.
+ */
+export async function validateEnvironment(
+    daliPrefix: string | null,
+    deps?: { gcc: boolean; xvfb: boolean; ccache: boolean; pkgconfig: boolean },
+): Promise<EnvironmentIssue[]> {
+    const issues: EnvironmentIssue[] = [];
+
+    const resolvedDeps = deps ?? await checkDependencies(daliPrefix ?? '');
+
+    if (!resolvedDeps.gcc) {
+        issues.push({
+            kind: 'missing_dep',
+            message: 'g++ compiler not found on PATH.',
+            action: 'Install build-essential: sudo apt-get install build-essential',
+        });
+    }
+    if (!resolvedDeps.pkgconfig) {
+        issues.push({
+            kind: 'missing_dep',
+            message: 'pkg-config not found on PATH.',
+            action: 'Install pkg-config: sudo apt-get install pkg-config',
+        });
+    }
+    if (!resolvedDeps.xvfb) {
+        issues.push({
+            kind: 'missing_dep',
+            message: 'Xvfb not found on PATH (headless rendering unavailable).',
+            action: 'Install Xvfb: sudo apt-get install xvfb',
+        });
+    }
+    if (!daliPrefix) {
+        issues.push({
+            kind: 'missing_dali',
+            message: 'DALi SDK not found.',
+            action: 'Run "DALi: Open Preview" and configure the DALi prefix path in settings.',
+        });
+    }
+
+    return issues;
 }
 
 // ---------------------------------------------------------------------------

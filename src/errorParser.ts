@@ -108,6 +108,39 @@ export function getHarnessCodeOffset(templateContent: string): number {
 }
 
 /**
+ * Summarise raw compiler stderr into a short, user-readable message.
+ *
+ * Used as a fallback when `parseGccErrors` returns an empty array — e.g. when
+ * the error is in harness boilerplate (not user code), or when pkg-config /
+ * linker steps fail rather than the compile itself.
+ *
+ * The function extracts the first meaningful error line and strips noisy
+ * system-path prefixes, keeping the output under ~120 characters.
+ */
+export function formatRawError(raw: string): string {
+    if (!raw || raw.trim().length === 0) {
+        return 'Build failed (no output).';
+    }
+
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+
+    // Prefer the first line that contains ': error:' — it is most informative.
+    const errorLine = lines.find(l => /:\s*error:/i.test(l));
+    const candidate = errorLine ?? lines[0];
+
+    // Strip leading tmp-file path up to the first ':' that precedes a line number,
+    // turning e.g. "/tmp/dali_preview/preview_harness.cpp:5:3: error: …"
+    // into "Line 5:3: error: …"
+    const mapped = candidate.replace(
+        /^[^\s:]+:(\d+):(\d+):\s*(error|warning|note):\s*/i,
+        'Line $1, Col $2: '
+    );
+
+    // Trim to a reasonable display length
+    return mapped.length > 200 ? mapped.slice(0, 197) + '…' : mapped;
+}
+
+/**
  * Format parsed errors into a human-readable string suitable for the webview.
  */
 export function formatErrorsForDisplay(errors: ParsedError[]): string {
