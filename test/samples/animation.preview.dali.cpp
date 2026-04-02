@@ -1,0 +1,24 @@
+// @preview-config: name="AnimTest" width=360 height=640 animation=true duration=2000 fps=10
+
+// Simple animation preview sample:
+// A colored box that animates via DALi Animation API.
+// Captured as a multi-frame GIF (2s @ 10fps = 20 frames).
+
+auto root = FlexLayout::New()
+    .SetBackgroundColor(Color::BLACK);
+
+auto box = View::New()
+    .SetBackgroundColor(Color::BLUE)
+    .SetSize(Vector2(100.0f, 100.0f))
+    .SetParentOrigin(ParentOrigin::CENTER)
+    .SetAnchorPoint(AnchorPoint::CENTER);
+
+Animation anim = Animation::New(2.0f);
+anim.AnimateTo(Property(box, Actor::Property::POSITION),
+               Vector3(100.0f, 0.0f, 0.0f),
+               AlphaFunction::EASE_IN_OUT);
+anim.SetLooping(true);
+anim.Play();
+
+root.Add(box);
+return root;
