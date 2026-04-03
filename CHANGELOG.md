@@ -5,7 +5,7 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Phase 4-3: 애니메이션 프리뷰 (GIF 연속 캡처 + 타임라인 스크러빙) — DAL-31
+## [0.18.0] - 2026-04-03 — Phase 4-3: 애니메이션 프리뷰 (GIF 연속 캡처 + 타임라인 스크러빙) — DAL-31
 
 ### Added
 
@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/extension.ts`**: `runAnimationPreview()` 헬퍼 추가. `runPreview()`에서 `animation=true` config 감지 시 애니메이션 경로로 분기.
 - **`test/unit/codeExtractor.test.ts`**: 애니메이션 config 파싱 테스트 11건 추가 (범위 검증 포함).
 - **`test/samples/animation.preview.dali.cpp`** (신규): DALi Animation API를 사용하는 애니메이션 프리뷰 샘플.
+- **`test/golden/animation.harness.cpp`** (신규): 애니메이션 하네스 골든 파일 (치환 정확성 검증).
+- **`test/unit/buildRunner.test.ts`**: `buildAndRunAnimation()` 8케이스, `ffmpegAvailable()` 2케이스, `executeAnimation()` 출력 파싱 3케이스, `assembleGif()` 2케이스, `runAnimationPreview()` 라우팅 3케이스 추가.
+- **`test/unit/previewManager.test.ts`**: `updateAnimation()` isGif 분기 3케이스, `onAnimationSpeedChange()` 4케이스 추가.
+- **`test/unit/harnessGeneration.test.ts`**: `animationHarnessGeneration` describe 블록 추가 (플레이스홀더 검증·치환·골든 파일 비교·getHarnessCodeOffset).
+
+### Fixed
+
+- **`server/preview_animation.cpp.template`**: `TriggerNextFrame()` 재진입 시 이전 `FinishedSignal().Disconnect()` 추가 → mFrameIndex 중복 증가 위험 제거.
+- **`server/preview_animation.cpp.template`**: `ExportSceneMetadata` 호출 위치를 첫 프레임 캡처 직후(`mFrameIndex == 1`)로 이동 → Click-to-Code 좌표가 초기 레이아웃 기준으로 수집됨.
+- **`src/buildRunner.ts`**: `executeAnimation` maxBuffer 50MB 명시 → 300+ 프레임 stdout 오버플로 방지.
+- **`src/buildRunner.ts`**: `ffmpegAvailable()` 정적 캐시 추가 → 매 빌드마다 `which ffmpeg` 서브프로세스 재호출 제거.
+- **`src/buildRunner.ts`**: `buildAndRunAnimation()` `displayPath` 빈 문자열 가드 추가.
+- **`src/buildRunner.ts`**: `animConfig.duration ?? 2000` → 0값 오처리 방지.
+- **`src/extension.ts`**: `runAnimationPreview()` 오류 경로에서 `startLine` 하드코딩(0) → `extraction.startLine` 올바르게 전달 (마커 모드 에러 라인 오프셋 버그 수정).
 
 ### Design
 
@@ -28,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
-- 테스트 총계: **330개** (이전 308개 → +22).
+- 테스트 총계: **365개** (이전 308개 → +57).
 
 ---
 
