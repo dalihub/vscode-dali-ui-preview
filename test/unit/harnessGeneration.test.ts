@@ -215,4 +215,17 @@ describe('animationHarnessGeneration', () => {
         const lines = animTemplate.split('\n');
         expect(lines[offset - 1]).to.include('{{USER_CODE}}');
     });
+
+    it('golden file matches expected output for animation sample', () => {
+        const samplePath = path.resolve(__dirname, '../../../test/samples/animation.preview.dali.cpp');
+        const goldenPath = path.resolve(__dirname, '../../../test/golden/animation.harness.cpp');
+
+        const userCode = fs.readFileSync(samplePath, 'utf-8');
+        const generated = substituteAnimationTemplate(
+            animTemplate, userCode, 720, 1280, '/tmp/frames', 2000, 10
+        );
+        const golden = fs.readFileSync(goldenPath, 'utf-8');
+
+        expect(generated).to.equal(golden);
+    });
 });

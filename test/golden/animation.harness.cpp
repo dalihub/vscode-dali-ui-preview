@@ -19,10 +19,10 @@ using namespace Dali;
 using namespace Dali::Ui;
 using Dali::Ui::View;
 
-static const float PREVIEW_WIDTH  = {{PREVIEW_WIDTH}};
-static const float PREVIEW_HEIGHT = {{PREVIEW_HEIGHT}};
-static const int   ANIMATION_DURATION = {{ANIMATION_DURATION}};
-static const int   ANIMATION_FPS      = {{ANIMATION_FPS}};
+static const float PREVIEW_WIDTH  = 720.0f;
+static const float PREVIEW_HEIGHT = 1280.0f;
+static const int   ANIMATION_DURATION = 2000;
+static const int   ANIMATION_FPS      = 10;
 static const int   TOTAL_FRAMES       = ANIMATION_DURATION * ANIMATION_FPS / 1000;
 
 // === Click-to-code helper: tags an actor with a source line name ===
@@ -36,7 +36,31 @@ T __tag(T obj, const char* name)
 // === User preview code ===
 View CreatePreviewUI()
 {
-{{USER_CODE}}
+// @preview-config: name="AnimTest" width=360 height=640 animation=true duration=2000 fps=10
+
+// Simple animation preview sample:
+// A colored box that animates via DALi Animation API.
+// Captured as a multi-frame GIF (2s @ 10fps = 20 frames).
+
+auto root = FlexLayout::New()
+    .SetBackgroundColor(Color::BLACK);
+
+auto box = View::New()
+    .SetBackgroundColor(Color::BLUE)
+    .SetSize(Vector2(100.0f, 100.0f))
+    .SetParentOrigin(ParentOrigin::CENTER)
+    .SetAnchorPoint(AnchorPoint::CENTER);
+
+Animation anim = Animation::New(2.0f);
+anim.AnimateTo(Property(box, Actor::Property::POSITION),
+               Vector3(100.0f, 0.0f, 0.0f),
+               AlphaFunction::EASE_IN_OUT);
+anim.SetLooping(true);
+anim.Play();
+
+root.Add(box);
+return root;
+
 }
 
 // === Scene graph metadata export ===
@@ -160,9 +184,9 @@ public:
 
   void OnInit(Application& app)
   {
-{{FONT_SETUP}}
+
     Window window = app.GetWindow();
-    window.SetBackgroundColor({{BACKGROUND_COLOR}});
+    window.SetBackgroundColor(Vector4(0.1f, 0.1f, 0.12f, 1.0f));
 
     View root = CreatePreviewUI();
     window.Add(root);
@@ -189,7 +213,7 @@ public:
     }
 
     char framePath[512];
-    std::snprintf(framePath, sizeof(framePath), "{{OUTPUT_DIR}}/frame_%03d.png", mFrameIndex);
+    std::snprintf(framePath, sizeof(framePath), "/tmp/frames/frame_%03d.png", mFrameIndex);
 
     Window window = mApp.GetWindow();
     if(mCapture)
@@ -202,7 +226,7 @@ public:
     capture.Start(Actor(window.GetRootLayer()),
                   Vector2(PREVIEW_WIDTH, PREVIEW_HEIGHT),
                   Dali::String(framePath),
-                  {{BACKGROUND_COLOR}});
+                  Vector4(0.1f, 0.1f, 0.12f, 1.0f));
   }
 
   void OnFrameCaptured(Capture capture, Capture::FinishState state)
@@ -214,7 +238,7 @@ public:
       if(mFrameIndex == 1)
       {
         Window window = mApp.GetWindow();
-        ExportSceneMetadata(Actor(window.GetRootLayer()), "{{METADATA_PATH}}", PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        ExportSceneMetadata(Actor(window.GetRootLayer()), "/tmp/preview_metadata.json", PREVIEW_WIDTH, PREVIEW_HEIGHT);
       }
       // Schedule next frame after the configured interval
       uint32_t intervalMs = static_cast<uint32_t>(1000 / ANIMATION_FPS);

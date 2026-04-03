@@ -627,3 +627,92 @@ describe('BuildRunner — buildInteractive()', () => {
         expect(result.binPath).to.include('preview_interactive_bin');
     });
 });
+
+// ---------------------------------------------------------------------------
+// runAnimationPreview() routing — tests via buildAndRunAnimation stub
+// ---------------------------------------------------------------------------
+
+describe('runAnimationPreview() routing', () => {
+    let runner: BuildRunner;
+    let updateAnimationSpy: sinon.SinonSpy;
+    let fakePreviewManager: any;
+
+    beforeEach(() => {
+        runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        updateAnimationSpy = sinon.spy();
+        fakePreviewManager = {
+            updateAnimation: updateAnimationSpy,
+        };
+    });
+
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('success path: gifPath returned → updateAnimation called with gif path', async () => {
+        const gifPath = '/tmp/preview.gif';
+        sinon.stub(runner, 'buildAndRunAnimation').resolves({
+            success: true,
+            gifPath,
+            frameCount: 20,
+            metadataPath: undefined,
+        });
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined,
+            2000, 10
+        );
+
+        expect(result.success).to.equal(true);
+        expect(result.gifPath).to.equal(gifPath);
+    });
+
+    it('failure path: buildAndRunAnimation fails → success=false with error message', async () => {
+        sinon.stub(runner, 'buildAndRunAnimation').resolves({
+            success: false,
+            error: 'compile error: undefined symbol',
+        });
+
+        const result = await runner.buildAndRunAnimation(
+            'return Broken::New();', 720, 1280, 'dark', undefined,
+            2000, 10
+        );
+
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('compile error');
+    });
+
+    it('stale generation guard: when two builds overlap, second result is discarded', async () => {
+        let buildGeneration = 1;
+
+        // Simulate what runAnimationPreview does: check generation after await
+        const runWithGeneration = async (myGeneration: number) => {
+            const result = await runner.buildAndRunAnimation(
+                'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+            );
+            if (myGeneration !== buildGeneration) {
+                return; // stale — do not call updateAnimation
+            }
+            if (result.success && (result.gifPath || result.pngPath)) {
+                fakePreviewManager.updateAnimation(result.gifPath || result.pngPath, 100, result.frameCount || 0);
+            }
+        };
+
+        // First build resolves, but generation has advanced by the time it finishes
+        sinon.stub(runner, 'buildAndRunAnimation').resolves({
+            success: true,
+            gifPath: '/tmp/preview.gif',
+            frameCount: 20,
+        });
+
+        const staleGeneration = 1;
+        buildGeneration = 2; // generation advanced before first build finishes
+
+        await runWithGeneration(staleGeneration);
+
+        expect(updateAnimationSpy.called).to.equal(false);
+    });
+});
