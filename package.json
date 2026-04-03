@@ -46,6 +46,11 @@
         "command": "dali.toggleInteractiveMode",
         "title": "Toggle Interactive Mode (VNC)",
         "category": "DALi Preview"
+      },
+      {
+        "command": "dali.openSettings",
+        "title": "Open Settings",
+        "category": "DALi Preview"
       }
     ],
     "configuration": {

@@ -5,6 +5,13 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-04-03 — DALi Preview 설정 UI 커맨드 추가 — DAL-33
+
+### Added
+
+- **`package.json`**: `dali.openSettings` 커맨드 등록 (`DALi Preview: Open Settings`). Ctrl+Shift+P 명령 팔레트에서 접근 가능.
+- **`src/extension.ts`**: `dali.openSettings` 커맨드 핸들러 추가. VS Code 기본 설정 UI를 `daliPreview` 검색어로 필터링하여 오픈. debounce 타임, 프리뷰 크기, 테마, VNC 포트 등 모든 `daliPreview.*` 설정이 한 곳에서 관리됨.
+
 ## [0.18.0] - 2026-04-03 — Phase 4-3: 애니메이션 프리뷰 (GIF 연속 캡처 + 타임라인 스크러빙) — DAL-31
 
 ### Added
