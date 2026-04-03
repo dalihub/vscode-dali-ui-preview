@@ -726,16 +726,17 @@ export class BuildRunner {
     }
 
     private compileCrossDevice(source: string, output: string, sysroot: string): Promise<BuildResult> {
-        const pkgConfigPath = `${sysroot}/usr/lib/pkgconfig:${sysroot}/usr/share/pkgconfig`;
+        const escapedSysroot = sysroot.replace(/"/g, '\\"');
+        const pkgConfigPath = `${escapedSysroot}/usr/lib/pkgconfig:${escapedSysroot}/usr/share/pkgconfig`;
         const compiler = 'arm-linux-gnueabi-g++';
 
         const cmd = [
-            `PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${sysroot}"`,
+            `PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}"`,
             `${compiler} -std=c++17 -O0`,
-            `--sysroot="${sysroot}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${sysroot}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `--sysroot="${escapedSysroot}"`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
             `"${source}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${sysroot}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
             `-o "${output}"`
         ].join(' ');
 

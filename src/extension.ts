@@ -267,8 +267,8 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(devicePreviewCmd);
 
-    // Restore persisted device serial from workspace state
-    const savedDeviceSerial = context.workspaceState.get<string>('daliPreview.targetDevice');
+    // Restore persisted device serial from settings (same storage as selectDevice write path)
+    const savedDeviceSerial = vscode.workspace.getConfiguration('daliPreview').get<string>('targetDevice', '') || undefined;
     if (savedDeviceSerial) {
         currentDeviceSerial = savedDeviceSerial;
         outputChannel.appendLine(`[SDB] 저장된 타겟 디바이스: ${savedDeviceSerial}`);
