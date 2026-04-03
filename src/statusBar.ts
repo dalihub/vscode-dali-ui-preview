@@ -45,6 +45,7 @@ export class StatusBarManager {
     }
 
     showMode(mode: 'server' | 'compile' | 'vnc' | 'parser' | 'device'): void {
+        this.clearRevertTimer();
         const label = mode === 'parser'
             ? '⚡ Parser'
             : mode === 'server' ? '⚡ Server'

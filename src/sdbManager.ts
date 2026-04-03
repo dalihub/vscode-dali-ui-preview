@@ -1,4 +1,4 @@
-import { exec, execSync } from 'child_process';
+import { exec, spawnSync } from 'child_process';
 import * as vscode from 'vscode';
 
 export interface SdbDevice {
@@ -29,23 +29,20 @@ export class SdbManager {
     static checkDependencies(): string | null {
         const config = vscode.workspace.getConfiguration('daliPreview');
         const sdbPath = config.get<string>('sdbPath', '') || 'sdb';
-        try {
-            execSync(`which "${sdbPath}"`, { stdio: 'pipe' });
+        const result = spawnSync('which', [sdbPath], { stdio: 'pipe' });
+        if (result.status === 0) {
             return null;
-        } catch {
-            return sdbPath === 'sdb'
-                ? 'sdb not found in PATH. Install Tizen SDK or set daliPreview.sdbPath.'
-                : `sdb not found at '${sdbPath}'. Check daliPreview.sdbPath setting.`;
         }
+        return sdbPath === 'sdb'
+            ? 'sdb not found in PATH. Install Tizen SDK or set daliPreview.sdbPath.'
+            : `sdb not found at '${sdbPath}'. Check daliPreview.sdbPath setting.`;
     }
 
     /**
      * Lists connected SDB devices.
      */
     async getDevices(): Promise<SdbDevice[]> {
-        const { stdout } = await this.exec(['-s', '', 'devices']).catch(() =>
-            this.exec(['devices'])
-        );
+        const { stdout } = await this.exec(['devices']);
         return this.parseDevices(stdout);
     }
 

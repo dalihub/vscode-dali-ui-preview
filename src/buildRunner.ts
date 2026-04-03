@@ -726,7 +726,10 @@ export class BuildRunner {
     }
 
     private compileCrossDevice(source: string, output: string, sysroot: string): Promise<BuildResult> {
-        const escapedSysroot = sysroot.replace(/"/g, '\\"');
+        const escapedSysroot = sysroot
+            .replace(/"/g, '\\"')
+            .replace(/`/g, '\\`')
+            .replace(/\$/g, '\\$');
         const pkgConfigPath = `${escapedSysroot}/usr/lib/pkgconfig:${escapedSysroot}/usr/share/pkgconfig`;
         const compiler = 'arm-linux-gnueabi-g++';
 

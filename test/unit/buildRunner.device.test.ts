@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { BuildRunner } from '../../src/buildRunner';
 import { SdbManager } from '../../src/sdbManager';
 import * as daliEnv from '../../src/daliEnvironment';
@@ -116,5 +117,38 @@ describe('BuildRunner — buildAndRunOnDevice()', () => {
         expect(result.success).to.equal(true);
         expect(result.pngPath).to.be.a('string');
         expect(result.pngPath).to.include('preview_device.png');
+    });
+
+    it('propagates cross-compile failure when tizenSysroot configured', async () => {
+        const fakeConfig = { get: (key: string, def: any) => key === 'tizenSysroot' ? '/opt/tizen-sysroot' : def };
+        sinon.stub(vscode.workspace, 'getConfiguration').returns(fakeConfig as any);
+
+        (runner as any).compileCrossDevice = async () => ({ success: false, error: 'arm compiler not found' });
+
+        const result = await runner.buildAndRunOnDevice(
+            'return View::New();',
+            sdbManager,
+            'device-1234',
+            800, 600
+        );
+
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('arm compiler');
+    });
+
+    it('returns compile error without calling sdb when compile fails', async () => {
+        (runner as any).compile = async () => ({ success: false, error: 'syntax error near line 5' });
+        const pushSpy = sinon.stub(sdbManager, 'push').resolves();
+
+        const result = await runner.buildAndRunOnDevice(
+            'invalid code',
+            sdbManager,
+            'device-1234',
+            800, 600
+        );
+
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('syntax error');
+        expect(pushSpy.called).to.equal(false);
     });
 });
