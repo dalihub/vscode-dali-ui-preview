@@ -408,12 +408,18 @@ export class BuildRunner {
     }
 
     /**
-     * Check if ffmpeg is available on the system.
+     * Check if ffmpeg is available on the system. Result is cached after first call.
      */
+    private static _ffmpegCache: boolean | undefined = undefined;
+
     static async ffmpegAvailable(): Promise<boolean> {
+        if (BuildRunner._ffmpegCache !== undefined) {
+            return BuildRunner._ffmpegCache;
+        }
         return new Promise((resolve) => {
             exec('which ffmpeg', { timeout: 3000 }, (error) => {
-                resolve(!error);
+                BuildRunner._ffmpegCache = !error;
+                resolve(BuildRunner._ffmpegCache);
             });
         });
     }
@@ -540,7 +546,7 @@ export class BuildRunner {
         };
 
         return new Promise((resolve) => {
-            exec(binPath, { env, timeout: timeoutMs }, (error, stdout, stderr) => {
+            exec(binPath, { env, timeout: timeoutMs, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
                 const doneMatch = /ANIM_DONE:(\d+)/.exec(stdout);
                 if (doneMatch) {
                     resolve(parseInt(doneMatch[1], 10));

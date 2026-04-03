@@ -274,6 +274,10 @@ describe('BuildRunner.sanitizeConfigName()', () => {
 });
 
 describe('BuildRunner — ffmpegAvailable()', () => {
+    beforeEach(() => {
+        // Reset static cache so each test exercises exec() independently
+        (BuildRunner as any)['_ffmpegCache'] = undefined;
+    });
     afterEach(() => {
         sinon.restore();
     });

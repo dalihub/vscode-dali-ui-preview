@@ -512,7 +512,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
         const animConfig = extraction.configs?.find(c => c.animation === true);
         if (animConfig) {
             await runAnimationPreview(
-                doc, animConfig, instrumented, myGeneration, startTime
+                doc, animConfig, instrumented, myGeneration, startTime, extraction.startLine
             );
             return;
         }
@@ -653,7 +653,8 @@ async function runAnimationPreview(
     animConfig: PreviewConfig,
     instrumented: string,
     myGeneration: number,
-    startTime: number
+    startTime: number,
+    startLine: number = 0
 ) {
     if (!buildRunner || !previewManager) {
         return;
@@ -711,7 +712,7 @@ async function runAnimationPreview(
         const errors = parseGccErrors(result.error || '', offset, false);
 
         if (errors.length > 0) {
-            const diagnostics = errorsToDiagnostics(errors, doc, 0);
+            const diagnostics = errorsToDiagnostics(errors, doc, startLine);
             diagnosticCollection.set(doc.uri, diagnostics);
             scheduleShowError(formatErrorsForDisplay(errors));
         } else {
