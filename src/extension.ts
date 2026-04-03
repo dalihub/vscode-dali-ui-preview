@@ -4,6 +4,7 @@ import { BuildRunner } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
+import { SdbManager } from './sdbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
 import { parseChainExpression } from './cppParser';
@@ -21,11 +22,14 @@ let buildRunner: BuildRunner | undefined;
 let previewServer: PreviewServer | undefined;
 let xvfbManager: XvfbManager | undefined;
 let vncManager: VncManager | undefined;
+let sdbManager: SdbManager | undefined;
 let statusBar: StatusBarManager | undefined;
 let themeStatusBar: ThemeStatusBarItem | undefined;
 let isVncMode = false;
 let vncStarting = false;
 let hotReloading = false;
+let currentDeviceSerial: string | undefined;
+let devicePreviewRunning = false;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let building = false;
 let outputChannel: vscode.OutputChannel;
@@ -129,6 +133,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // Build runner
     buildRunner = new BuildRunner(context, xvfbManager, outputChannel);
 
+    // SDB manager
+    sdbManager = new SdbManager(outputChannel);
+
     // VNC manager
     vncManager = new VncManager(outputChannel);
     vncManager.onDaliAppExitCallback = () => {
@@ -206,6 +213,66 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('workbench.action.openSettings', 'daliPreview');
     });
     context.subscriptions.push(openSettingsCmd);
+
+    // Command: DALi: Select Target Device
+    const selectDeviceCmd = vscode.commands.registerCommand('dali.selectDevice', async () => {
+        if (!sdbManager) {
+            return;
+        }
+        const missingDep = SdbManager.checkDependencies();
+        if (missingDep) {
+            vscode.window.showErrorMessage(`DALi Device Preview: ${missingDep}`);
+            return;
+        }
+        const serial = await sdbManager.selectDevice();
+        if (serial) {
+            currentDeviceSerial = serial;
+            const config = vscode.workspace.getConfiguration('daliPreview');
+            await config.update('targetDevice', serial, vscode.ConfigurationTarget.Workspace);
+            statusBar?.showMode('device');
+            outputChannel.appendLine(`[SDB] 타겟 디바이스 선택됨: ${serial}`);
+            vscode.window.showInformationMessage(`DALi: 디바이스 선택됨 — ${serial}`);
+        }
+    });
+    context.subscriptions.push(selectDeviceCmd);
+
+    // Command: DALi: Device Preview
+    const devicePreviewCmd = vscode.commands.registerCommand('dali.devicePreview', async () => {
+        const missingDep = SdbManager.checkDependencies();
+        if (missingDep) {
+            vscode.window.showErrorMessage(`DALi Device Preview: ${missingDep}`);
+            return;
+        }
+        if (!currentDeviceSerial) {
+            // Auto-select if only one device connected
+            if (sdbManager) {
+                const serial = await sdbManager.selectDevice();
+                if (!serial) {
+                    return;
+                }
+                currentDeviceSerial = serial;
+            } else {
+                return;
+            }
+        }
+        const editor = vscode.window.activeTextEditor;
+        const doc = editor && isPreviewable(editor.document) ? editor.document : lastPreviewedDoc;
+        if (!doc) {
+            vscode.window.showWarningMessage('DALi: 프리뷰 가능한 파일이 없습니다. .preview.dali.cpp 파일을 열어주세요.');
+            return;
+        }
+        ensurePreviewManager(context);
+        previewManager!.show();
+        await runDevicePreview(doc);
+    });
+    context.subscriptions.push(devicePreviewCmd);
+
+    // Restore persisted device serial from workspace state
+    const savedDeviceSerial = context.workspaceState.get<string>('daliPreview.targetDevice');
+    if (savedDeviceSerial) {
+        currentDeviceSerial = savedDeviceSerial;
+        outputChannel.appendLine(`[SDB] 저장된 타겟 디바이스: ${savedDeviceSerial}`);
+    }
 
     // Auto-preview on save
     const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
@@ -975,10 +1042,89 @@ async function hotReloadVnc(doc: vscode.TextDocument) {
     }
 }
 
+async function runDevicePreview(doc: vscode.TextDocument) {
+    if (!buildRunner || !previewManager || !sdbManager || !currentDeviceSerial) {
+        return;
+    }
+    if (devicePreviewRunning) {
+        return;
+    }
+    devicePreviewRunning = true;
+
+    const extraction = extractPreviewCode(doc);
+    if (!extraction) {
+        devicePreviewRunning = false;
+        return;
+    }
+
+    lastPreviewedDoc = doc;
+
+    statusBar?.showBuilding();
+    previewManager.showLoading();
+    diagnosticCollection.delete(doc.uri);
+
+    const startTime = Date.now();
+    const instrumented = instrumentCode(extraction.code, extraction.startLine);
+
+    try {
+        outputChannel.appendLine(`[SDB] 디바이스 프리뷰 시작: ${currentDeviceSerial}`);
+
+        const result = await buildRunner.buildAndRunOnDevice(
+            instrumented,
+            sdbManager,
+            currentDeviceSerial,
+            currentWidth,
+            currentHeight,
+            currentTheme,
+            currentBgColor
+        );
+
+        const buildTimeMs = Date.now() - startTime;
+
+        if (result.success && result.pngPath) {
+            let metadata: object | null = null;
+            if (result.metadataPath) {
+                try {
+                    metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
+                } catch { /* optional */ }
+            }
+            previewManager.updateImage(result.pngPath, buildTimeMs, metadata);
+            statusBar?.showMode('device');
+            statusBar?.showSuccess(buildTimeMs);
+            outputChannel.appendLine(
+                `[SDB] 디바이스 프리뷰 완료: ${(buildTimeMs / 1000).toFixed(1)}s (${currentDeviceSerial})`
+            );
+        } else {
+            const templatePath = path.join(
+                buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
+            let template = '';
+            try { template = fs.readFileSync(templatePath, 'utf-8'); } catch { /* ignore */ }
+            const offset = getHarnessCodeOffset(template);
+            const errors = parseGccErrors(result.error || '', offset, false);
+
+            if (errors.length > 0) {
+                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
+                diagnosticCollection.set(doc.uri, diagnostics);
+                scheduleShowError(formatErrorsForDisplay(errors));
+            } else {
+                scheduleShowError(formatRawError(result.error || ''));
+            }
+            statusBar?.showError(result.error?.split('\n')[0] || '디바이스 프리뷰 실패');
+            outputChannel.appendLine(`[SDB] 디바이스 프리뷰 실패: ${result.error?.substring(0, 200)}`);
+        }
+    } catch (err: any) {
+        scheduleShowError(`디바이스 프리뷰 오류: ${err.message || err}`);
+        statusBar?.showError(err.message || 'Error');
+    } finally {
+        devicePreviewRunning = false;
+    }
+}
+
 export function deactivate() {
     liveDebouncer?.dispose();
     previewServer?.stop();
     vncManager?.dispose();
+    sdbManager?.dispose();
     previewManager?.dispose();
     buildRunner?.dispose();
     xvfbManager?.stop();

@@ -51,6 +51,16 @@
         "command": "dali.openSettings",
         "title": "Open Settings",
         "category": "DALi Preview"
+      },
+      {
+        "command": "dali.selectDevice",
+        "title": "Select Target Device",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.devicePreview",
+        "title": "Device Preview",
+        "category": "DALi Preview"
       }
     ],
     "configuration": {
@@ -106,6 +116,21 @@
           "minimum": 1024,
           "maximum": 65535,
           "description": "Starting WebSocket port for websockify proxy in interactive mode. Auto-increments if port is in use. (default: 6080)"
+        },
+        "daliPreview.sdbPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the sdb (Smart Development Bridge) executable. Leave empty to use 'sdb' from PATH."
+        },
+        "daliPreview.tizenSysroot": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Tizen sysroot for cross-compilation. Required for ARM device builds. Leave empty to use the host compiler."
+        },
+        "daliPreview.targetDevice": {
+          "type": "string",
+          "default": "",
+          "description": "Default SDB device serial. Set automatically when you run 'DALi Preview: Select Target Device'."
         }
       }
     }

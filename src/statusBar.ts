@@ -44,12 +44,17 @@ export class StatusBarManager {
         }, 5000);
     }
 
-    showMode(mode: 'server' | 'compile' | 'vnc' | 'parser'): void {
+    showMode(mode: 'server' | 'compile' | 'vnc' | 'parser' | 'device'): void {
         const label = mode === 'parser'
             ? '⚡ Parser'
-            : mode === 'server' ? '⚡ Server' : mode === 'vnc' ? '🖥 VNC' : '🔨 Compile';
+            : mode === 'server' ? '⚡ Server'
+            : mode === 'vnc' ? '🖥 VNC'
+            : mode === 'device' ? '📱 Device'
+            : '🔨 Compile';
         if (mode === 'vnc') {
             this.statusBarItem.text = '$(vm-active) DALi: Interactive';
+        } else if (mode === 'device') {
+            this.statusBarItem.text = '$(device-mobile) DALi: Device';
         } else {
             this.statusBarItem.text = `$(zap) DALi: ${label}`;
         }

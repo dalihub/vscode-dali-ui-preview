@@ -5,6 +5,17 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-04-03 — Phase 4-4: Tizen 실기기 프리뷰 (SDB 배포 + 스크린샷 캡처) — DAL-34
+
+### Added
+
+- **`src/sdbManager.ts`** (신규): `SdbManager` 클래스 구현. `checkDependencies()` (sdb 설치 여부 확인), `getDevices()` + `parseDevices()` (sdb devices 파싱), `selectDevice()` (QuickPick UI로 디바이스 선택), `push()`, `pull()`, `shell()`, `forward()`, `removeForward()` 메서드 제공.
+- **`src/buildRunner.ts`**: `buildAndRunOnDevice()` 메서드 추가. 파이프라인: 하네스 생성 → 로컬 컴파일(크로스 컴파일 지원) → `sdb push` 바이너리 → `sdb shell` 실행 → `sdb pull` PNG + 메타데이터. `compileCrossDevice()` private 메서드 추가 (arm-linux-gnueabi-g++ + sysroot 기반 pkg-config). `SdbManager` import 추가.
+- **`src/extension.ts`**: `sdbManager` 인스턴스 추가 및 라이프사이클 관리. `dali.selectDevice` 커맨드 (디바이스 선택 → workspace state 저장). `dali.devicePreview` 커맨드 (SDB 없으면 에러 안내). `runDevicePreview()` 함수 구현. `deactivate()`에 `sdbManager.dispose()` 추가.
+- **`src/statusBar.ts`**: `showMode()` 타입에 `'device'` 모드 추가 (`📱 Device` 레이블).
+- **`package.json`**: `dali.selectDevice`, `dali.devicePreview` 커맨드 등록. `daliPreview.sdbPath`, `daliPreview.tizenSysroot`, `daliPreview.targetDevice` 설정 추가.
+- **`test/unit/sdbManager.test.ts`** (신규): `checkDependencies()` 3케이스, `parseDevices()` 5케이스 (단일 디바이스, 다중 디바이스, 빈 출력, 헤더 스킵, offline 상태), `dispose()` 1케이스.
+
 ## [0.19.0] - 2026-04-03 — DALi Preview 설정 UI 커맨드 추가 — DAL-33
 
 ### Added
