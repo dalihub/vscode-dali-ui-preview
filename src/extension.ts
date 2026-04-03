@@ -201,6 +201,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(toggleInteractiveCmd);
 
+    // Command: DALi Preview: Open Settings
+    const openSettingsCmd = vscode.commands.registerCommand('dali.openSettings', () => {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'daliPreview');
+    });
+    context.subscriptions.push(openSettingsCmd);
+
     // Auto-preview on save
     const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
         if (!isPreviewable(doc)) {
