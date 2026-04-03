@@ -17,6 +17,7 @@ export class PreviewManager {
     private stopVncCallbacks: Array<() => void> = [];
     private vncConnectedCallbacks: Array<() => void> = [];
     private vncDisconnectedCallbacks: Array<(reason: string) => void> = [];
+    private animationSpeedChangeCallbacks: Array<(speed: number) => void> = [];
     private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
@@ -76,6 +77,29 @@ export class PreviewManager {
             command: 'updateImage',
             uri: pngUri.toString(),
             buildTime: buildTimeMs,
+            metadata: metadata || null,
+        });
+    }
+
+    updateAnimation(
+        gifOrPngPath: string,
+        buildTimeMs: number,
+        frameCount: number,
+        metadata?: object | null
+    ): void {
+        if (!this.panel) {
+            return;
+        }
+
+        const isGif = gifOrPngPath.endsWith('.gif');
+        const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(gifOrPngPath));
+
+        this.panel.webview.postMessage({
+            command: 'updateAnimation',
+            uri: uri.toString(),
+            buildTime: buildTimeMs,
+            frameCount,
+            isGif,
             metadata: metadata || null,
         });
     }
@@ -273,6 +297,16 @@ export class PreviewManager {
         });
     }
 
+    onAnimationSpeedChange(callback: (speed: number) => void): vscode.Disposable {
+        this.animationSpeedChangeCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.animationSpeedChangeCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.animationSpeedChangeCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
     setInspectorVisible(visible: boolean): void {
         this._inspectorVisible = visible;
         if (!this.panel) {
@@ -350,6 +384,7 @@ export class PreviewManager {
         this.stopVncCallbacks = [];
         this.vncConnectedCallbacks = [];
         this.vncDisconnectedCallbacks = [];
+        this.animationSpeedChangeCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -448,6 +483,15 @@ export class PreviewManager {
                 const reason = (message.reason as string) || '';
                 for (const cb of this.vncDisconnectedCallbacks) {
                     cb(reason);
+                }
+                break;
+            }
+            case 'animationSpeedChange': {
+                const speed = message.speed as number;
+                if (typeof speed === 'number' && speed > 0) {
+                    for (const cb of this.animationSpeedChangeCallbacks) {
+                        cb(speed);
+                    }
                 }
                 break;
             }

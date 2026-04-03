@@ -470,6 +470,159 @@ describe('codeExtractor', () => {
             expect(cfg.fontScale).to.be.undefined;
             expect(cfg.font).to.be.undefined;
         });
+
+        it('parses animation=true parameter', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="AnimTest", animation=true',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            expect(result!.configs![0].animation).to.equal(true);
+        });
+
+        it('parses animation=false parameter', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="StaticTest", animation=false',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.configs![0].animation).to.equal(false);
+        });
+
+        it('parses duration parameter within valid range', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="DurTest", animation=true, duration=3000',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].duration).to.equal(3000);
+        });
+
+        it('ignores duration below minimum (499)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="DurMin", animation=true, duration=499',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].duration).to.be.undefined;
+        });
+
+        it('ignores duration above maximum (10001)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="DurMax", animation=true, duration=10001',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].duration).to.be.undefined;
+        });
+
+        it('parses fps parameter within valid range', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="FpsTest", animation=true, fps=15',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fps).to.equal(15);
+        });
+
+        it('ignores fps below minimum (4)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="FpsMin", animation=true, fps=4',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fps).to.be.undefined;
+        });
+
+        it('ignores fps above maximum (31)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="FpsMax", animation=true, fps=31',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result!.configs![0].fps).to.be.undefined;
+        });
+
+        it('parses all animation params together', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="FullAnim", width=360, height=640, animation=true, duration=2000, fps=10',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            const cfg = result!.configs![0];
+            expect(cfg.name).to.equal('FullAnim');
+            expect(cfg.width).to.equal(360);
+            expect(cfg.height).to.equal(640);
+            expect(cfg.animation).to.equal(true);
+            expect(cfg.duration).to.equal(2000);
+            expect(cfg.fps).to.equal(10);
+        });
+
+        it('animation/duration/fps are undefined when not present (backward compat)', () => {
+            const content = [
+                '// @dali-preview-begin',
+                '// @preview-config: name="Static", width=720',
+                'return View::New();',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            const cfg = result!.configs![0];
+            expect(cfg.animation).to.be.undefined;
+            expect(cfg.duration).to.be.undefined;
+            expect(cfg.fps).to.be.undefined;
+        });
     });
 
     // -----------------------------------------------------------------
@@ -506,6 +659,47 @@ describe('codeExtractor', () => {
         it('returns false for .json files', () => {
             const doc = createMockDocument('/tmp/package.json', '{}');
             expect(isPreviewable(doc as any)).to.be.false;
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Space-separated @preview-config format (no commas)
+    // -----------------------------------------------------------------------
+
+    describe('@preview-config space-separated format', () => {
+        it('parses animation params from space-separated config (no commas)', () => {
+            const content = [
+                '// @preview-config: name="AnimTest" width=360 height=640 animation=true duration=2000 fps=10',
+                'return View::New();',
+            ].join('\n');
+            const doc = createMockDocument('/tmp/test.preview.dali.cpp', content);
+            const result = extractPreviewCode(doc as any);
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.name).to.equal('AnimTest');
+            expect(cfg.width).to.equal(360);
+            expect(cfg.height).to.equal(640);
+            expect(cfg.animation).to.equal(true);
+            expect(cfg.duration).to.equal(2000);
+            expect(cfg.fps).to.equal(10);
+        });
+
+        it('parses the animation.preview.dali.cpp sample file correctly', () => {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs');
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path');
+            const samplePath = path.resolve(__dirname, '../../../test/samples/animation.preview.dali.cpp');
+            const content = fs.readFileSync(samplePath, 'utf-8');
+            const doc = createMockDocument('/tmp/animation.preview.dali.cpp', content);
+            const result = extractPreviewCode(doc as any);
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.animation).to.equal(true);
+            expect(cfg.duration).to.equal(2000);
+            expect(cfg.fps).to.equal(10);
         });
     });
 });

@@ -508,6 +508,15 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
     const instrumented = instrumentCode(extraction.code, extraction.startLine);
 
     try {
+        // Animation path: any config with animation=true triggers GIF capture
+        const animConfig = extraction.configs?.find(c => c.animation === true);
+        if (animConfig) {
+            await runAnimationPreview(
+                doc, animConfig, instrumented, myGeneration, startTime, extraction.startLine
+            );
+            return;
+        }
+
         // Multi-config path: build each config independently
         if (extraction.configs && extraction.configs.length > 0) {
             await runMultiPreview(doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime);
@@ -636,6 +645,81 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             pendingRebuildDoc = undefined;
             setImmediate(() => runPreview(nextDoc, true));
         }
+    }
+}
+
+async function runAnimationPreview(
+    doc: vscode.TextDocument,
+    animConfig: PreviewConfig,
+    instrumented: string,
+    myGeneration: number,
+    startTime: number,
+    startLine: number = 0
+) {
+    if (!buildRunner || !previewManager) {
+        return;
+    }
+
+    const width = animConfig.width || currentWidth;
+    const height = animConfig.height || currentHeight;
+    const theme = animConfig.theme || currentTheme;
+    const duration = animConfig.duration ?? 2000;
+    const fps = animConfig.fps ?? 10;
+
+    outputChannel.appendLine(
+        `[Animation] Starting capture: ${duration}ms @ ${fps}fps (${Math.floor(duration * fps / 1000)} frames)`
+    );
+
+    const result = await buildRunner.buildAndRunAnimation(
+        instrumented, width, height, theme, currentBgColor,
+        duration, fps, animConfig.locale, animConfig.fontScale, animConfig.font
+    );
+
+    if (myGeneration !== buildGeneration) {
+        return;
+    }
+
+    const buildTimeMs = Date.now() - startTime;
+
+    if (result.success) {
+        let metadata: object | null = null;
+        if (result.metadataPath) {
+            try {
+                metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
+            } catch { /* optional */ }
+        }
+
+        const displayPath = result.gifPath || result.pngPath || '';
+        if (!displayPath) {
+            scheduleShowError('Animation build succeeded but produced no output file.');
+            outputChannel.appendLine('[Animation] Error: result.success=true but no gifPath/pngPath returned.');
+            return;
+        }
+        cancelErrorDebounce();
+        previewManager.updateAnimation(displayPath, buildTimeMs, result.frameCount || 0, metadata);
+        statusBar?.showMode('compile');
+        statusBar?.showSuccess(buildTimeMs);
+        outputChannel.appendLine(
+            `[Animation] Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s ` +
+            `(${result.frameCount} frames, ${result.gifPath ? 'GIF' : 'PNG fallback'})`
+        );
+    } else {
+        const templatePath = path.join(
+            buildRunner.getExtensionPath(), 'server', 'preview_animation.cpp.template');
+        let template = '';
+        try { template = fs.readFileSync(templatePath, 'utf-8'); } catch { /* ignore */ }
+        const offset = getHarnessCodeOffset(template);
+        const errors = parseGccErrors(result.error || '', offset, false);
+
+        if (errors.length > 0) {
+            const diagnostics = errorsToDiagnostics(errors, doc, startLine);
+            diagnosticCollection.set(doc.uri, diagnostics);
+            scheduleShowError(formatErrorsForDisplay(errors));
+        } else {
+            scheduleShowError(formatRawError(result.error || ''));
+        }
+        statusBar?.showError(result.error?.split('\n')[0] || 'Animation build failed');
+        outputChannel.appendLine(`[Animation] Failed: ${result.error?.substring(0, 200)}`);
     }
 }
 
