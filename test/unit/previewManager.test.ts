@@ -292,3 +292,77 @@ describe('PreviewManager — onVncDisconnected()', () => {
         expect(reasons).to.deep.equal(['network error']);
     });
 });
+
+// ---------------------------------------------------------------------------
+// updateAnimation
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — updateAnimation()', () => {
+    it('sends updateAnimation with isGif=true for a .gif path', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.updateAnimation('/tmp/animation.gif', 1200, 30);
+        const msg = postedMessages.find(m => m.command === 'updateAnimation');
+        expect(msg).to.exist;
+        expect(msg!.isGif).to.equal(true);
+        expect(msg!.frameCount).to.equal(30);
+        expect(msg!.buildTime).to.equal(1200);
+    });
+
+    it('sends updateAnimation with isGif=false for a .png path', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.updateAnimation('/tmp/frame_000.png', 800, 1);
+        const msg = postedMessages.find(m => m.command === 'updateAnimation');
+        expect(msg).to.exist;
+        expect(msg!.isGif).to.equal(false);
+    });
+
+    it('does nothing when panel is not open', () => {
+        const ctx = {
+            extensionPath: __dirname,
+            subscriptions: [],
+            workspaceState: { get: () => undefined, update: () => {} },
+        } as any;
+        const mgr = new PreviewManager(ctx);
+        expect(() => mgr.updateAnimation('/tmp/animation.gif', 1000, 10)).to.not.throw();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// onAnimationSpeedChange
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — onAnimationSpeedChange()', () => {
+    it('fires callback when animationSpeedChange message with speed > 0', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const speeds: number[] = [];
+        mgr.onAnimationSpeedChange(s => speeds.push(s));
+        simulate({ command: 'animationSpeedChange', speed: 1.5 });
+        expect(speeds).to.deep.equal([1.5]);
+    });
+
+    it('does not fire callback when speed <= 0', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const speeds: number[] = [];
+        mgr.onAnimationSpeedChange(s => speeds.push(s));
+        simulate({ command: 'animationSpeedChange', speed: 0 });
+        simulate({ command: 'animationSpeedChange', speed: -1 });
+        expect(speeds).to.have.length(0);
+    });
+
+    it('does not fire callback when speed is not a number', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const speeds: number[] = [];
+        mgr.onAnimationSpeedChange(s => speeds.push(s));
+        simulate({ command: 'animationSpeedChange', speed: 'fast' });
+        expect(speeds).to.have.length(0);
+    });
+
+    it('does not fire callback after dispose', () => {
+        const { mgr, simulate } = makeManagerWithSpy();
+        const speeds: number[] = [];
+        const disposable = mgr.onAnimationSpeedChange(s => speeds.push(s));
+        disposable.dispose();
+        simulate({ command: 'animationSpeedChange', speed: 2.0 });
+        expect(speeds).to.have.length(0);
+    });
+});

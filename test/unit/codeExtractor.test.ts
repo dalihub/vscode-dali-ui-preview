@@ -661,4 +661,45 @@ describe('codeExtractor', () => {
             expect(isPreviewable(doc as any)).to.be.false;
         });
     });
+
+    // -----------------------------------------------------------------------
+    // Space-separated @preview-config format (no commas)
+    // -----------------------------------------------------------------------
+
+    describe('@preview-config space-separated format', () => {
+        it('parses animation params from space-separated config (no commas)', () => {
+            const content = [
+                '// @preview-config: name="AnimTest" width=360 height=640 animation=true duration=2000 fps=10',
+                'return View::New();',
+            ].join('\n');
+            const doc = createMockDocument('/tmp/test.preview.dali.cpp', content);
+            const result = extractPreviewCode(doc as any);
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.name).to.equal('AnimTest');
+            expect(cfg.width).to.equal(360);
+            expect(cfg.height).to.equal(640);
+            expect(cfg.animation).to.equal(true);
+            expect(cfg.duration).to.equal(2000);
+            expect(cfg.fps).to.equal(10);
+        });
+
+        it('parses the animation.preview.dali.cpp sample file correctly', () => {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs');
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path');
+            const samplePath = path.resolve(__dirname, '../../../test/samples/animation.preview.dali.cpp');
+            const content = fs.readFileSync(samplePath, 'utf-8');
+            const doc = createMockDocument('/tmp/animation.preview.dali.cpp', content);
+            const result = extractPreviewCode(doc as any);
+            expect(result).to.not.be.null;
+            expect(result!.configs).to.have.length(1);
+            const cfg = result!.configs![0];
+            expect(cfg.animation).to.equal(true);
+            expect(cfg.duration).to.equal(2000);
+            expect(cfg.fps).to.equal(10);
+        });
+    });
 });

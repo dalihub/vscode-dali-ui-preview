@@ -273,6 +273,284 @@ describe('BuildRunner.sanitizeConfigName()', () => {
     });
 });
 
+describe('BuildRunner — ffmpegAvailable()', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('returns true when ffmpeg exec succeeds (error is null)', async () => {
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(null, '/usr/bin/ffmpeg\n', '');
+            return {} as any;
+        }) as any);
+        const result = await BuildRunner.ffmpegAvailable();
+        expect(result).to.equal(true);
+    });
+
+    it('returns false when ffmpeg exec fails (error is non-null)', async () => {
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(new Error('not found'), '', '');
+            return {} as any;
+        }) as any);
+        const result = await BuildRunner.ffmpegAvailable();
+        expect(result).to.equal(false);
+    });
+});
+
+describe('BuildRunner — buildAndRunAnimation()', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('returns {success:false} when DALi prefix is not found', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(false);
+        sinon.stub(daliEnv, 'findDaliPrefix').resolves(null);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('DALi');
+    });
+
+    it('returns {success:false} when compilation fails', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        (runner as any).compile = async () => ({
+            success: false,
+            error: 'error: syntax error'
+        });
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('syntax error');
+    });
+
+    it('returns {success:false} when executeAnimation returns -1 (capture failed)', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        (runner as any).executeAnimation = async () => -1;
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('failed');
+    });
+
+    it('returns {success:true, gifPath} when ffmpeg assembles GIF successfully', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        (runner as any).executeAnimation = async () => 20;
+        (runner as any).assembleGif = async () => true;
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(true);
+        expect(result.gifPath).to.be.a('string');
+        expect(result.gifPath).to.match(/animation\.gif$/);
+        expect(result.frameCount).to.equal(20);
+    });
+
+    it('falls back to first frame PNG when ffmpeg assembly fails', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        // Stub executeAnimation to also write frame_000.png (after buildAndRunAnimation clears the dir)
+        (runner as any).executeAnimation = async () => {
+            const fd = path.join((runner as any).tmpDir, 'anim_frames');
+            fs.mkdirSync(fd, { recursive: true });
+            fs.writeFileSync(path.join(fd, 'frame_000.png'), '');
+            return 5;
+        };
+        (runner as any).assembleGif = async () => false;
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        const expectedFrame = path.join((runner as any).tmpDir, 'anim_frames', 'frame_000.png');
+        expect(result.success).to.equal(true);
+        expect(result.pngPath).to.equal(expectedFrame);
+        expect(result.gifPath).to.be.undefined;
+    });
+
+    it('falls back to first frame PNG when ffmpeg is not installed', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(false);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        // Stub executeAnimation to write frame_000.png (after buildAndRunAnimation clears the dir)
+        (runner as any).executeAnimation = async () => {
+            const fd = path.join((runner as any).tmpDir, 'anim_frames');
+            fs.mkdirSync(fd, { recursive: true });
+            fs.writeFileSync(path.join(fd, 'frame_000.png'), '');
+            return 3;
+        };
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        const expectedFrame = path.join((runner as any).tmpDir, 'anim_frames', 'frame_000.png');
+        expect(result.success).to.equal(true);
+        expect(result.pngPath).to.equal(expectedFrame);
+    });
+
+    it('returns {success:false} when no frames were captured (no frame_000.png)', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(false);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        (runner as any).executeAnimation = async () => 0;
+
+        // Ensure framesDir exists but has no frame_000.png
+        const framesDir = path.join((runner as any).tmpDir, 'anim_frames');
+        fs.mkdirSync(framesDir, { recursive: true });
+        const firstFrame = path.join(framesDir, 'frame_000.png');
+        if (fs.existsSync(firstFrame)) {
+            fs.unlinkSync(firstFrame);
+        }
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(false);
+        expect(result.error).to.include('No frames');
+
+        fs.rmSync(framesDir, { recursive: true, force: true });
+    });
+
+    it('uses totalFrames when capturedFrames is 0', async () => {
+        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
+        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
+
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+        (runner as any).compile = async () => ({ success: true });
+        // capturedFrames = 0 → actualFrames should use totalFrames = duration*fps/1000 = 2000*10/1000 = 20
+        (runner as any).executeAnimation = async () => 0;
+        (runner as any).assembleGif = async () => true;
+
+        const result = await runner.buildAndRunAnimation(
+            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
+        );
+        expect(result.success).to.equal(true);
+        expect(result.frameCount).to.equal(20);
+    });
+});
+
+describe('BuildRunner — executeAnimation() output parsing', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('returns frame count from ANIM_DONE:N signal', async () => {
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(null, 'FRAME:0/30\nFRAME:1/30\nANIM_DONE:30\n', '');
+            return {} as any;
+        }) as any);
+
+        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 5000);
+        expect(frames).to.equal(30);
+    });
+
+    it('returns -1 when exec errors without any FRAME: output', async () => {
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(new Error('segfault'), '', 'Segmentation fault');
+            return {} as any;
+        }) as any);
+
+        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 5000);
+        expect(frames).to.equal(-1);
+    });
+
+    it('returns FRAME: count when timeout fires after partial capture', async () => {
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            const err = new Error('timeout');
+            cb(err, 'FRAME:\nFRAME:\nFRAME:\n', '');
+            return {} as any;
+        }) as any);
+
+        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 100);
+        expect(frames).to.equal(3);
+    });
+});
+
+describe('BuildRunner — assembleGif()', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('returns true when ffmpeg succeeds', async () => {
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(null, '', '');
+            return {} as any;
+        }) as any);
+
+        const result = await (runner as any).assembleGif('/tmp/frames', '/tmp/out.gif', 10);
+        expect(result).to.equal(true);
+    });
+
+    it('returns false when ffmpeg fails', async () => {
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+        (runner as any).daliPrefix = '/usr';
+
+        const cp = require('child_process');
+        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
+            const cb = args[args.length - 1] as Function;
+            cb(new Error('ffmpeg error'), '', 'Error: some ffmpeg failure');
+            return {} as any;
+        }) as any);
+
+        const result = await (runner as any).assembleGif('/tmp/frames', '/tmp/out.gif', 10);
+        expect(result).to.equal(false);
+    });
+});
+
 describe('BuildRunner — buildInteractive()', () => {
     afterEach(() => {
         sinon.restore();
