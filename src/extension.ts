@@ -662,8 +662,8 @@ async function runAnimationPreview(
     const width = animConfig.width || currentWidth;
     const height = animConfig.height || currentHeight;
     const theme = animConfig.theme || currentTheme;
-    const duration = animConfig.duration || 2000;
-    const fps = animConfig.fps || 10;
+    const duration = animConfig.duration ?? 2000;
+    const fps = animConfig.fps ?? 10;
 
     outputChannel.appendLine(
         `[Animation] Starting capture: ${duration}ms @ ${fps}fps (${Math.floor(duration * fps / 1000)} frames)`
@@ -689,6 +689,11 @@ async function runAnimationPreview(
         }
 
         const displayPath = result.gifPath || result.pngPath || '';
+        if (!displayPath) {
+            scheduleShowError('Animation build succeeded but produced no output file.');
+            outputChannel.appendLine('[Animation] Error: result.success=true but no gifPath/pngPath returned.');
+            return;
+        }
         cancelErrorDebounce();
         previewManager.updateAnimation(displayPath, buildTimeMs, result.frameCount || 0, metadata);
         statusBar?.showMode('compile');

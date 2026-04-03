@@ -448,13 +448,8 @@ export class BuildRunner {
         const binPath = path.join(this.tmpDir, 'preview_animation_bin');
 
         // Prepare frames directory (clear previous frames)
-        if (fs.existsSync(framesDir)) {
-            for (const f of fs.readdirSync(framesDir)) {
-                fs.unlinkSync(path.join(framesDir, f));
-            }
-        } else {
-            fs.mkdirSync(framesDir, { recursive: true });
-        }
+        fs.rmSync(framesDir, { recursive: true, force: true });
+        fs.mkdirSync(framesDir, { recursive: true });
 
         const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
             ? BuildRunner.hexToVector4(bgColor)
@@ -553,7 +548,12 @@ export class BuildRunner {
                     this.outputChannel.appendLine(`[Animation] Runtime error: ${stderr || error.message}`);
                     resolve(-1);
                 } else {
-                    // Partial capture: count FRAME: lines
+                    // Partial capture (e.g. timeout fired after some frames): count FRAME: lines
+                    if (error) {
+                        this.outputChannel.appendLine(
+                            `[Animation] Warning: capture ended before ANIM_DONE (${error.message}). Using partial frames.`
+                        );
+                    }
                     const frameLines = (stdout.match(/^FRAME:/gm) || []).length;
                     resolve(frameLines);
                 }
