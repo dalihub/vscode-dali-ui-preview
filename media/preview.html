@@ -829,6 +829,129 @@
     border-color: #007acc;
   }
 
+  .btn-flex-explorer {
+    font-size: 13px;
+    padding: 2px 8px;
+  }
+
+  .btn-flex-explorer.active {
+    background: #0e639c;
+    border-color: #007acc;
+  }
+
+  /* ── FlexLayout Explorer panel ── */
+  .flex-explorer-panel {
+    border-top: 1px solid #3c3c3c;
+    flex-shrink: 0;
+    background: #1e1e1e;
+  }
+
+  .flex-explorer-header {
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #aaa;
+    background: #2d2d2d;
+    border-bottom: 1px solid #3c3c3c;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .flex-explorer-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: #0e639c;
+    color: #fff;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .flex-explorer-body {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #ccc;
+  }
+
+  .flex-explorer-placeholder {
+    color: #555;
+    font-size: 11px;
+    padding: 4px 0;
+    text-align: center;
+    font-style: italic;
+  }
+
+  .flex-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+
+  .flex-prop-key {
+    color: #9cdcfe;
+    font-size: 11px;
+    min-width: 96px;
+    flex-shrink: 0;
+  }
+
+  .flex-prop-value {
+    color: #4ec9b0;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .flex-direction-viz {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .flex-direction-arrow {
+    font-size: 18px;
+    line-height: 1;
+    color: #007acc;
+  }
+
+  .flex-axis-badge {
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    background: #252526;
+    color: #888;
+    border: 1px solid #3c3c3c;
+  }
+
+  /* ── FlexLayout bounding box overlays ── */
+  .flex-overlay-arrow {
+    position: absolute;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: rgba(0, 122, 204, 0.85);
+    text-shadow: 0 0 4px rgba(0,0,0,0.8);
+    z-index: 5;
+  }
+
+  .flex-overlay-label {
+    position: absolute;
+    pointer-events: none;
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    color: rgba(0, 122, 204, 0.9);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 1px 4px;
+    border-radius: 2px;
+    z-index: 6;
+    white-space: nowrap;
+  }
+
   /* ── VNC interactive mode ── */
   .btn-vnc {
     font-size: 14px;
@@ -998,6 +1121,9 @@
 
     <button id="btnInspector" class="btn-inspector" title="Widget Inspector 토글">&#x1F50D;</button>
 
+    <div class="toolbar-separator" id="flexSeparator" style="display:none;"></div>
+    <button id="btnFlexExplorer" class="btn-flex-explorer" title="FlexLayout Explorer 토글" style="display:none;">&#x25A6;</button>
+
     <div class="toolbar-separator" id="vncSeparator" style="display:none;"></div>
     <button id="btnVnc" class="btn-vnc" title="인터랙티브 모드 전환 (VNC)" style="display:none;">&#x1F5A5;</button>
   </div>
@@ -1089,6 +1215,16 @@
       <div id="treeView" class="tree-view"></div>
       <div id="propertyPanel" class="property-panel">
         <p class="property-placeholder">노드를 선택하세요</p>
+      </div>
+      <!-- FlexLayout Explorer section (shown when a FlexLayout node is selected) -->
+      <div id="flexExplorerPanel" class="flex-explorer-panel hidden">
+        <div class="flex-explorer-header">
+          FlexLayout Explorer
+          <span class="flex-explorer-badge">FLEX</span>
+        </div>
+        <div id="flexExplorerBody" class="flex-explorer-body">
+          <p class="flex-explorer-placeholder">FlexLayout 노드를 선택하세요</p>
+        </div>
       </div>
     </div>
   </div><!-- #contentRow -->
@@ -1596,15 +1732,200 @@
   function renderMetadataOverlay(metadata) {
     currentMetadata = metadata;
     renderMetadataOverlayInto(previewImage, elementOverlay, metadata);
+    updateFlexOverlay();
+    updateFlexButtonVisibility();
   }
 
   // Re-render overlay when image resizes
   if (previewImage && typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(function () {
       if (currentMetadata) {
-        renderMetadataOverlay(currentMetadata);
+        renderMetadataOverlayInto(previewImage, elementOverlay, currentMetadata);
+        updateFlexOverlay();
       }
     }).observe(previewImage);
+  }
+
+  // ── FlexLayout Explorer ──
+  var btnFlexExplorer = document.getElementById('btnFlexExplorer');
+  var flexSeparator = document.getElementById('flexSeparator');
+  var flexExplorerPanel = document.getElementById('flexExplorerPanel');
+  var flexExplorerBody = document.getElementById('flexExplorerBody');
+  var flexOverlayVisible = false;
+
+  var FLEX_DIRECTION_ARROWS = {
+    'ROW':            '\u2192',  // →
+    'ROW_REVERSE':    '\u2190',  // ←
+    'COLUMN':         '\u2193',  // ↓
+    'COLUMN_REVERSE': '\u2191'   // ↑
+  };
+
+  var FLEX_DIRECTION_LABELS = {
+    'ROW':            'row (→)',
+    'ROW_REVERSE':    'row-reverse (←)',
+    'COLUMN':         'column (↓)',
+    'COLUMN_REVERSE': 'column-reverse (↑)'
+  };
+
+  function flexHasData(node) {
+    return node && (node.flexProps || node.type === 'FlexLayout');
+  }
+
+  function renderFlexExplorer(node) {
+    flexExplorerBody.innerHTML = '';
+    if (!flexHasData(node)) {
+      flexExplorerBody.innerHTML = '<p class="flex-explorer-placeholder">FlexLayout 노드를 선택하세요</p>';
+      flexExplorerPanel.classList.add('hidden');
+      return;
+    }
+
+    flexExplorerPanel.classList.remove('hidden');
+    var fp = node.flexProps || {};
+    var direction      = fp.direction      || 'ROW';
+    var alignItems     = fp.alignItems     || 'STRETCH';
+    var justifyContent = fp.justifyContent || 'FLEX_START';
+    var wrap           = fp.wrap           || 'NO_WRAP';
+
+    function addRow(key, valueEl) {
+      var row = document.createElement('div');
+      row.className = 'flex-prop-row';
+      var k = document.createElement('span');
+      k.className = 'flex-prop-key';
+      k.textContent = key;
+      row.appendChild(k);
+      row.appendChild(valueEl);
+      flexExplorerBody.appendChild(row);
+    }
+
+    // Direction row with arrow visualization
+    var dirViz = document.createElement('div');
+    dirViz.className = 'flex-direction-viz';
+    var arrow = document.createElement('span');
+    arrow.className = 'flex-direction-arrow';
+    arrow.textContent = FLEX_DIRECTION_ARROWS[direction] || '\u2192';
+    var dirLabel = document.createElement('span');
+    dirLabel.className = 'flex-prop-value';
+    dirLabel.textContent = FLEX_DIRECTION_LABELS[direction] || direction;
+    dirViz.appendChild(arrow);
+    dirViz.appendChild(dirLabel);
+    addRow('direction', dirViz);
+
+    var aiEl = document.createElement('span');
+    aiEl.className = 'flex-prop-value';
+    aiEl.textContent = alignItems;
+    addRow('alignItems', aiEl);
+
+    var jcEl = document.createElement('span');
+    jcEl.className = 'flex-prop-value';
+    jcEl.textContent = justifyContent;
+    addRow('justifyContent', jcEl);
+
+    if (wrap && wrap !== 'NO_WRAP') {
+      var wrapEl = document.createElement('span');
+      wrapEl.className = 'flex-axis-badge';
+      wrapEl.textContent = wrap;
+      addRow('wrap', wrapEl);
+    }
+
+    // Child count info
+    if (node.children && node.children.length > 0) {
+      var childEl = document.createElement('span');
+      childEl.className = 'flex-prop-value';
+      childEl.style.color = '#888';
+      childEl.textContent = node.children.length + ' children';
+      addRow('children', childEl);
+    }
+  }
+
+  function renderFlexOverlayInto(img, overlayEl, metadata, visible) {
+    // Remove existing flex overlays
+    var existing = overlayEl.querySelectorAll('.flex-overlay-arrow,.flex-overlay-label');
+    for (var i = 0; i < existing.length; i++) { existing[i].remove(); }
+    if (!visible || !metadata || !metadata.root || !img || !img.naturalWidth) { return; }
+
+    var scaleX = img.clientWidth / img.naturalWidth;
+    var scaleY = img.clientHeight / img.naturalHeight;
+    var containerRect = overlayEl.parentElement.getBoundingClientRect();
+    var imgRect = img.getBoundingClientRect();
+    var offsetX = imgRect.left - containerRect.left;
+    var offsetY = imgRect.top - containerRect.top;
+
+    function walkFlex(actor) {
+      if (flexHasData(actor) && actor.w > 0 && actor.h > 0) {
+        var fp = actor.flexProps || {};
+        var direction = fp.direction || 'ROW';
+        var arrowChar = FLEX_DIRECTION_ARROWS[direction] || '\u2192';
+
+        var bx = actor.x * scaleX + offsetX;
+        var by = actor.y * scaleY + offsetY;
+        var bw = actor.w * scaleX;
+        var bh = actor.h * scaleY;
+
+        // Direction arrow at center of the FlexLayout bbox
+        var arrowDiv = document.createElement('div');
+        arrowDiv.className = 'flex-overlay-arrow';
+        arrowDiv.style.left  = (bx + bw / 2 - 16) + 'px';
+        arrowDiv.style.top   = (by + bh / 2 - 16) + 'px';
+        arrowDiv.style.width  = '32px';
+        arrowDiv.style.height = '32px';
+        arrowDiv.textContent  = arrowChar;
+        overlayEl.appendChild(arrowDiv);
+
+        // Direction label at top-left corner
+        var labelDiv = document.createElement('div');
+        labelDiv.className = 'flex-overlay-label';
+        labelDiv.style.left = (bx + 2) + 'px';
+        labelDiv.style.top  = (by + 2) + 'px';
+        labelDiv.textContent = 'flex ' + direction.toLowerCase().replace('_', '-');
+        overlayEl.appendChild(labelDiv);
+      }
+      if (actor.children) {
+        for (var ci = 0; ci < actor.children.length; ci++) {
+          walkFlex(actor.children[ci]);
+        }
+      }
+    }
+    walkFlex(metadata.root);
+  }
+
+  function updateFlexOverlay() {
+    renderFlexOverlayInto(previewImage, elementOverlay, currentMetadata, flexOverlayVisible);
+  }
+
+  function hasFlexNodes(metadata) {
+    if (!metadata || !metadata.root) { return false; }
+    function walk(node) {
+      if (node.type === 'FlexLayout' || node.flexProps) { return true; }
+      if (node.children) {
+        for (var i = 0; i < node.children.length; i++) {
+          if (walk(node.children[i])) { return true; }
+        }
+      }
+      return false;
+    }
+    return walk(metadata.root);
+  }
+
+  function updateFlexButtonVisibility() {
+    if (inspectorVisible && currentMetadata && hasFlexNodes(currentMetadata)) {
+      btnFlexExplorer.style.display = '';
+      flexSeparator.style.display = '';
+    } else {
+      btnFlexExplorer.style.display = 'none';
+      flexSeparator.style.display = 'none';
+    }
+  }
+
+  if (btnFlexExplorer) {
+    btnFlexExplorer.addEventListener('click', function () {
+      flexOverlayVisible = !flexOverlayVisible;
+      if (flexOverlayVisible) {
+        btnFlexExplorer.classList.add('active');
+      } else {
+        btnFlexExplorer.classList.remove('active');
+      }
+      updateFlexOverlay();
+    });
   }
 
   // ── Inspector ──
@@ -1627,7 +1948,12 @@
     } else {
       inspectorPanel.classList.add('hidden');
       btnInspector.classList.remove('active');
+      flexExplorerPanel.classList.add('hidden');
+      flexOverlayVisible = false;
+      btnFlexExplorer.classList.remove('active');
+      updateFlexOverlay();
     }
+    updateFlexButtonVisibility();
   }
 
   btnInspector.addEventListener('click', function () {
@@ -1827,6 +2153,7 @@
       nodeEl.scrollIntoView({ block: 'nearest' });
     }
     renderPropertyPanel(nodeData);
+    renderFlexExplorer(nodeData);
 
     // Highlight corresponding bounding box in preview
     var bboxes = elementOverlay.querySelectorAll('.element-bbox');
@@ -1918,6 +2245,8 @@
     treeViewEl.appendChild(rootNode);
 
     renderPropertyPanel(null);
+    renderFlexExplorer(null);
+    updateFlexButtonVisibility();
   }
 
   function highlightTreeByLine(line) {
