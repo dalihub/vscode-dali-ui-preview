@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { XvfbManager } from './xvfbManager';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
+import { SdbManager } from './sdbManager';
 
 export interface BuildResult {
     success: boolean;
@@ -583,6 +584,171 @@ export class BuildRunner {
                     resolve(false);
                 } else {
                     resolve(true);
+                }
+            });
+        });
+    }
+
+    /**
+     * Build the harness for local execution and then deploy to a Tizen device via SDB.
+     * Pipeline: compile locally → sdb push → sdb shell execute → sdb pull PNG + metadata.
+     */
+    async buildAndRunOnDevice(
+        userCode: string,
+        sdbManager: SdbManager,
+        deviceSerial: string | undefined,
+        width?: number,
+        height?: number,
+        theme: 'light' | 'dark' = 'dark',
+        bgColor?: string,
+        locale?: string,
+        fontScale?: number,
+        font?: string
+    ): Promise<BuildResult> {
+        if (!(await this.ensureDaliPrefix())) {
+            return {
+                success: false,
+                error: 'DALi installation not found.\nUse "DALi: Open Preview" command and configure the DALi path in settings.'
+            };
+        }
+
+        if (!width || !height) {
+            const config = vscode.workspace.getConfiguration('daliPreview');
+            width = config.get('previewWidth', 1024);
+            height = config.get('previewHeight', 600);
+        }
+
+        const localPng      = path.join(this.tmpDir, 'preview_device.png');
+        const localMeta     = path.join(this.tmpDir, 'preview_device_metadata.json');
+        const harnessPath   = path.join(this.tmpDir, 'preview_device_harness.cpp');
+        const localBin      = path.join(this.tmpDir, 'preview_device_bin');
+
+        const config = vscode.workspace.getConfiguration('daliPreview');
+        const tizenSysroot = config.get<string>('tizenSysroot', '');
+        const remoteDir    = '/tmp/dali_preview';
+        const remoteBin    = `${remoteDir}/preview_device_bin`;
+        const remotePng    = `${remoteDir}/preview_device.png`;
+        const remoteMeta   = `${remoteDir}/preview_device_metadata.json`;
+
+        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
+            ? BuildRunner.hexToVector4(bgColor)
+            : BuildRunner.themeToBackgroundColor(theme);
+
+        let fontSetup = '';
+        if (font) {
+            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDir = fontDirs.find(d => {
+                try {
+                    return fs.existsSync(path.join(d, font!));
+                } catch {
+                    return false;
+                }
+            }) || path.dirname(font);
+            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
+        }
+
+        // 1. Generate harness (reuse same template, but output paths point to remote)
+        const harness = this.templateContent
+            .replace(/\{\{USER_CODE\}\}/g, userCode)
+            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
+            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
+            .replace(/\{\{OUTPUT_PATH\}\}/g, remotePng)
+            .replace(/\{\{METADATA_PATH\}\}/g, remoteMeta)
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
+            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+
+        fs.writeFileSync(harnessPath, harness);
+
+        // 2. Compile (cross-compile if sysroot configured, else host compiler)
+        const compileResult = tizenSysroot
+            ? await this.compileCrossDevice(harnessPath, localBin, tizenSysroot)
+            : await this.compile(harnessPath, localBin);
+
+        if (!compileResult.success) {
+            return compileResult;
+        }
+
+        // 3. Prepare remote directory
+        try {
+            await sdbManager.shell(`mkdir -p ${remoteDir}`, deviceSerial);
+        } catch {
+            // Non-fatal: directory may already exist
+        }
+
+        // 4. Push binary
+        try {
+            await sdbManager.push(localBin, remoteBin, deviceSerial);
+            await sdbManager.shell(`chmod +x ${remoteBin}`, deviceSerial);
+        } catch (err: any) {
+            return { success: false, error: `SDB push failed: ${err.message}` };
+        }
+
+        // 5. Execute on device
+        const display = ':0';
+        const envStr = [
+            `DISPLAY=${display}`,
+            `DALI_WINDOW_WIDTH=${width}`,
+            `DALI_WINDOW_HEIGHT=${height}`,
+            ...(locale ? [`LANG=${locale}.UTF-8`] : []),
+            ...(fontScale !== undefined ? [`DALI_FONT_SCALE=${fontScale}`] : []),
+        ].join(' ');
+
+        let execOutput: string;
+        try {
+            execOutput = await sdbManager.shell(
+                `${envStr} ${remoteBin}`,
+                deviceSerial,
+                20000
+            );
+        } catch (err: any) {
+            return { success: false, error: `Device execution failed: ${err.message}` };
+        }
+
+        if (!execOutput.includes('OK:')) {
+            return { success: false, error: `Device runtime error:\n${execOutput}` };
+        }
+
+        // 6. Pull PNG and metadata
+        try {
+            await sdbManager.pull(remotePng, localPng, deviceSerial);
+        } catch (err: any) {
+            return { success: false, error: `SDB pull (PNG) failed: ${err.message}` };
+        }
+
+        try {
+            await sdbManager.pull(remoteMeta, localMeta, deviceSerial);
+        } catch {
+            // metadata is optional
+        }
+
+        return { success: true, pngPath: localPng, metadataPath: localMeta };
+    }
+
+    private compileCrossDevice(source: string, output: string, sysroot: string): Promise<BuildResult> {
+        const escapedSysroot = sysroot
+            .replace(/"/g, '\\"')
+            .replace(/`/g, '\\`')
+            .replace(/\$/g, '\\$');
+        const pkgConfigPath = `${escapedSysroot}/usr/lib/pkgconfig:${escapedSysroot}/usr/share/pkgconfig`;
+        const compiler = 'arm-linux-gnueabi-g++';
+
+        const cmd = [
+            `PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}"`,
+            `${compiler} -std=c++17 -O0`,
+            `--sysroot="${escapedSysroot}"`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `"${source}"`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `-o "${output}"`
+        ].join(' ');
+
+        return new Promise((resolve) => {
+            exec(cmd, { timeout: 60000, shell: '/bin/bash' }, (error, _stdout, stderr) => {
+                if (error) {
+                    resolve({ success: false, error: stderr || error.message });
+                } else {
+                    resolve({ success: true });
                 }
             });
         });
