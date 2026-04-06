@@ -65,6 +65,53 @@ static std::string ShortTypeName(const std::string& fullName)
     return (pos != std::string::npos) ? fullName.substr(pos + 2) : fullName;
 }
 
+static const char* FlexDirectionStr(FlexDirection d)
+{
+    switch(d) {
+        case FlexDirection::ROW:            return "ROW";
+        case FlexDirection::ROW_REVERSE:    return "ROW_REVERSE";
+        case FlexDirection::COLUMN:         return "COLUMN";
+        case FlexDirection::COLUMN_REVERSE: return "COLUMN_REVERSE";
+        default:                            return "ROW";
+    }
+}
+
+static const char* FlexAlignStr(FlexAlign a)
+{
+    switch(a) {
+        case FlexAlign::AUTO:       return "AUTO";
+        case FlexAlign::FLEX_START: return "FLEX_START";
+        case FlexAlign::CENTER:     return "CENTER";
+        case FlexAlign::FLEX_END:   return "FLEX_END";
+        case FlexAlign::STRETCH:    return "STRETCH";
+        case FlexAlign::BASELINE:   return "BASELINE";
+        default:                    return "STRETCH";
+    }
+}
+
+static const char* FlexJustifyStr(FlexJustify j)
+{
+    switch(j) {
+        case FlexJustify::FLEX_START:    return "FLEX_START";
+        case FlexJustify::CENTER:        return "CENTER";
+        case FlexJustify::FLEX_END:      return "FLEX_END";
+        case FlexJustify::SPACE_BETWEEN: return "SPACE_BETWEEN";
+        case FlexJustify::SPACE_AROUND:  return "SPACE_AROUND";
+        case FlexJustify::SPACE_EVENLY:  return "SPACE_EVENLY";
+        default:                         return "FLEX_START";
+    }
+}
+
+static const char* FlexWrapStr(FlexWrap w)
+{
+    switch(w) {
+        case FlexWrap::NO_WRAP:      return "NO_WRAP";
+        case FlexWrap::WRAP:         return "WRAP";
+        case FlexWrap::WRAP_REVERSE: return "WRAP_REVERSE";
+        default:                     return "NO_WRAP";
+    }
+}
+
 void CollectActorMetadata(Actor actor, std::ostringstream& json,
                           float pX, float pY, float pW, float pH,
                           bool isFirst = true)
@@ -106,6 +153,25 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
          << "\"properties\":{"
          << "\"color\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
          << "}";
+
+    // FlexLayout-specific properties (runtime computed values)
+    if(typeName == "FlexLayout")
+    {
+        try
+        {
+            FlexLayout fl = FlexLayout::DownCast(actor);
+            if(fl)
+            {
+                json << ",\"flexProps\":{"
+                     << "\"direction\":\""      << FlexDirectionStr(fl.GetDirection())      << "\","
+                     << "\"alignItems\":\""     << FlexAlignStr(fl.GetAlignItems())         << "\","
+                     << "\"justifyContent\":\"" << FlexJustifyStr(fl.GetJustifyContent())   << "\","
+                     << "\"wrap\":\""           << FlexWrapStr(fl.GetWrap())                << "\""
+                     << "}";
+            }
+        }
+        catch(...) { /* graceful degradation if cast fails */ }
+    }
 
     uint32_t childCount = actor.GetChildCount();
     if(childCount > 0)
