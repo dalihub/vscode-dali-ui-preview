@@ -8,7 +8,7 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PNG } = require('pngjs') as { PNG: PngModule };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pixelmatch = require('pixelmatch') as (
+const pixelmatch = (require('pixelmatch').default ?? require('pixelmatch')) as (
     img1: Buffer,
     img2: Buffer,
     output: Buffer | null,

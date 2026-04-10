@@ -47,9 +47,8 @@ auto root = FlexLayout::New()
 
 auto box = View::New()
     .SetBackgroundColor(Color::BLUE)
-    .SetSize(Vector2(100.0f, 100.0f))
-    .SetParentOrigin(ParentOrigin::CENTER)
-    .SetAnchorPoint(AnchorPoint::CENTER);
+    .SetRequestedWidth(100.0f)
+    .SetRequestedHeight(100.0f);
 
 Animation anim = Animation::New(2.0f);
 anim.AnimateTo(Property(box, Actor::Property::POSITION),
