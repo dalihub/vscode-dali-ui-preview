@@ -593,7 +593,7 @@ public:
         mPollTimer.Start();
 
         // Signal that the server is ready for commands
-        std::cout << "READY" << std::endl;
+        std::cout << ">>>READY" << std::endl;
     }
 
     // -----------------------------------------------------------------------
@@ -615,7 +615,7 @@ public:
                 std::string wStr, hStr;
                 if (!(iss >> req.soPath >> req.pngPath >> req.metadataPath >> wStr >> hStr))
                 {
-                    std::cout << "ERROR:malformed RENDER_JSON command" << std::endl;
+                    std::cout << ">>>ERROR:malformed RENDER_JSON command" << std::endl;
                     continue;
                 }
                 try
@@ -625,7 +625,7 @@ public:
                 }
                 catch (...)
                 {
-                    std::cout << "ERROR:malformed RENDER_JSON command" << std::endl;
+                    std::cout << ">>>ERROR:malformed RENDER_JSON command" << std::endl;
                     continue;
                 }
                 std::string themeStr;
@@ -651,7 +651,7 @@ public:
                 std::string wStr, hStr;
                 if (!(iss >> req.soPath >> req.pngPath >> req.metadataPath >> wStr >> hStr))
                 {
-                    std::cout << "ERROR:malformed RELOAD command" << std::endl;
+                    std::cout << ">>>ERROR:malformed RELOAD command" << std::endl;
                     continue;
                 }
                 try
@@ -661,7 +661,7 @@ public:
                 }
                 catch (...)
                 {
-                    std::cout << "ERROR:malformed RELOAD command" << std::endl;
+                    std::cout << ">>>ERROR:malformed RELOAD command" << std::endl;
                     continue;
                 }
                 // Optional theme parameter (default: dark)
@@ -752,7 +752,7 @@ public:
         std::ifstream f(req.soPath);
         if (!f.is_open())
         {
-            std::cout << "ERROR:cannot open scene JSON: " << req.soPath << std::endl;
+            std::cout << ">>>ERROR:cannot open scene JSON: " << req.soPath << std::endl;
             mCaptureBusy = false;
             FlushPending();
             return;
@@ -766,7 +766,7 @@ public:
         JSkipWs(json, pos);
         if (pos >= json.size() || json[pos] != '{')
         {
-            std::cout << "ERROR:invalid scene JSON" << std::endl;
+            std::cout << ">>>ERROR:invalid scene JSON" << std::endl;
             mCaptureBusy = false;
             FlushPending();
             return;
@@ -800,7 +800,7 @@ public:
         }
         catch (const std::exception& ex)
         {
-            std::cout << "ERROR:BuildScene threw: " << ex.what() << std::endl;
+            std::cout << ">>>ERROR:BuildScene threw: " << ex.what() << std::endl;
             mCaptureBusy = false;
             FlushPending();
             return;
@@ -877,7 +877,7 @@ public:
         {
             const char* dlErrPtr = dlerror();
             std::string dlErr = dlErrPtr ? dlErrPtr : "unknown dlopen error";
-            std::cout << "ERROR:" << dlErr << std::endl;
+            std::cout << ">>>ERROR:" << dlErr << std::endl;
             mCaptureBusy = false;
             FlushPending();
             return;
@@ -889,7 +889,7 @@ public:
             reinterpret_cast<CreatePreviewFn>(dlsym(mPluginHandle, "CreatePreview"));
         if (!createPreview)
         {
-            std::cout << "ERROR:symbol CreatePreview not found in .so" << std::endl;
+            std::cout << ">>>ERROR:symbol CreatePreview not found in .so" << std::endl;
             dlclose(mPluginHandle);
             mPluginHandle = nullptr;
             mCaptureBusy  = false;
@@ -905,7 +905,7 @@ public:
         }
         catch (const std::exception& ex)
         {
-            std::cout << "ERROR:CreatePreview threw: " << ex.what() << std::endl;
+            std::cout << ">>>ERROR:CreatePreview threw: " << ex.what() << std::endl;
             dlclose(mPluginHandle);
             mPluginHandle = nullptr;
             mCaptureBusy  = false;
@@ -942,11 +942,11 @@ public:
             ExportSceneMetadata(Actor(mWindow.GetRootLayer()),
                                 mCurrentReq.metadataPath,
                                 mCurrentReq.width, mCurrentReq.height);
-            std::cout << "OK:" << mCurrentReq.pngPath << std::endl;
+            std::cout << ">>>OK:" << mCurrentReq.pngPath << std::endl;
         }
         else
         {
-            std::cout << "ERROR:capture failed" << std::endl;
+            std::cout << ">>>ERROR:capture failed" << std::endl;
         }
 
         mCaptureBusy = false;

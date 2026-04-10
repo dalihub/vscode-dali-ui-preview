@@ -5,6 +5,16 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-04-10 — Preview Server IPC 안정화
+
+### Added
+- **`src/previewServer.ts`**: ANSI 이스케이프 코드 스트리핑 (`stripAnsi()`) 추가 — 터미널 컬러 코드가 포함된 서버 출력도 올바르게 파싱.
+- **`test/unit/previewServer.test.ts`**: `>>>` 프로토콜 및 ANSI 스트리핑 관련 테스트 추가.
+
+### Changed
+- **`server/preview_server.cpp`**: IPC 출력 프로토콜 접두사 추가 — `READY` → `>>>READY`, `OK:` → `>>>OK:`, `ERROR:` → `>>>ERROR:`. 일반 로그 출력과 IPC 메시지를 명확하게 구분.
+- **`src/previewServer.ts`**: stdout 파싱 로직을 `>>>` 접두사 기반으로 업데이트. `[Server stdout]` 디버그 로깅 추가.
+
 ## [0.22.0] - 2026-04-10 — 위젯 인스펙터 개선 (속성 편집 + 레이아웃 정책)
 
 ### Added
