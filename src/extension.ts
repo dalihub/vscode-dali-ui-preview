@@ -40,6 +40,7 @@ let buildGeneration = 0;
 let pendingRebuildDoc: vscode.TextDocument | undefined;
 let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let bgColorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let lastTextChangeTime = 0;           // T0: timestamp when text change was detected
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -323,13 +324,17 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         const debounceMs = config.get<number>('livePreviewDebounce', 300);
         if (!liveDebouncer) {
+            outputChannel.appendLine(`[LivePreview] Debouncer created with debounce=${debounceMs}ms`);
             liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
+                const debounceElapsed = Date.now() - lastTextChangeTime;
+                outputChannel.appendLine(`[Perf] T1 debounce fired — ${debounceElapsed}ms since last text change`);
                 ensurePreviewManager(context);
                 previewManager!.show(true);
                 runPreview(doc, true);
             });
         }
         liveDebouncer.setDebounceMs(debounceMs);
+        lastTextChangeTime = Date.now();
         liveDebouncer.schedule(event.document);
     });
 
@@ -339,6 +344,12 @@ export async function activate(context: vscode.ExtensionContext) {
             e.affectsConfiguration('daliPreview.livePreview')) {
             liveDebouncer?.dispose();
             liveDebouncer = undefined;
+            const cfg = vscode.workspace.getConfiguration('daliPreview');
+            const newDebounceMs = cfg.get<number>('livePreviewDebounce', 300);
+            const liveEnabled = cfg.get<boolean>('livePreview', true);
+            outputChannel.appendLine(
+                `[LivePreview] Settings updated — livePreview=${liveEnabled}, debounce=${newDebounceMs}ms`
+            );
         }
     });
 
@@ -577,9 +588,12 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
     diagnosticCollection.delete(doc.uri);
 
     const startTime = Date.now();
+    outputChannel.appendLine(`[Perf] T2 runPreview start (live=${livePreview})`);
 
     // Instrument code with line annotations for click-to-code
     const instrumented = instrumentCode(extraction.code, extraction.startLine);
+    const instrumentTime = Date.now();
+    outputChannel.appendLine(`[Perf]    extract+instrument: ${instrumentTime - startTime}ms`);
 
     try {
         // Animation path: any config with animation=true triggers GIF capture
@@ -602,15 +616,22 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
         let usedParserMode = false;
         let parserScene: SceneNode | null = null;
 
+        outputChannel.appendLine(`[Perf]    previewServer: ${previewServer ? (previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`);
+
         // Phase 4-2: Parser-first path (~200ms) — try before compile
         if (previewServer?.isRunning) {
+            const parseStart = Date.now();
             const scene = parseChainExpression(extraction.code);
+            const parseEnd = Date.now();
+            outputChannel.appendLine(`[Perf]    parse: ${parseEnd - parseStart}ms (${scene ? 'success' : 'null'})`);
             if (scene) {
                 const pngPath      = '/tmp/dali_preview/preview.png';
                 const metadataPath = '/tmp/dali_preview/preview_metadata.json';
+                const renderStart = Date.now();
                 result = await previewServer.renderJson(
                     scene, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
                 );
+                outputChannel.appendLine(`[Perf]    renderJson: ${Date.now() - renderStart}ms (${result.success ? 'OK' : 'FAIL'})`);
 
                 if (myGeneration !== buildGeneration) { return; }
 
@@ -629,7 +650,10 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         // Phase 2: dlopen server mode
         if (!usedServerMode && previewServer?.isRunning) {
+            const compileStart = Date.now();
             const pluginResult = await buildRunner.compilePlugin(instrumented);
+            const compileEnd = Date.now();
+            outputChannel.appendLine(`[Perf]    compilePlugin: ${compileEnd - compileStart}ms (${pluginResult.success ? 'OK' : 'FAIL'})`);
 
             // Discard stale result if a newer build was queued during this compile
             if (myGeneration !== buildGeneration) {
@@ -639,9 +663,11 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             if (pluginResult.success && pluginResult.soPath) {
                 const pngPath      = '/tmp/dali_preview/preview.png';
                 const metadataPath = '/tmp/dali_preview/preview_metadata.json';
+                const reloadStart = Date.now();
                 result = await previewServer.reload(
                     pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
                 );
+                outputChannel.appendLine(`[Perf]    server.reload (dlopen+render+screenshot): ${Date.now() - reloadStart}ms`);
                 usedServerMode = true;
             } else {
                 // .so compile failed — parse errors against plugin template
@@ -664,7 +690,9 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         // Phase 1 fallback: full harness compile + run
         if (!usedServerMode) {
+            const harnessStart = Date.now();
             result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight, currentTheme, currentBgColor);
+            outputChannel.appendLine(`[Perf]    buildAndRun (full harness): ${Date.now() - harnessStart}ms`);
         }
 
         // Discard stale result if a newer build was queued
@@ -676,6 +704,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
 
         if (result!.success && result!.pngPath) {
             // Load scene graph metadata for click-to-code overlay
+            const metaStart = Date.now();
             let metadata: object | null = null;
             if (result!.metadataPath) {
                 try {
@@ -686,11 +715,14 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
             if (metadata && parserScene) {
                 enrichMetadataWithFlexProps(metadata, parserScene);
             }
+            outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
             cancelErrorDebounce();
             previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
             const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
             statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
             statusBar?.showSuccess(buildTimeMs);
+            const totalElapsed = Date.now() - (lastTextChangeTime || startTime);
+            outputChannel.appendLine(`[Perf] T5 postMessage sent — total pipeline: ${buildTimeMs}ms (build), ${totalElapsed}ms (text change → update)`);
             outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${currentWidth}x${currentHeight})`);
         } else {
             // Parse errors and show in editor
