@@ -15,11 +15,13 @@ interface PropMatcher {
 
 const FLOAT_LITERAL = /^-?[0-9]+(\.[0-9]+)?f?$/;
 
+const LAYOUT_POLICY = /^(MATCH_PARENT|WRAP_CONTENT|FILL_TO_PARENT|FIT_TO_CHILDREN)$/;
+
 const PROP_VALIDATORS: Readonly<Record<string, (v: string) => boolean>> = {
     x:       (v) => FLOAT_LITERAL.test(v),
     y:       (v) => FLOAT_LITERAL.test(v),
-    w:       (v) => FLOAT_LITERAL.test(v),
-    h:       (v) => FLOAT_LITERAL.test(v),
+    w:       (v) => FLOAT_LITERAL.test(v) || LAYOUT_POLICY.test(v),
+    h:       (v) => FLOAT_LITERAL.test(v) || LAYOUT_POLICY.test(v),
     opacity: (v) => FLOAT_LITERAL.test(v),
     visible: (v) => v === 'true' || v === 'false',
     // Vector4(r, g, b, a) or UiColor(0xRRGGBB[AA]) — both valid DALi color forms
@@ -53,7 +55,7 @@ const PROP_MATCHERS: Readonly<Record<string, PropMatcher[]>> = {
             buildReplacement: (v) => `.SetProperty(Actor::Property::VISIBLE, ${v})`,
         },
         {
-            // SetVisible() — legacy fallback (actor-impl.h internal, but still found in some code)
+            // SetVisible() — legacy fallback (Dali::Actor base class)
             pattern: /\.SetVisible\s*\([^)]*\)/,
             buildReplacement: (v) => `.SetVisible(${v})`,
         },
@@ -114,6 +116,22 @@ const PROP_MATCHERS: Readonly<Record<string, PropMatcher[]>> = {
 
 /** Names of properties that have registered matchers and can be edited. */
 export const EDITABLE_PROPS = Object.freeze(Object.keys(PROP_MATCHERS));
+
+// ---------------------------------------------------------------------------
+// INSERT_TEMPLATES — setter call to insert when no existing setter is found.
+// Used as a fallback in applyEdit() when the search loop finds nothing.
+// The placeholder `${value}` is replaced at runtime with the actual newValue.
+// ---------------------------------------------------------------------------
+
+const INSERT_TEMPLATES: Readonly<Record<string, (v: string) => string>> = {
+    visible: (v) => `.SetProperty(Actor::Property::VISIBLE, ${v})`,
+    opacity: (v) => `.SetOpacity(${v})`,
+    color:   (v) => `.SetBackgroundColor(${v})`,
+    x:       (v) => `.SetPositionX(${v})`,
+    y:       (v) => `.SetPositionY(${v})`,
+    w:       (v) => `.SetRequestedWidth(${v})`,
+    h:       (v) => `.SetRequestedHeight(${v})`,
+};
 
 export class PropertyEditor {
     /**
@@ -177,6 +195,53 @@ export class PropertyEditor {
                 // applyEdit triggers onDidChangeTextDocument → live preview debounce.
                 // Calling doc.save() would additionally fire onDidSaveTextDocument
                 // causing a redundant immediate build.
+                return { success: true };
+            }
+        }
+
+        // No existing setter found — attempt to INSERT a new setter call after the
+        // closest ::New( call within the search window (insertion fallback).
+        const insertTemplate = INSERT_TEMPLATES[propName];
+        if (insertTemplate) {
+            const newCallPattern = /::New\s*\(/;
+            // Search from sourceLine outward to find the nearest ::New( line
+            let newCallLine = -1;
+            for (let radius = 0; radius <= (lineEnd - lineStart); radius++) {
+                const before = clampedSource - radius;
+                const after  = clampedSource + radius;
+                if (before >= lineStart && newCallPattern.test(doc.lineAt(before).text)) {
+                    newCallLine = before;
+                    break;
+                }
+                if (after !== before && after <= lineEnd && newCallPattern.test(doc.lineAt(after).text)) {
+                    newCallLine = after;
+                    break;
+                }
+            }
+
+            if (newCallLine !== -1) {
+                // Determine indentation from the line after ::New( (the first chain call),
+                // falling back to the indentation of the ::New( line itself.
+                const nextLine = newCallLine + 1;
+                let indent = '';
+                if (nextLine < doc.lineCount) {
+                    const nextText = doc.lineAt(nextLine).text;
+                    const m = /^(\s*)/.exec(nextText);
+                    indent = m ? m[1] : '';
+                } else {
+                    const newLineText = doc.lineAt(newCallLine).text;
+                    const m = /^(\s*)/.exec(newLineText);
+                    indent = m ? m[1] : '';
+                }
+
+                const insertPos = new vscode.Position(newCallLine + 1, 0);
+                const insertText = `${indent}${insertTemplate(newValue)}\n`;
+                const edit = new vscode.WorkspaceEdit();
+                edit.insert(doc.uri, insertPos, insertText);
+                const ok = await vscode.workspace.applyEdit(edit);
+                if (!ok) {
+                    return { success: false, reason: 'applyEdit 실패 (WorkspaceEdit 적용 거부)' };
+                }
                 return { success: true };
             }
         }

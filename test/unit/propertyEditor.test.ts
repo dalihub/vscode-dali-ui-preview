@@ -12,7 +12,7 @@ import { createMockDocument } from '../helpers/mockDocument';
  * `restore` MUST be called in afterEach to avoid mock leakage across tests (H7).
  */
 function makeEditor() {
-    const ops: Array<{ uri: any; range: any; newText: string }> = [];
+    const ops: Array<{ uri: any; range: any; newText: string; kind?: string }> = [];
     const vscode = require('vscode');
 
     const originalApply = vscode.workspace.applyEdit;
@@ -148,25 +148,25 @@ describe('PropertyEditor — no doc.save() after edit', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Setter not found
+// Setter not found (no ::New( nearby → still fails)
 // ---------------------------------------------------------------------------
 
 describe('PropertyEditor — setter not found', () => {
     let restoreFn: (() => void) | undefined;
     afterEach(() => { restoreFn?.(); restoreFn = undefined; });
 
-    it('returns failure when no matching setter exists within search radius', async () => {
+    it('returns failure when no matching setter and no ::New( call exist', async () => {
         const { editor, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         const doc = makeDoc([
-            'auto box = Actor::New();',
+            'auto box = someHelper();',       // no ::New( pattern
             '// no SetProperty OPACITY call here',
         ].join('\n'));
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
         expect(result.success).to.equal(false);
     });
 
-    it('returns failure when setter is outside search radius', async () => {
+    it('returns failure when setter is outside search radius and no ::New( in radius', async () => {
         const { editor, makeDoc, restore } = makeEditor();
         restoreFn = restore;
         // Put the setter 30 lines away (beyond default radius of 20)
@@ -176,6 +176,93 @@ describe('PropertyEditor — setter not found', () => {
         const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f', 20);
         expect(result.success).to.equal(false);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Insertion fallback — inserts setter after ::New( when no existing setter found
+// ---------------------------------------------------------------------------
+
+describe('PropertyEditor — insertion fallback', () => {
+    let restoreFn: (() => void) | undefined;
+    afterEach(() => { restoreFn?.(); restoreFn = undefined; });
+
+    it('inserts .SetProperty(Actor::Property::VISIBLE, ...) after ::New( when no visible setter exists', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc([
+            'auto box = Actor::New();',
+            '    box.SetPositionX(0.0f);',
+        ].join('\n'));
+        const result = await editor.applyEdit(doc, 0, 'visible', 'false');
+        expect(result.success).to.equal(true);
+        expect(ops).to.have.lengthOf(1);
+        expect(ops[0].kind).to.equal('insert');
+        expect(ops[0].newText).to.include('.SetProperty(Actor::Property::VISIBLE, false)');
+    });
+
+    it('inserted visible setter uses indentation of the following chain line', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc([
+            'auto box = Actor::New();',
+            '    box.SetPositionX(100.0f);',
+        ].join('\n'));
+        await editor.applyEdit(doc, 0, 'visible', 'true');
+        // Indentation should come from the next line (4 spaces)
+        expect(ops[0].newText).to.match(/^ {4}\.SetProperty\(Actor::Property::VISIBLE, true\)\n$/);
+    });
+
+    it('inserts .SetOpacity() after ::New( when no opacity setter exists', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc([
+            'auto view = Control::New();',
+            '    view.SetSize(100.0f, 100.0f);',
+        ].join('\n'));
+        const result = await editor.applyEdit(doc, 0, 'opacity', '0.5f');
+        expect(result.success).to.equal(true);
+        expect(ops[0].kind).to.equal('insert');
+        expect(ops[0].newText).to.include('.SetOpacity(0.5f)');
+    });
+
+    it('inserts after nearest ::New( when sourceLine is offset from it', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc([
+            'auto box = Actor::New();',  // line 0 — New() here
+            '    // comment',             // line 1 — sourceLine
+        ].join('\n'));
+        const result = await editor.applyEdit(doc, 1, 'visible', 'false');
+        expect(result.success).to.equal(true);
+        expect(ops[0].kind).to.equal('insert');
+        expect(ops[0].newText).to.include('.SetProperty(Actor::Property::VISIBLE, false)');
+    });
+
+    it('inserts .SetProperty(Actor::Property::VISIBLE, ...) with fallback indentation when New() is the last line', async () => {
+        const { editor, ops, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        // ::New( is the only line — no next line for indentation reference
+        const doc = makeDoc('    auto box = Actor::New();');
+        const result = await editor.applyEdit(doc, 0, 'visible', 'true');
+        expect(result.success).to.equal(true);
+        expect(ops[0].kind).to.equal('insert');
+        expect(ops[0].newText).to.include('.SetProperty(Actor::Property::VISIBLE, true)');
+    });
+
+    it('still fails when no ::New( is found anywhere in the search window', async () => {
+        const { editor, makeDoc, restore } = makeEditor();
+        restoreFn = restore;
+        const doc = makeDoc([
+            'auto box = makeBox();',   // no ::New(
+            '// nothing useful here',
+        ].join('\n'));
+        const result = await editor.applyEdit(doc, 0, 'visible', 'true');
+        expect(result.success).to.equal(false);
+        if (!result.success) {
+            expect(result.reason).to.include('visible');
+        }
+    });
+
 });
 
 // ---------------------------------------------------------------------------

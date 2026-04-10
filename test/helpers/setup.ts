@@ -19,9 +19,12 @@ const vscodeMock = {
         applyEdit: (_edit: any) => Promise.resolve(true),
     },
     WorkspaceEdit: class WorkspaceEdit {
-        private _ops: Array<{ uri: any; range: any; newText: string }> = [];
+        private _ops: Array<{ uri: any; range: any; newText: string; kind: 'replace' | 'insert' }> = [];
         replace(uri: any, range: any, newText: string) {
-            this._ops.push({ uri, range, newText });
+            this._ops.push({ uri, range, newText, kind: 'replace' });
+        }
+        insert(uri: any, position: any, newText: string) {
+            this._ops.push({ uri, range: position, newText, kind: 'insert' });
         }
         get ops() { return this._ops; }
     },

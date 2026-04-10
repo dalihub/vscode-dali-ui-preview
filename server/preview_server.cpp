@@ -424,13 +424,12 @@ static Extents SBParseExtents(const std::string& s)
     return Extents(0, 0, 0, 0);
 }
 
-static LayoutLength SBParseLayoutLength(const std::string& s)
+// Parse layout dimension: MATCH_PARENT=-2, WRAP_CONTENT=-1, or numeric literal.
+static float SBParseDimension(const std::string& s)
 {
-    if (s == "MATCH_PARENT")    return MATCH_PARENT;
-    if (s == "WRAP_CONTENT")    return WRAP_CONTENT;
-    if (s == "FILL_TO_PARENT")  return FILL_TO_PARENT;
-    if (s == "FIT_TO_CHILDREN") return FIT_TO_CHILDREN;
-    return LayoutLength(SBParseFloat(s));
+    if (s == "MATCH_PARENT")    return -2.0f;
+    if (s == "WRAP_CONTENT")    return -1.0f;
+    return SBParseFloat(s);
 }
 
 static void SBApplyCommonProps(View& view,
@@ -441,8 +440,8 @@ static void SBApplyCommonProps(View& view,
         if (kv.second.empty()) continue;
         const std::string& n  = kv.first;
         const std::string& a0 = kv.second[0];
-        if      (n == "SetRequestedWidth")  view.SetRequestedWidth(SBParseLayoutLength(a0));
-        else if (n == "SetRequestedHeight") view.SetRequestedHeight(SBParseLayoutLength(a0));
+        if      (n == "SetRequestedWidth")  view.SetRequestedWidth(SBParseDimension(a0));
+        else if (n == "SetRequestedHeight") view.SetRequestedHeight(SBParseDimension(a0));
         else if (n == "SetBackgroundColor") view.SetBackgroundColor(SBParseUiColor(a0));
         else if (n == "SetViewPadding")     view.SetViewPadding(SBParseExtents(a0));
         else if (n == "SetViewMargin")      view.SetViewMargin(SBParseExtents(a0));
@@ -841,7 +840,7 @@ public:
         // side from daliPreview.fontDirectories config), not a bare filename.
         if (!req.font.empty())
         {
-            FontClient::Get().AddCustomFontDirectory(req.font.c_str());
+            Dali::TextAbstraction::FontClient::Get().AddCustomFontDirectory(req.font.c_str());
         }
 
         // Apply background color: custom hex color takes precedence over theme
