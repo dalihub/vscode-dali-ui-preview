@@ -4,6 +4,10 @@ out/
 /tmp/
 .vscode-test/
 
+# E2E test artifacts
+test/e2e/actual/
+test/e2e/diff/
+
 # Internal planning documents (not for public)
 Docs/
 7.CLICK_TO_CODE.md
