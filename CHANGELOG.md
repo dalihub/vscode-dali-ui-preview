@@ -5,6 +5,16 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-04-10 — 성능 계측 로그 추가 + Debounce 범위 조정
+
+### Added
+- **`src/extension.ts`**: `[Perf]` 타이밍 로그 추가 — `T2 runPreview start`, `extract+instrument`, `previewServer 상태`, `parse`, `renderJson`, `compilePlugin`, `server.reload`, `buildAndRun`, `metadata read+enrich`, `T5 postMessage sent` 각 단계의 소요 시간 출력. 전체 파이프라인 지연(텍스트 변경 → 업데이트) 계측 가능.
+- **`src/extension.ts`**: `lastTextChangeTime` 변수 추가 — 텍스트 변경 시각 기록, 디바운스 발화(`T1`) 및 T5 시점과의 elapsed time 계산에 활용.
+- **`src/extension.ts`**: `[LivePreview] Debouncer created` 및 설정 변경 로그 추가.
+
+### Changed
+- **`package.json`**: `daliPreview.livePreviewDebounce` 범위 100~5000ms → 0~3000ms 변경. 0ms 설정 시 즉시 트리거 가능.
+
 ## [0.24.0] - 2026-04-10 — 렌더 캡처 최적화
 
 ### Changed
