@@ -4,12 +4,13 @@ import { PreviewConfig } from './previewConfig';
 export interface ExtractionResult {
     code: string;
     startLine: number;
-    mode: 'preview-file' | 'marker';
+    mode: 'preview-file' | 'marker' | 'single-marker';
     configs?: PreviewConfig[];
 }
 
 const MARKER_BEGIN = '// @dali-preview-begin';
 const MARKER_END = '// @dali-preview-end';
+const SINGLE_PREVIEW_MARKER = '// @preview';
 
 const PREVIEW_CONFIG_RE = /^\/\/\s*@preview-config:\s*(.+)$/;
 const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
@@ -131,7 +132,82 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
         };
     }
 
-    // --- Mode 2: marker-delimited region in .cpp / .h ---
+    // --- Mode 2: single // @preview marker → next function body ---
+    if (fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
+        for (let i = 0; i < document.lineCount; i++) {
+            if (document.lineAt(i).text.trim() !== SINGLE_PREVIEW_MARKER) {
+                continue;
+            }
+
+            // Found the marker — scan forward for the next function opening brace
+            let braceLineStart = -1;
+            for (let j = i + 1; j < document.lineCount && j < i + 20; j++) {
+                if (document.lineAt(j).text.includes('{')) {
+                    braceLineStart = j;
+                    break;
+                }
+            }
+            if (braceLineStart < 0) {
+                break; // marker found but no function below it
+            }
+
+            // Find the matching closing brace
+            let depth = 0;
+            let foundOpen = false;
+            let braceLineEnd = -1;
+            for (let j = braceLineStart; j < document.lineCount; j++) {
+                const text = document.lineAt(j).text;
+                for (const ch of text) {
+                    if (ch === '{') {
+                        depth++;
+                        foundOpen = true;
+                    }
+                    if (ch === '}') {
+                        depth--;
+                    }
+                    if (foundOpen && depth === 0) {
+                        braceLineEnd = j;
+                        break;
+                    }
+                }
+                if (braceLineEnd >= 0) {
+                    break;
+                }
+            }
+            if (braceLineEnd < 0) {
+                break;
+            }
+
+            // Extract lines between { and } (exclusive)
+            const startLine = braceLineStart + 1;
+            const codeLines: string[] = [];
+            for (let j = startLine; j < braceLineEnd; j++) {
+                codeLines.push(document.lineAt(j).text);
+            }
+
+            let code = codeLines.join('\n');
+            if (!code.trim()) {
+                break;
+            }
+
+            // Rewrite leading variable declaration to `return` if needed
+            const trimmed = code.trimStart();
+            if (!trimmed.startsWith('return')) {
+                const match = trimmed.match(VAR_DECL_RE);
+                if (match) {
+                    code = 'return ' + trimmed.slice(match[0].length);
+                }
+            }
+
+            return {
+                code,
+                startLine,
+                mode: 'single-marker',
+            };
+        }
+    }
+
+    // --- Mode 3: marker-delimited region in .cpp / .h ---
     if (fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
         const lineCount = document.lineCount;
         let beginLine = -1;
@@ -200,10 +276,67 @@ export function isPreviewable(document: vscode.TextDocument): boolean {
 
     if (fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
         const text = document.getText();
-        return text.includes(MARKER_BEGIN);
+        return text.includes(MARKER_BEGIN) || text.includes(SINGLE_PREVIEW_MARKER);
     }
 
     return false;
+}
+
+/**
+ * Extract a function body from a specific line range for CodeLens-triggered preview.
+ *
+ * Extracts the lines between the opening and closing braces (exclusive) and
+ * rewrites a leading variable declaration to a `return` statement if needed.
+ *
+ * Returns null if the body cannot be determined or is empty.
+ */
+export function extractFunctionBody(
+    document: vscode.TextDocument,
+    funcStartLine: number,
+    funcEndLine: number,
+): ExtractionResult | null {
+    // Find the opening brace (may be on the function signature line or the next)
+    let braceLineStart = -1;
+    for (let i = funcStartLine; i <= funcEndLine; i++) {
+        if (document.lineAt(i).text.includes('{')) {
+            braceLineStart = i;
+            break;
+        }
+    }
+    if (braceLineStart < 0) {
+        return null;
+    }
+
+    // Extract lines between { and } (exclusive)
+    const startLine = braceLineStart + 1;
+    const endLine = funcEndLine; // the } line
+
+    const codeLines: string[] = [];
+    for (let i = startLine; i < endLine; i++) {
+        codeLines.push(document.lineAt(i).text);
+    }
+
+    let code = codeLines.join('\n');
+    if (!code.trim()) {
+        return null;
+    }
+
+    // If the code doesn't start with `return`, try to rewrite a leading variable
+    // declaration into a return statement.
+    // e.g. `View card = FlexLayout::New()...` → `return FlexLayout::New()...`
+    const trimmed = code.trimStart();
+    if (!trimmed.startsWith('return')) {
+        const match = trimmed.match(VAR_DECL_RE);
+        if (match) {
+            code = 'return ' + trimmed.slice(match[0].length);
+        }
+    }
+
+    return {
+        code,
+        startLine,
+        mode: 'marker',
+    };
 }
 
 /**
