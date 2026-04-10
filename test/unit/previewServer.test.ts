@@ -247,7 +247,7 @@ async function startedServer(proc?: any) {
     // ensureServerBinary() is an async no-op; one microtask tick lets
     // spawnServer() run and register stdout/exit handlers before we emit.
     await Promise.resolve();
-    fakeProc.stdout.emit('data', Buffer.from('READY\n'));
+    fakeProc.stdout.emit('data', Buffer.from('>>>READY\n'));
     await startPromise;
     return { server, proc: fakeProc };
 }
@@ -268,7 +268,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_metadata.json', 1024, 600
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
 
         const result = await reloadPromise;
         expect(result.success).to.equal(true);
@@ -283,7 +283,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_metadata.json', 1024, 600
         );
-        proc.stdout.emit('data', Buffer.from('ERROR:dlopen failed\n'));
+        proc.stdout.emit('data', Buffer.from('>>>ERROR:dlopen failed\n'));
 
         const result = await reloadPromise;
         expect(result.success).to.equal(false);
@@ -301,7 +301,7 @@ describe('PreviewServer — IPC behavior', () => {
         expect(firstResult.error).to.include('already in progress');
 
         // Resolve second to avoid test hanging
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/b.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/b.png\n'));
         const secondResult = await second;
         expect(secondResult.success).to.equal(true);
     });
@@ -337,7 +337,7 @@ describe('PreviewServer — IPC behavior', () => {
         // Start and let server become READY (restartCount resets to 0)
         const startPromise = server.start();
         await Promise.resolve();
-        procs[0].stdout.emit('data', Buffer.from('READY\n'));
+        procs[0].stdout.emit('data', Buffer.from('>>>READY\n'));
         await startPromise;
 
         // Crash 3 times WITHOUT emitting READY so restartCount accumulates: 0→1→2→3
@@ -388,7 +388,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', '#ff8800'
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -405,7 +405,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', 'invalid'
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -422,7 +422,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark', undefined
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -438,7 +438,7 @@ describe('PreviewServer — IPC behavior', () => {
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600, 'dark',
             undefined, 'ko_KR', 1.5, 'NotoSansKR.ttf'
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -455,7 +455,7 @@ describe('PreviewServer — IPC behavior', () => {
         const reloadPromise = server.reload(
             '/tmp/a.so', '/tmp/a.png', '/tmp/a_meta.json', 1024, 600
         );
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await reloadPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -497,7 +497,7 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
         const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
         // Wait for async mkdir/writeFile stubs to resolve so pendingRequest is set
         await Promise.resolve(); await Promise.resolve();
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
 
         const result = await renderPromise;
         expect(result.success).to.equal(true);
@@ -510,7 +510,7 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
 
         const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
         await Promise.resolve(); await Promise.resolve();
-        proc.stdout.emit('data', Buffer.from('ERROR:scene parse failed\n'));
+        proc.stdout.emit('data', Buffer.from('>>>ERROR:scene parse failed\n'));
 
         const result = await renderPromise;
         expect(result.success).to.equal(false);
@@ -543,7 +543,7 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
 
         const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
         await Promise.resolve(); await Promise.resolve();
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await renderPromise;
 
         expect(fsWriteFileStub.calledOnce).to.be.true;
@@ -556,7 +556,7 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
 
         const renderPromise = server.renderJson(scene, '/tmp/a.png', '/tmp/a_meta.json', 1024, 600);
         await Promise.resolve(); await Promise.resolve();
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/a.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/a.png\n'));
         await renderPromise;
 
         const writtenCmd: string = proc.stdin.write.lastCall.args[0];
@@ -578,7 +578,7 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
         expect(firstResult.success).to.equal(false);
         expect(firstResult.error).to.include('already in progress');
 
-        proc.stdout.emit('data', Buffer.from('OK:/tmp/b.png\n'));
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/b.png\n'));
         const secondResult = await second;
         expect(secondResult.success).to.equal(true);
     });

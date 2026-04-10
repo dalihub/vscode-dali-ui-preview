@@ -161,7 +161,14 @@ export class PreviewServer {
 
         const proc = this.serverProcess;
         return new Promise((resolve) => {
-            this.pendingRequest = { resolve, metadataPath };
+            this.pendingRequest = {
+                resolve: (result) => {
+                    // Clean up temp JSON file after server has read it
+                    fs.promises.unlink(jsonPath).catch(() => {});
+                    resolve(result);
+                },
+                metadataPath,
+            };
 
             const colorField = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor) ? bgColor : '-';
             const cmd = `RENDER_JSON ${jsonPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField}\n`;
@@ -214,16 +221,22 @@ export class PreviewServer {
             this.serverProcess = proc;
             this.stdoutBuffer  = '';
 
+            const spawnTime = Date.now();
+            this.outputChannel.appendLine(`[PreviewServer] Spawned PID=${proc.pid}, DISPLAY=${env.DISPLAY}, timeout=${READY_TIMEOUT_MS}ms`);
+
             const readyTimer = setTimeout(() => {
                 if (!this.ready) {
-                    this.outputChannel.appendLine('[PreviewServer] Timed out waiting for READY');
+                    const elapsed = Date.now() - spawnTime;
+                    this.outputChannel.appendLine(`[PreviewServer] Timed out waiting for READY after ${elapsed}ms (buffer: "${this.stdoutBuffer.slice(0, 200)}")`);
                     proc.kill('SIGTERM');
                     resolve(false);
                 }
             }, READY_TIMEOUT_MS);
 
             proc.stdout!.on('data', (chunk: Buffer) => {
-                this.stdoutBuffer += chunk.toString();
+                const text = chunk.toString();
+                this.outputChannel.appendLine(`[Server stdout] ${text.trimEnd()}`);
+                this.stdoutBuffer += text;
                 this.processStdoutBuffer(readyTimer, resolve);
             });
 
@@ -267,29 +280,38 @@ export class PreviewServer {
         });
     }
 
+    /** Strip ANSI escape sequences (e.g. \x1b[0m) that DALi logs may inject into stdout. */
+    private static stripAnsi(s: string): string {
+        // eslint-disable-next-line no-control-regex
+        return s.replace(/\x1b\[[0-9;]*m/g, '');
+    }
+
     private processStdoutBuffer(readyTimer: NodeJS.Timeout, readyResolve?: (v: boolean) => void) {
         let newlineIdx: number;
         while ((newlineIdx = this.stdoutBuffer.indexOf('\n')) !== -1) {
-            const line = this.stdoutBuffer.slice(0, newlineIdx).trimEnd();
+            const raw = this.stdoutBuffer.slice(0, newlineIdx).trimEnd();
             this.stdoutBuffer = this.stdoutBuffer.slice(newlineIdx + 1);
 
-            if (line === 'READY') {
+            const line = PreviewServer.stripAnsi(raw);
+
+            // Server IPC lines use ">>>" prefix to distinguish from DALi runtime log noise.
+            if (line === '>>>READY') {
                 this.ready        = true;
                 this.restartCount = 0;
                 clearTimeout(readyTimer);
                 this.outputChannel.appendLine('[PreviewServer] Ready.');
                 readyResolve?.(true);
 
-            } else if (line.startsWith('OK:')) {
-                const pngPath = line.slice(3);
+            } else if (line.startsWith('>>>OK:')) {
+                const pngPath = line.slice(6);
                 if (this.pendingRequest) {
                     const { resolve, metadataPath } = this.pendingRequest;
                     this.pendingRequest = undefined;
                     resolve({ success: true, pngPath, metadataPath });
                 }
 
-            } else if (line.startsWith('ERROR:')) {
-                const msg = line.slice(6);
+            } else if (line.startsWith('>>>ERROR:')) {
+                const msg = line.slice(9);
                 if (this.pendingRequest) {
                     const { resolve } = this.pendingRequest;
                     this.pendingRequest = undefined;
