@@ -5,6 +5,22 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-04-10 — 골든 테스트 샘플 API 수정 + 골든 이미지 갱신
+
+### Fixed
+
+- **`test/samples/animation.preview.dali.cpp`**: `.SetSize()` → `.SetRequestedWidth()` + `.SetRequestedHeight()`, `.SetParentOrigin()` + `.SetAnchorPoint()` 제거 (View API 미지원 메서드)
+- **`test/samples/multi-config-locale.preview.dali.cpp`**: `TextLabel::New()` → `Label::New()` (올바른 API로 교체)
+- **`test/samples/multi-config.preview.dali.cpp`**: `FlexLayout::COLUMN` → `FlexDirection::COLUMN`, `.SetDirection()` → `.Direction()`, `TextLabel::New()` → `Label::New()` (올바른 API로 교체)
+- **`test/e2e/imageComparator.ts`**: `require('pixelmatch')` ESM 기본 내보내기 처리 — `.default ?? fallback` 패턴으로 `pixelmatch is not a function` 오류 수정
+- **`test/golden/animation.harness.cpp`**: 수정된 animation 샘플에 맞게 골든 파일 업데이트
+
+### Updated
+
+- **`test/golden/screenshots/`**: 13개 전체 샘플 골든 PNG 갱신 (수정된 샘플 반영)
+
+---
+
 ## [0.27.0] - 2026-04-10 — Phase 3-4: 스크린샷 골든 테스트 — pixelmatch 기반 회귀 테스트 시스템 (DAL-18)
 
 ### Added
