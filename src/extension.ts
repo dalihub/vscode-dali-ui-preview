@@ -6,7 +6,8 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { SdbManager } from './sdbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
-import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
+import { extractPreviewCode, extractFunctionBody, isPreviewable, instrumentCode, ExtractionResult } from './codeExtractor';
+import { PreviewCodeLensProvider } from './previewCodeLens';
 import { parseChainExpression, SceneNode } from './cppParser';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
@@ -38,9 +39,10 @@ let lastPreviewedDoc: vscode.TextDocument | undefined;
 let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
 let buildGeneration = 0;
 let pendingRebuildDoc: vscode.TextDocument | undefined;
+let lastTextChangeTime = 0;           // T0: timestamp when text change was detected
+let lastCodeLensFunc: { uri: string; startLine: number; endLine: number } | undefined;
 let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let bgColorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-let lastTextChangeTime = 0;           // T0: timestamp when text change was detected
 
 // Current preview dimensions (managed directly, not via settings)
 let currentWidth = 1024;
@@ -311,7 +313,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Live preview: auto-refresh on text change with debounce
     const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
-        if (!isPreviewable(event.document)) {
+        const isCodeLensTarget = lastCodeLensFunc && lastCodeLensFunc.uri === event.document.uri.toString();
+        if (!isCodeLensTarget && !isPreviewable(event.document)) {
             return;
         }
         if (isVncMode) {
@@ -352,6 +355,38 @@ export async function activate(context: vscode.ExtensionContext) {
             );
         }
     });
+
+    // CodeLens provider: show "▶ Preview" buttons above DALi View-returning functions
+    const codeLensProvider = new PreviewCodeLensProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'cpp', scheme: 'file' },
+            codeLensProvider
+        )
+    );
+
+    // Command: DALi: Preview Function (invoked by CodeLens)
+    const previewFunctionCmd = vscode.commands.registerCommand(
+        'dali.previewFunction',
+        async (uri: vscode.Uri, funcStartLine: number, funcEndLine: number) => {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const extraction = extractFunctionBody(doc, funcStartLine, funcEndLine);
+            if (!extraction) {
+                vscode.window.showWarningMessage('DALi: Could not extract function body for preview.');
+                return;
+            }
+            // Remember which function was previewed for live preview updates
+            lastCodeLensFunc = { uri: uri.toString(), startLine: funcStartLine, endLine: funcEndLine };
+            ensurePreviewManager(context);
+            previewManager!.show(true);
+            previewManager!.setTheme(currentTheme);
+            if (currentBgColor) {
+                previewManager!.setBackgroundColor(currentBgColor);
+            }
+            await runPreview(doc, false, extraction);
+        }
+    );
+    context.subscriptions.push(previewFunctionCmd);
 
     context.subscriptions.push(toggleThemeCmd, openCmd, onSave, onOpen, onTextChange, onConfigChange, outputChannel);
 
@@ -556,7 +591,7 @@ function cancelErrorDebounce(): void {
     previewManager?.clearError();
 }
 
-async function runPreview(doc: vscode.TextDocument, livePreview = false) {
+async function runPreview(doc: vscode.TextDocument, livePreview = false, preExtracted?: ExtractionResult) {
     if (!buildRunner || !previewManager) {
         return;
     }
@@ -569,8 +604,12 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
         return;
     }
 
-    // Extract code
-    const extraction = extractPreviewCode(doc);
+    // Extract code: use pre-extracted result, then try normal extraction,
+    // then fall back to the last CodeLens-previewed function range.
+    let extraction = preExtracted ?? extractPreviewCode(doc);
+    if (!extraction && lastCodeLensFunc && lastCodeLensFunc.uri === doc.uri.toString()) {
+        extraction = extractFunctionBody(doc, lastCodeLensFunc.startLine, lastCodeLensFunc.endLine);
+    }
     if (!extraction) {
         return;
     }

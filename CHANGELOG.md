@@ -5,6 +5,24 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-04-10 — CodeLens Preview + // @preview 단일 마커 지원
+
+### Added
+- **`src/previewCodeLens.ts`** (신규): `PreviewCodeLensProvider` 구현. C++ 파일에서 DALi View를 반환하는 함수(`CreatePreview`, `BuildScene`, `@preview` 주석 표시 함수) 위에 `▶ Preview` 버튼 자동 표시. `provideCodeLenses()`는 함수 반환 타입 패턴(View/FlexLayout/StackLayout 등) 감지.
+- **`src/codeExtractor.ts`**: `// @preview` 단일 마커 지원 추가 — 마커가 있는 줄부터 해당 함수 바디 끝까지를 프리뷰 코드로 추출. `extractFunctionBody(doc, startLine, endLine)` 함수 추가 — CodeLens에서 선택한 함수 범위를 직접 추출.
+- **`src/extension.ts`**: `dali.previewFunction` 커맨드 등록 — CodeLens에서 호출. `lastCodeLensFunc` 상태로 라이브 프리뷰 시 마지막 CodeLens 대상 유지. `preExtracted` 파라미터로 `runPreview()`에 추출 결과 직접 전달.
+- **`package.json`**: `dali.previewFunction` 커맨드 등록.
+- **`test/samples/codelens-example.cpp`** (신규): CodeLens 시나리오용 샘플 — `CreatePreview()`, `BuildCard()` 등 View-returning 함수 포함.
+- **`test/samples/single-marker.cpp`** (신규): `// @preview` 단일 마커 시나리오 샘플.
+- **`test/samples/path1-parser.preview.dali.cpp`** (신규): 파서 경로 테스트용 샘플 (FlexLayout chain).
+- **`test/samples/path2-dlopen.preview.dali.cpp`** (신규): dlopen 서버 경로 테스트용 샘플 (복잡한 C++ 표현식).
+- **`test/samples/path3-fullbuild.preview.dali.cpp`** (신규): 풀 빌드 경로 테스트용 샘플 (DALi 고급 API).
+
+### Changed
+- **`test/unit/codeExtractor.test.ts`**: `extractFunctionBody()` 및 `// @preview` 마커 파싱 테스트 추가.
+- **`test/samples/marker-example.cpp`**: `// @preview` 단일 마커 예시 포함하도록 업데이트.
+- **`.vscode/launch.json`**: 디버그 실행 시 `test/samples` 폴더를 워크스페이스로 자동 오픈 — CodeLens 미리보기 수동 테스트 편의.
+
 ## [0.25.0] - 2026-04-10 — 성능 계측 로그 추가 + Debounce 범위 조정
 
 ### Added

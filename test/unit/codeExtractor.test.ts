@@ -626,6 +626,148 @@ describe('codeExtractor', () => {
     });
 
     // -----------------------------------------------------------------
+    // Mode 2: // @preview single-line marker
+    // -----------------------------------------------------------------
+    describe('// @preview single-line marker', () => {
+        it('extracts function body following // @preview marker', () => {
+            const content = [
+                '#include <dali/dali.h>',
+                '',
+                '// @preview',
+                'View CreateUI()',
+                '{',
+                '    return View::New();',
+                '}',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code.trim()).to.equal('return View::New();');
+        });
+
+        it('extracts function body when opening brace is on same line as signature', () => {
+            const content = [
+                '// @preview',
+                'View CreateUI() {',
+                '    return FlexLayout::New();',
+                '}',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code.trim()).to.equal('return FlexLayout::New();');
+        });
+
+        it('strips variable declaration and adds return (single-marker mode)', () => {
+            const content = [
+                '// @preview',
+                'View BuildCard() {',
+                '    View card = FlexLayout::New()',
+                '        .SetPadding(10.0f);',
+                '}',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.code).to.match(/^return FlexLayout::New\(\)/);
+            expect(result!.code).to.not.include('View card');
+        });
+
+        it('single-marker mode works in .h files', () => {
+            const content = [
+                '#pragma once',
+                '// @preview',
+                'View CreateCard() {',
+                '    return TextLabel::New("Hello");',
+                '}',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/widget.h', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code.trim()).to.equal('return TextLabel::New("Hello");');
+        });
+
+        it('single-marker mode takes priority over @dali-preview-begin/end markers', () => {
+            const content = [
+                '// @preview',
+                'View CreateUI() {',
+                '    return View::New();',
+                '}',
+                '// @dali-preview-begin',
+                'return TextLabel::New("second");',
+                '// @dali-preview-end',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code.trim()).to.equal('return View::New();');
+        });
+
+        it('returns null when // @preview has no function below it', () => {
+            const content = [
+                '// @preview',
+                '// just a comment, no function here',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            // Falls through to marker mode, which also finds nothing → null
+            expect(result).to.be.null;
+        });
+
+        it('handles nested braces correctly in single-marker mode', () => {
+            const content = [
+                '// @preview',
+                'View CreateUI() {',
+                '    auto inner = FlexLayout::New().Children({',
+                '        View::New(),',
+                '    });',
+                '    return inner;',
+                '}',
+            ].join('\n');
+
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code).to.include('FlexLayout::New()');
+            expect(result!.code).to.include('return inner;');
+        });
+
+        it('extracts code from test/samples/single-marker.cpp', () => {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs');
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path');
+            const samplePath = path.resolve(__dirname, '../../../test/samples/single-marker.cpp');
+            const content = fs.readFileSync(samplePath, 'utf-8');
+            const doc = createMockDocument('/tmp/single-marker.cpp', content);
+            const result = extractPreviewCode(doc as any);
+
+            expect(result).to.not.be.null;
+            expect(result!.mode).to.equal('single-marker');
+            expect(result!.code).to.include('FlexLayout::New()');
+            expect(result!.code).to.include('Hello, DALi!');
+        });
+    });
+
+    // -----------------------------------------------------------------
     // isPreviewable
     // -----------------------------------------------------------------
     describe('isPreviewable()', () => {
@@ -642,6 +784,18 @@ describe('codeExtractor', () => {
 
         it('returns true for .h with markers', () => {
             const content = '// @dali-preview-begin\nreturn View::New();\n// @dali-preview-end';
+            const doc = createMockDocument('/tmp/widget.h', content);
+            expect(isPreviewable(doc as any)).to.be.true;
+        });
+
+        it('returns true for .cpp with // @preview marker', () => {
+            const content = '// @preview\nView CreateUI() {\n    return View::New();\n}';
+            const doc = createMockDocument('/tmp/example.cpp', content);
+            expect(isPreviewable(doc as any)).to.be.true;
+        });
+
+        it('returns true for .h with // @preview marker', () => {
+            const content = '// @preview\nView CreateCard() {\n    return View::New();\n}';
             const doc = createMockDocument('/tmp/widget.h', content);
             expect(isPreviewable(doc as any)).to.be.true;
         });
