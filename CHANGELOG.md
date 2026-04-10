@@ -5,6 +5,22 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-04-10 — 위젯 인스펙터 개선 (속성 편집 + 레이아웃 정책)
+
+### Added
+- **`src/propertyEditor.ts`**: `PropertyEditor` 클래스에 `INSERT` 모드 지원 추가 — 속성 삽입 위치를 정밀하게 제어. `EditResult` 타입 개선으로 실패 원인 반환.
+- **`media/preview.html`**: 인스펙터 UI 개선:
+  - 레이아웃 정책 드롭다운 (`SetRequestedWidth` / `SetRequestedHeight`) — MATCH_PARENT / WRAP_CONTENT / 숫자 값 선택 가능.
+  - `__L` 접두사 속성 숨김 처리 (내부 레이아웃 힌트 표시 제거).
+  - 노드 재선택 후에도 인스펙터 선택 상태 유지 (선택 보존 로직).
+  - 치수 행(dimension row) 추가 — 너비/높이를 한 행에 표시.
+
+### Changed
+- **`server/preview_server.cpp`**: `SBParseLayoutLength()` → `SBParseDimension()` 대체. MATCH_PARENT=-2.0f, WRAP_CONTENT=-1.0f 반환하도록 변경 (DALi-UI-Foundation API 호환성 개선).
+- **`server/preview_server.cpp`**: `FontClient::Get()` → `Dali::TextAbstraction::FontClient::Get()` 전체 네임스페이스 명시 (링커 충돌 방지).
+- **`src/flexMetadata.ts`**: FlexLayout 파서 데이터 병합 로직 개선.
+- **`test/helpers/setup.ts`**: 테스트 헬퍼 설정 업데이트.
+
 ## [0.21.0] - 2026-04-06 — Phase 4-5: FlexLayout Explorer (레이아웃 시각화 도구) — DAL-35
 
 ### Added

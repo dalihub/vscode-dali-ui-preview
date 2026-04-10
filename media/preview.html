@@ -819,6 +819,39 @@
     text-align: right;
   }
 
+  .prop-input[type="select"],
+  select.prop-input {
+    background: #3c3c3c;
+    color: #ce9178;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 11px;
+    font-family: inherit;
+    outline: none;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+
+  select.prop-input:focus {
+    border-color: #007acc;
+    color: #ffffff;
+  }
+
+  .prop-dim-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .prop-dim-pixel {
+    width: 60px;
+    flex: none;
+  }
+
   .btn-inspector {
     font-size: 13px;
     padding: 2px 8px;
@@ -2029,6 +2062,78 @@
       propertyPanelEl.appendChild(row);
     }
 
+    var POLICY_OPTIONS = ['MATCH_PARENT', 'WRAP_CONTENT', 'FILL_TO_PARENT', 'FIT_TO_CHILDREN'];
+
+    /**
+     * Render a dimension (w/h) row.
+     * When `policy` is a layout policy constant, show a <select> dropdown.
+     * Choosing "Custom..." reveals a number input for a pixel value.
+     * When `policy` is undefined, fall back to a plain number input.
+     */
+    function addDimensionRow(key, pixelValue, propName, policy) {
+      var row = document.createElement('div');
+      row.className = 'property-row';
+      var k = document.createElement('span');
+      k.className = 'property-key';
+      k.textContent = key;
+      row.appendChild(k);
+
+      if (policy && POLICY_OPTIONS.indexOf(policy) !== -1) {
+        // Layout-managed: show a select dropdown
+        var wrap = document.createElement('div');
+        wrap.className = 'prop-dim-wrap';
+
+        var sel = document.createElement('select');
+        sel.className = 'prop-input';
+        POLICY_OPTIONS.forEach(function(opt) {
+          var o = document.createElement('option');
+          o.value = opt;
+          o.textContent = opt;
+          if (opt === policy) { o.selected = true; }
+          sel.appendChild(o);
+        });
+        var customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = 'Custom\u2026';
+        sel.appendChild(customOpt);
+
+        var pixelInput = document.createElement('input');
+        pixelInput.type = 'number';
+        pixelInput.className = 'prop-input prop-dim-pixel';
+        pixelInput.value = String(Math.round(pixelValue));
+        pixelInput.style.display = 'none';
+
+        sel.addEventListener('change', function() {
+          if (sel.value === '__custom__') {
+            pixelInput.style.display = '';
+            pixelInput.focus();
+          } else {
+            pixelInput.style.display = 'none';
+            vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: sel.value });
+          }
+        });
+        pixelInput.addEventListener('change', function() {
+          vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: pixelInput.value });
+        });
+
+        wrap.appendChild(sel);
+        wrap.appendChild(pixelInput);
+        row.appendChild(wrap);
+      } else {
+        // Explicit pixel value: plain number input
+        var input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'prop-input';
+        input.value = String(Math.round(pixelValue));
+        input.addEventListener('change', function() {
+          vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: input.value });
+        });
+        row.appendChild(input);
+      }
+
+      propertyPanelEl.appendChild(row);
+    }
+
     function addBoolRow(key, value, propName) {
       var row = document.createElement('div');
       row.className = 'property-row';
@@ -2106,14 +2211,14 @@
 
     // type and name are always read-only (structural, not editable via setter)
     if (node.type) { addReadOnlyRow('type', node.type); }
-    if (node.name) { addReadOnlyRow('name', node.name); }
+    if (node.name && node.name.indexOf('__L') !== 0) { addReadOnlyRow('name', node.name); }
 
     if (canEdit) {
       // Use localX/localY (local position, not screen coordinates) for SetPosition() editing (H4)
       addNumberRow('x', Math.round(node.localX !== undefined ? node.localX : (node.x || 0)), 'x');
       addNumberRow('y', Math.round(node.localY !== undefined ? node.localY : (node.y || 0)), 'y');
-      addNumberRow('w', Math.round(node.w || 0), 'w');
-      addNumberRow('h', Math.round(node.h || 0), 'h');
+      addDimensionRow('w', node.w || 0, 'w', node.widthPolicy);
+      addDimensionRow('h', node.h || 0, 'h', node.heightPolicy);
       if (node.visible !== undefined) {
         addBoolRow('visible', node.visible, 'visible');
       }
@@ -2126,8 +2231,8 @@
     } else {
       addReadOnlyRow('x', Math.round(node.x || 0));
       addReadOnlyRow('y', Math.round(node.y || 0));
-      addReadOnlyRow('w', Math.round(node.w || 0));
-      addReadOnlyRow('h', Math.round(node.h || 0));
+      addReadOnlyRow('w', node.widthPolicy || Math.round(node.w || 0));
+      addReadOnlyRow('h', node.heightPolicy || Math.round(node.h || 0));
       if (node.visible !== undefined) {
         addReadOnlyRow('visible', node.visible, node.visible ? 'bool-true' : 'bool-false');
       }
@@ -2189,10 +2294,10 @@
 
     var typeSpan = document.createElement('span');
     typeSpan.className = 'tree-node-type';
-    typeSpan.textContent = node.type || node.name || 'Actor';
+    typeSpan.textContent = node.type || (node.name && node.name.indexOf('__L') !== 0 ? node.name : null) || 'Actor';
     labelEl.appendChild(typeSpan);
 
-    if (node.name && node.name !== node.type) {
+    if (node.name && node.name !== node.type && node.name.indexOf('__L') !== 0) {
       var nameSpan = document.createElement('span');
       nameSpan.className = 'tree-node-name';
       nameSpan.textContent = '(' + node.name + ')';
@@ -2236,6 +2341,17 @@
   }
 
   function renderTreeView(metadata) {
+    // Save the currently selected line number before clearing the tree
+    var selectedLine = -1;
+    if (selectedTreeNodeEl) {
+      for (var key in lineToTreeNode) {
+        if (lineToTreeNode[key].el === selectedTreeNodeEl) {
+          selectedLine = parseInt(key, 10);
+          break;
+        }
+      }
+    }
+
     treeViewEl.innerHTML = '';
     lineToTreeNode = {};
     selectedTreeNodeEl = null;
@@ -2244,8 +2360,13 @@
     var rootNode = buildTreeNode(metadata.root, 0);
     treeViewEl.appendChild(rootNode);
 
-    renderPropertyPanel(null);
-    renderFlexExplorer(null);
+    // Restore selection if the same line node exists in the new tree
+    if (selectedLine >= 0 && lineToTreeNode[selectedLine]) {
+      selectInspectorNode(lineToTreeNode[selectedLine].el, lineToTreeNode[selectedLine].data);
+    } else {
+      renderPropertyPanel(null);
+      renderFlexExplorer(null);
+    }
     updateFlexButtonVisibility();
   }
 

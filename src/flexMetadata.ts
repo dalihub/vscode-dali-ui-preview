@@ -22,11 +22,21 @@ export interface FlexProps {
     wrap: string;
 }
 
+/** Known DALi layout policy constants (non-numeric SetRequestedWidth/Height args). */
+const LAYOUT_POLICY_CONSTANTS = new Set([
+    'MATCH_PARENT',
+    'WRAP_CONTENT',
+    'FILL_TO_PARENT',
+    'FIT_TO_CHILDREN',
+]);
+
 // Runtime metadata node (shape produced by CollectActorMetadata in C++ harness)
 interface RuntimeNode {
     type?: string;
     name?: string;
     flexProps?: FlexProps;
+    widthPolicy?: string;
+    heightPolicy?: string;
     children?: RuntimeNode[];
     [key: string]: unknown;
 }
@@ -89,10 +99,33 @@ function collectFlexProps(node: SceneNode): FlexProps | undefined {
  * Children are matched positionally. If counts differ, extra runtime
  * children are left untouched.
  */
+/**
+ * Extract a layout policy string from a SetRequestedWidth/Height argument.
+ * Returns the policy constant if it is a known symbol, otherwise undefined
+ * (meaning the dimension is a numeric literal and needs no policy label).
+ */
+function extractLayoutPolicy(args: string[] | undefined): string | undefined {
+    if (!args || args.length === 0) {
+        return undefined;
+    }
+    const arg = args[0].trim();
+    return LAYOUT_POLICY_CONSTANTS.has(arg) ? arg : undefined;
+}
+
 function mergeNode(runtime: RuntimeNode, parser: SceneNode): void {
     const flexProps = collectFlexProps(parser);
     if (flexProps) {
         runtime.flexProps = flexProps;
+    }
+
+    const widthPolicy = extractLayoutPolicy(parser.properties['SetRequestedWidth']);
+    if (widthPolicy !== undefined) {
+        runtime.widthPolicy = widthPolicy;
+    }
+
+    const heightPolicy = extractLayoutPolicy(parser.properties['SetRequestedHeight']);
+    if (heightPolicy !== undefined) {
+        runtime.heightPolicy = heightPolicy;
     }
 
     const rChildren = runtime.children ?? [];
