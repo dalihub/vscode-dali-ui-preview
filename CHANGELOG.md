@@ -5,6 +5,12 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-04-10 — 렌더 캡처 최적화
+
+### Changed
+- **`server/preview_server.cpp`**: `Timer::New(200)` 제거 — 캡처 지연 타이머 대신 `OnStartCapture()` 직접 호출. DALi Capture API가 내부적으로 `RenderTask(REFRESH_ONCE)`를 사용하여 레이아웃 패스 완료 후 캡처를 스케줄링하므로 별도 지연 불필요.
+- **`src/previewServer.ts`**: `renderJson()` 완료 후 임시 scene JSON 파일(`/tmp/*.scene.json`) 자동 정리 (`fs.promises.unlink`) — 디스크 공간 누수 방지.
+
 ## [0.23.0] - 2026-04-10 — Preview Server IPC 안정화
 
 ### Added
