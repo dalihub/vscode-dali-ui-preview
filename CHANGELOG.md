@@ -5,6 +5,25 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-04-06 — Phase 4-5: FlexLayout Explorer (레이아웃 시각화 도구) — DAL-35
+
+### Added
+
+- **`src/flexMetadata.ts`** (신규): `enrichMetadataWithFlexProps()` 유틸리티. TypeScript 파서 트리(SceneNode)에서 `Direction`/`AlignItems`/`JustifyContent`/`Wrap` 속성을 추출하여 런타임 메타데이터 노드에 `flexProps` 키로 주입. DFS 순서로 트리를 매칭하며, 자식 수 불일치 시 graceful degradation.
+- **`src/extension.ts`**: 파서 패스 성공 시 `parserScene` 보존 → 메타데이터 로드 후 `enrichMetadataWithFlexProps()` 호출하여 FlexLayout 속성 병합.
+- **`media/preview.html`**: FlexLayout Explorer 기능 추가:
+  - Inspector 패널 하단에 "FlexLayout Explorer" 섹션 — FlexLayout 노드 선택 시 direction/alignItems/justifyContent/wrap 표시 (direction은 화살표 아이콘 시각화: →↓←↑).
+  - 툴바에 ◆ 토글 버튼 추가 — FlexLayout 노드가 씬에 있을 때만 표시.
+  - 토글 활성화 시 프리뷰 이미지 위에 방향 화살표 + `flex direction` 레이블 오버레이 렌더링.
+- **`server/preview_harness.cpp.template`**: `CollectActorMetadata()`에 FlexLayout 런타임 속성 추출 추가 — `FlexDirection`/`FlexAlign`/`FlexJustify`/`FlexWrap` enum → 문자열 변환 헬퍼 함수, `FlexLayout::DownCast()` + getter 호출, `flexProps` JSON 키 출력.
+- **`server/preview_server.cpp`**: 동일한 FlexLayout 메타데이터 추출 적용 (RENDER_JSON 경로).
+- **`test/unit/flexMetadata.test.ts`** (신규): 8개 테스트 — null scene, FlexLayout 주입, enum 정규화, 비-FlexLayout 스킵, 중첩 병합, 기본값 제공, 자식 수 불일치, 빈 루트 처리.
+- **`test/samples/flex-explorer.preview.dali.cpp`** (신규): FlexLayout Explorer 기능 확인용 샘플 파일.
+
+### Changed
+
+- **`test/golden/red-box.harness.cpp`**: 하네스 템플릿에 FlexLayout 헬퍼 함수 추가 반영하여 재생성.
+
 ## [0.20.0] - 2026-04-03 — Phase 4-4: Tizen 실기기 프리뷰 (SDB 배포 + 스크린샷 캡처) — DAL-34
 
 ### Added
@@ -15,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/statusBar.ts`**: `showMode()` 타입에 `'device'` 모드 추가 (`📱 Device` 레이블).
 - **`package.json`**: `dali.selectDevice`, `dali.devicePreview` 커맨드 등록. `daliPreview.sdbPath`, `daliPreview.tizenSysroot`, `daliPreview.targetDevice` 설정 추가.
 - **`test/unit/sdbManager.test.ts`** (신규): `checkDependencies()` 3케이스, `parseDevices()` 5케이스 (단일 디바이스, 다중 디바이스, 빈 출력, 헤더 스킵, offline 상태), `dispose()` 1케이스.
+- **`test/unit/buildRunner.device.test.ts`** (신규): `buildAndRunOnDevice()` 6케이스 — sdb push 실패, 디바이스 출력 `OK:` 없음, sdb pull 실패, 성공 경로(pngPath 확인), 크로스 컴파일 실패 전파, compile 실패 시 sdb 미호출.
+
+### Fixed
+
+- **[보안] `src/sdbManager.ts`**: `checkDependencies()`에서 `execSync`를 `spawnSync`로 교체하여 셸 인젝션 방지 (sdbPath 사용자 입력값이 셸을 경유하지 않음).
+- **[보안] `src/buildRunner.ts`**: `compileCrossDevice()`의 `sysroot` 이스케이프 강화 — `"`, 백틱, `$` 모두 이스케이프하여 악성 workspace 설정값 주입 차단.
+- **[버그] `src/extension.ts`**: `currentDeviceSerial` 복원을 `context.workspaceState.get` → `vscode.workspace.getConfiguration('daliPreview').get('targetDevice')` 로 변경하여 저장/읽기 스토리지 일치.
+- **[버그] `src/sdbManager.ts`**: `getDevices()`의 `.catch()` 체인 및 dead code 제거 — `exec(['devices'])` 단일 호출로 단순화. CLAUDE.md 스타일 규칙(`no raw .catch() chains`) 준수.
+- **[버그] `src/statusBar.ts`**: `showMode()` 첫 줄에 `clearRevertTimer()` 추가 — 진행 중인 revert 타이머가 device 모드 상태를 덮어쓰는 race condition 수정.
 
 ## [0.19.0] - 2026-04-03 — DALi Preview 설정 UI 커맨드 추가 — DAL-33
 

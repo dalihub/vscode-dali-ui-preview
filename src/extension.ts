@@ -7,7 +7,8 @@ import { VncManager } from './vncManager';
 import { SdbManager } from './sdbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractPreviewCode, isPreviewable, instrumentCode } from './codeExtractor';
-import { parseChainExpression } from './cppParser';
+import { parseChainExpression, SceneNode } from './cppParser';
+import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
@@ -599,6 +600,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
         let result;
         let usedServerMode = false;
         let usedParserMode = false;
+        let parserScene: SceneNode | null = null;
 
         // Phase 4-2: Parser-first path (~200ms) — try before compile
         if (previewServer?.isRunning) {
@@ -615,6 +617,7 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 if (result.success) {
                     usedServerMode = true;
                     usedParserMode = true;
+                    parserScene = scene;
                 } else {
                     // Parser path failed at render time → fall through to compile
                     outputChannel.appendLine('[Parser] renderJson failed, falling back to compile path');
@@ -678,6 +681,10 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false) {
                 try {
                     metadata = JSON.parse(fs.readFileSync(result!.metadataPath, 'utf-8'));
                 } catch { /* metadata is optional */ }
+            }
+            // Enrich metadata with FlexLayout properties from the parser tree
+            if (metadata && parserScene) {
+                enrichMetadataWithFlexProps(metadata, parserScene);
             }
             cancelErrorDebounce();
             previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
