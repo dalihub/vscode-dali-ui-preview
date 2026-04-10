@@ -806,10 +806,9 @@ public:
             return;
         }
 
-        // Delay capture to allow layout flush
-        mCaptureTimer = Timer::New(200);
-        mCaptureTimer.TickSignal().Connect(this, &PreviewServer::OnStartCapture);
-        mCaptureTimer.Start();
+        // Start capture immediately — Capture uses an internal RenderTask(REFRESH_ONCE)
+        // which DALi schedules AFTER the pending layout pass for the newly added actors.
+        OnStartCapture();
     }
 
     void DoReload(const ReloadRequest& req)
@@ -913,10 +912,8 @@ public:
             return;
         }
 
-        // Delay capture by one frame so layout is flushed
-        mCaptureTimer = Timer::New(200);
-        mCaptureTimer.TickSignal().Connect(this, &PreviewServer::OnStartCapture);
-        mCaptureTimer.Start();
+        // Start capture immediately — same reasoning as DoRenderJson.
+        OnStartCapture();
     }
 
     bool OnStartCapture()
