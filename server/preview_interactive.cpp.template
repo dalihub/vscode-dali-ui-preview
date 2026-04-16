@@ -176,14 +176,15 @@ public:
     bool OnReadyTimer()
     {
         Window window = mApp.GetWindow();
+        auto winSize = window.GetSize();
         ExportSceneMetadata(
             Actor(window.GetRootLayer()),
             "{{METADATA_PATH}}",
             PREVIEW_WIDTH,
             PREVIEW_HEIGHT
         );
-        // Signal to VncManager that we are ready for VNC connection
-        std::cout << "READY" << std::endl;
+        // Signal to VncManager: READY <actual_width> <actual_height>
+        std::cout << "READY " << winSize.GetWidth() << " " << winSize.GetHeight() << std::endl;
         std::cout.flush();
         return false; // one-shot timer
     }

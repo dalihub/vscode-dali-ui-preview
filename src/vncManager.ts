@@ -20,16 +20,23 @@ const VNC_PORT_RANGE_START = 5900;
 const VNC_PORT_RANGE_END = 5910;
 const WS_PORT_RANGE_START = 6080;
 const WS_PORT_RANGE_END = 6090;
+const VNC_DISPLAY_CANDIDATES = [96, 95, 94];
 const PROCESS_STARTUP_WAIT_MS = 800;
+const XVFB_STARTUP_WAIT_MS = 500;
 const DALI_READY_TIMEOUT_MS = 8000;
 
 export class VncManager {
     private x11vncProcess: ChildProcess | undefined;
     private websockifyProcess: ChildProcess | undefined;
     private daliAppProcess: ChildProcess | undefined;
+    private vncXvfbProcess: ChildProcess | undefined;
+    private vncDisplay: string | undefined;
+    private actualWindowWidth: number = 0;
+    private actualWindowHeight: number = 0;
     private vncPort: number = VNC_PORT_RANGE_START;
     private wsPort: number = WS_PORT_RANGE_START;
     private _isRunning = false;
+    private _restarting = false;
     onDaliAppExitCallback: (() => void) | undefined;
 
     constructor(private outputChannel: vscode.OutputChannel) {}
@@ -85,16 +92,31 @@ export class VncManager {
             return { success: false, error: 'No available WebSocket port in range 6080-6090' };
         }
 
-        // Step 1: Spawn DALi app
-        const daliStarted = await this.spawnDaliApp(params);
+        // Step 0: Start dedicated Xvfb (large enough for DPI-scaled DALi window)
+        const vncDisplay = await this.startVncXvfb(4096, 4096);
+        if (!vncDisplay) {
+            return { success: false, error: 'Failed to start VNC Xvfb display' };
+        }
+        const vncParams: VncStartParams = {
+            ...params,
+            display: vncDisplay,
+            env: { ...params.env, DISPLAY: vncDisplay },
+        };
+
+        // Step 1: Spawn DALi app on the VNC display
+        const daliStarted = await this.spawnDaliApp(vncParams);
         if (!daliStarted) {
+            this.killVncXvfb();
             return { success: false, error: 'Failed to start DALi interactive app' };
         }
 
-        // Step 2: Start x11vnc
-        const x11vncStarted = await this.startX11vnc(params.display);
+        // Step 2: Start x11vnc clipped to the actual DALi window size
+        const clipW = this.actualWindowWidth || params.width;
+        const clipH = this.actualWindowHeight || params.height;
+        const x11vncStarted = await this.startX11vnc(vncDisplay, clipW, clipH);
         if (!x11vncStarted) {
             this.killDaliApp();
+            this.killVncXvfb();
             return { success: false, error: 'Failed to start x11vnc' };
         }
 
@@ -103,6 +125,7 @@ export class VncManager {
         if (!websockifyStarted) {
             this.killDaliApp();
             this.killX11vnc();
+            this.killVncXvfb();
             return { success: false, error: 'Failed to start websockify' };
         }
 
@@ -120,6 +143,7 @@ export class VncManager {
         this.killDaliApp();
         this.killX11vnc();
         this.killWebsockify();
+        this.killVncXvfb();
         this.outputChannel.appendLine('[VncManager] Interactive mode stopped');
     }
 
@@ -129,8 +153,17 @@ export class VncManager {
      */
     async restartDaliApp(newBinaryPath: string, params: Omit<VncStartParams, 'daliBinaryPath'>): Promise<boolean> {
         this.outputChannel.appendLine('[VncManager] Hot-reloading DALi app...');
+        this._restarting = true;
         this.killDaliApp();
-        return this.spawnDaliApp({ ...params, daliBinaryPath: newBinaryPath });
+        const display = this.vncDisplay || params.display;
+        const result = await this.spawnDaliApp({
+            ...params,
+            daliBinaryPath: newBinaryPath,
+            display,
+            env: { ...params.env, DISPLAY: display },
+        });
+        this._restarting = false;
+        return result;
     }
 
     dispose(): void {
@@ -160,6 +193,12 @@ export class VncManager {
                         this.outputChannel.appendLine(`[DALi-VNC] ${line}`);
                         if (!readyReceived && line.includes('READY')) {
                             readyReceived = true;
+                            const match = line.match(/READY\s+(\d+)\s+(\d+)/);
+                            if (match) {
+                                this.actualWindowWidth = parseInt(match[1], 10);
+                                this.actualWindowHeight = parseInt(match[2], 10);
+                                this.outputChannel.appendLine(`[VncManager] DALi actual window: ${this.actualWindowWidth}x${this.actualWindowHeight}`);
+                            }
                             resolve(true);
                         }
                     }
@@ -176,11 +215,11 @@ export class VncManager {
 
                 child.on('exit', (code) => {
                     this.outputChannel.appendLine(`[VncManager] DALi app exited with code ${code}`);
-                    if (this._isRunning) {
-                        // Unexpected exit — clean up companion processes and notify extension
+                    if (this._isRunning && !this._restarting) {
                         this._isRunning = false;
                         this.killX11vnc();
                         this.killWebsockify();
+                        this.killVncXvfb();
                         this.onDaliAppExitCallback?.();
                     }
                     if (!readyReceived) {
@@ -207,12 +246,13 @@ export class VncManager {
         });
     }
 
-    private async startX11vnc(display: string): Promise<boolean> {
+    private async startX11vnc(display: string, clipW: number, clipH: number): Promise<boolean> {
         return new Promise((resolve) => {
             try {
                 const args = [
                     '-display', display,
                     '-rfbport', String(this.vncPort),
+                    '-clip', `${clipW}x${clipH}+0+0`,
                     '-localhost',
                     '-nopw',
                     '-shared',
@@ -334,6 +374,67 @@ export class VncManager {
                 resolve(false);
             }
         });
+    }
+
+    private async startVncXvfb(width: number, height: number): Promise<string | null> {
+        const fs = require('fs');
+        for (const displayNum of VNC_DISPLAY_CANDIDATES) {
+            const display = `:${displayNum}`;
+            const lockFile = `/tmp/.X${displayNum}-lock`;
+            if (fs.existsSync(lockFile)) {
+                try {
+                    const pid = parseInt(fs.readFileSync(lockFile, 'utf-8').trim(), 10);
+                    if (!isNaN(pid)) {
+                        process.kill(pid, 0);
+                        continue;
+                    }
+                } catch { /* stale lock */ }
+            }
+            const started = await this.tryStartXvfb(display, width, height);
+            if (started) {
+                this.vncDisplay = display;
+                this.outputChannel.appendLine(`[VncManager] VNC Xvfb started on ${display} at ${width}x${height}`);
+                return display;
+            }
+        }
+        return null;
+    }
+
+    private tryStartXvfb(display: string, width: number, height: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            try {
+                const child = spawn('Xvfb', [
+                    display,
+                    '-screen', '0', `${width}x${height}x24`,
+                    '-nolisten', 'tcp',
+                    '-ac',
+                ], {
+                    stdio: 'ignore',
+                    detached: false,
+                });
+
+                let exited = false;
+                child.on('error', () => { exited = true; resolve(false); });
+                child.on('exit', () => { if (!exited) { exited = true; resolve(false); } });
+
+                setTimeout(() => {
+                    if (!exited && child.pid) {
+                        try { process.kill(child.pid, 0); this.vncXvfbProcess = child; resolve(true); }
+                        catch { resolve(false); }
+                    } else if (!exited) { resolve(false); }
+                }, XVFB_STARTUP_WAIT_MS);
+            } catch {
+                resolve(false);
+            }
+        });
+    }
+
+    private killVncXvfb(): void {
+        if (this.vncXvfbProcess) {
+            try { this.vncXvfbProcess.kill('SIGTERM'); } catch { /* already dead */ }
+            this.vncXvfbProcess = undefined;
+            this.vncDisplay = undefined;
+        }
     }
 
     private killDaliApp(): void {

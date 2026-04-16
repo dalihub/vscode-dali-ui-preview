@@ -30,6 +30,7 @@ class RFB extends EventTarget {
 
         this._canvas = document.createElement('canvas');
         this._canvas.style.cursor = 'default';
+        this._canvas.tabIndex = 0;
         this._container.appendChild(this._canvas);
         this._ctx = this._canvas.getContext('2d');
 
@@ -38,11 +39,13 @@ class RFB extends EventTarget {
         this._fbWidth = 0;
         this._fbHeight = 0;
         this._ws = null;
+        this._buttonMask = 0;
 
         this.scaleViewport = false;
         this.resizeSession = false;
         this.viewOnly = false;
 
+        this._setupInputHandlers();
         this._connect();
     }
 
@@ -51,6 +54,9 @@ class RFB extends EventTarget {
     disconnect() {
         if (this._ws) {
             this._ws.close();
+        }
+        if (this._canvas && this._canvas.parentNode) {
+            this._canvas.parentNode.removeChild(this._canvas);
         }
     }
 
@@ -78,6 +84,91 @@ class RFB extends EventTarget {
         view.setUint16(2, x, false);
         view.setUint16(4, y, false);
         this._sendRaw(buf);
+    }
+
+    // ---- Private: Input handling ----
+
+    _setupInputHandlers() {
+        const self = this;
+        const c = this._canvas;
+
+        c.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            c.focus();
+            self._buttonMask |= self._btnBit(e.button);
+            const p = self._canvasCoords(e);
+            self.sendPointerEvent(p.x, p.y, self._buttonMask);
+        });
+
+        c.addEventListener('mouseup', function (e) {
+            e.preventDefault();
+            self._buttonMask &= ~self._btnBit(e.button);
+            const p = self._canvasCoords(e);
+            self.sendPointerEvent(p.x, p.y, self._buttonMask);
+        });
+
+        c.addEventListener('mousemove', function (e) {
+            const p = self._canvasCoords(e);
+            self.sendPointerEvent(p.x, p.y, self._buttonMask);
+        });
+
+        c.addEventListener('wheel', function (e) {
+            e.preventDefault();
+            const p = self._canvasCoords(e);
+            var bit = e.deltaY < 0 ? 8 : 16;
+            self.sendPointerEvent(p.x, p.y, self._buttonMask | bit);
+            self.sendPointerEvent(p.x, p.y, self._buttonMask);
+        }, { passive: false });
+
+        c.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+        c.addEventListener('keydown', function (e) {
+            e.preventDefault();
+            var ks = self._keyToKeysym(e);
+            if (ks) { self.sendKey(ks, e.code, true); }
+        });
+
+        c.addEventListener('keyup', function (e) {
+            e.preventDefault();
+            var ks = self._keyToKeysym(e);
+            if (ks) { self.sendKey(ks, e.code, false); }
+        });
+    }
+
+    _canvasCoords(e) {
+        const rect = this._canvas.getBoundingClientRect();
+        const scaleX = this._fbWidth / rect.width;
+        const scaleY = this._fbHeight / rect.height;
+        return {
+            x: Math.max(0, Math.min(this._fbWidth - 1, Math.floor((e.clientX - rect.left) * scaleX))),
+            y: Math.max(0, Math.min(this._fbHeight - 1, Math.floor((e.clientY - rect.top) * scaleY))),
+        };
+    }
+
+    _btnBit(button) {
+        if (button === 0) { return 1; }
+        if (button === 1) { return 2; }
+        if (button === 2) { return 4; }
+        return 0;
+    }
+
+    _keyToKeysym(e) {
+        if (e.key && e.key.length === 1) {
+            return e.key.charCodeAt(0);
+        }
+        var map = {
+            'Backspace': 0xff08, 'Tab': 0xff09, 'Enter': 0xff0d, 'Escape': 0xff1b,
+            'Delete': 0xffff, 'Home': 0xff50, 'End': 0xff57, 'Insert': 0xff63,
+            'ArrowLeft': 0xff51, 'ArrowUp': 0xff52, 'ArrowRight': 0xff53, 'ArrowDown': 0xff54,
+            'PageUp': 0xff55, 'PageDown': 0xff56,
+            'ShiftLeft': 0xffe1, 'ShiftRight': 0xffe2,
+            'ControlLeft': 0xffe3, 'ControlRight': 0xffe4,
+            'AltLeft': 0xffe9, 'AltRight': 0xffea,
+            'F1': 0xffbe, 'F2': 0xffbf, 'F3': 0xffc0, 'F4': 0xffc1,
+            'F5': 0xffc2, 'F6': 0xffc3, 'F7': 0xffc4, 'F8': 0xffc5,
+            'F9': 0xffc6, 'F10': 0xffc7, 'F11': 0xffc8, 'F12': 0xffc9,
+        };
+        return map[e.code] || map[e.key] || null;
     }
 
     // ---- Private: WebSocket ----
@@ -317,6 +408,7 @@ class RFB extends EventTarget {
         const msgType = this._buf[0];
         switch (msgType) {
             case 0: return this._handleFBUpdate();
+            case 1: return this._handleSetColourMap();
             case 2: return this._handleBell();
             case 3: return this._handleServerCutText();
             default:
@@ -325,19 +417,58 @@ class RFB extends EventTarget {
         }
     }
 
+    _handleSetColourMap() {
+        if (this._buf.length < 6) {
+            return false;
+        }
+        const numColours = this._u16be(this._buf, 4);
+        const totalLen = 6 + numColours * 6;
+        if (this._buf.length < totalLen) {
+            return false;
+        }
+        this._consume(totalLen);
+        return true;
+    }
+
     _handleFBUpdate() {
         if (this._buf.length < 4) {
             return false;
         }
         const numRects = this._u16be(this._buf, 2);
-        this._consume(4);
 
+        // Phase 1: peek — verify all rect data is available before consuming anything
+        let totalSize = 4;
         for (let i = 0; i < numRects; i++) {
-            if (this._buf.length < 12) {
-                // Put the message header back and wait for more data
-                // (simplified: just request again later)
-                break;
+            if (this._buf.length < totalSize + 12) {
+                return false;
             }
+            const w = this._u16be(this._buf, totalSize + 4);
+            const h = this._u16be(this._buf, totalSize + 6);
+            const enc = (this._buf[totalSize + 8] << 24 | this._buf[totalSize + 9] << 16 |
+                         this._buf[totalSize + 10] << 8 | this._buf[totalSize + 11]) | 0;
+            totalSize += 12;
+
+            if (enc === ENCODING_RAW) {
+                totalSize += w * h * 4;
+            } else if (enc === ENCODING_COPYRECT) {
+                totalSize += 4;
+            } else if (enc === ENCODING_DESKTOP_SIZE) {
+                // no extra payload
+            } else {
+                // unknown encoding — can't determine size; discard and re-request
+                this._buf = new Uint8Array(0);
+                this._sendFBUpdateRequest(false, 0, 0, this._fbWidth, this._fbHeight);
+                return false;
+            }
+        }
+
+        if (this._buf.length < totalSize) {
+            return false;
+        }
+
+        // Phase 2: all data available — consume and draw
+        this._consume(4);
+        for (let i = 0; i < numRects; i++) {
             const x = this._u16be(this._buf, 0);
             const y = this._u16be(this._buf, 2);
             const w = this._u16be(this._buf, 4);
@@ -346,18 +477,9 @@ class RFB extends EventTarget {
             this._consume(12);
 
             if (enc === ENCODING_RAW) {
-                const pixelBytes = w * h * 4;
-                if (this._buf.length < pixelBytes) {
-                    // Re-prepend header - wait for complete data
-                    // (In a full implementation we'd handle partial rects)
-                    break;
-                }
-                const pixels = this._consume(pixelBytes);
+                const pixels = this._consume(w * h * 4);
                 this._drawRaw(x, y, w, h, pixels);
             } else if (enc === ENCODING_COPYRECT) {
-                if (this._buf.length < 4) {
-                    break;
-                }
                 const srcX = this._u16be(this._buf, 0);
                 const srcY = this._u16be(this._buf, 2);
                 this._consume(4);
@@ -371,7 +493,6 @@ class RFB extends EventTarget {
             }
         }
 
-        // Request next incremental update
         this._sendFBUpdateRequest(true, 0, 0, this._fbWidth, this._fbHeight);
         return this._buf.length > 0;
     }

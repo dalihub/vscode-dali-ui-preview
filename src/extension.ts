@@ -1019,6 +1019,12 @@ async function startVncMode() {
             return;
         }
 
+        if (extraction.configs && extraction.configs.length >= 1) {
+            const cfg = extraction.configs[0];
+            if (cfg.width)  { currentWidth  = cfg.width;  }
+            if (cfg.height) { currentHeight = cfg.height; }
+        }
+
         statusBar?.showBuilding();
         previewManager.showLoading();
 
@@ -1095,6 +1101,12 @@ async function hotReloadVnc(doc: vscode.TextDocument) {
         const extraction = extractPreviewCode(doc);
         if (!extraction) {
             return;
+        }
+
+        if (extraction.configs && extraction.configs.length >= 1) {
+            const cfg = extraction.configs[0];
+            if (cfg.width)  { currentWidth  = cfg.width;  }
+            if (cfg.height) { currentHeight = cfg.height; }
         }
 
         previewManager.notifyVncReloading();

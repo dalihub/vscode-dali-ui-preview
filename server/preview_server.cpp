@@ -577,9 +577,22 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
         }
         return sl;
     }
+    else if (type == "ImageView")
+    {
+        std::string url = node.constructorArgs.empty() ? "" : node.constructorArgs[0];
+        if (url.size() >= 2 && url.front() == '"' && url.back() == '"')
+            url = url.substr(1, url.size() - 2);
+        ImageView iv = url.empty() ? ImageView::New() : ImageView::New(url.c_str());
+        SBApplyCommonProps(iv, node.properties);
+        for (const auto& child : node.children)
+        {
+            View cv = SBBuildNode(child);
+            if (cv) iv.Add(cv);
+        }
+        return iv;
+    }
     else
     {
-        // Covers "View", "ImageView", and any unknown type
         View view = View::New();
         SBApplyCommonProps(view, node.properties);
         for (const auto& child : node.children)

@@ -5,6 +5,27 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-04-16 — VNC 인터랙티브 모드 안정화 + ImageView 프리뷰 수정
+
+### Fixed
+
+- **VNC RFB 버퍼 동기화 오류**: `_handleFBUpdate()`에서 불완전 데이터 소비 후 남은 바이트가 메시지 타입으로 잘못 해석되던 문제 수정 (peek-then-consume 패턴 적용)
+- **VNC 캔버스 크기 불일치**: VNC 전용 Xvfb(4096x4096)를 별도 시작하고, DALi가 보고하는 실제 윈도우 크기로 x11vnc `-clip` 적용
+- **VNC 핫리로드 시 VNC 인프라 파괴**: `restartDaliApp()` 중 이전 DALi 프로세스 exit 핸들러가 x11vnc/websockify/Xvfb를 전부 정리하던 문제 수정 (`_restarting` 플래그)
+- **VNC 핫리로드 디스플레이 불일치**: `restartDaliApp()`이 메인 Xvfb 대신 VNC 전용 디스플레이를 사용하도록 수정
+- **VNC 모드에서 `@preview-config` width/height 미적용**: `startVncMode()`과 `hotReloadVnc()`에서 config 파싱 추가
+- **VNC 모드 전환 시 캔버스 중복**: `RFB.disconnect()`에서 canvas를 DOM에서 제거하도록 수정
+- **ImageView 정적 프리뷰 미출력**: preview_server의 scene assembler가 `ImageView`를 `View::New()`로 대체하던 문제 수정. `ImageView::New(url)` 분기 추가
+- **이미지 리소스 로딩 전 캡처**: preview_harness에서 `View::IsResourceReady()` 폴링 도입 (100ms 간격, 최대 3초 대기)
+
+### Added
+
+- **VNC 마우스/키보드 이벤트 포워딩**: rfb.js에 mousedown/up/move/wheel → `sendPointerEvent`, keydown/up → `sendKey` (X11 keysym 변환) 추가
+- **SetColourMapEntries 핸들러**: RFB 메시지 타입 1 처리 추가
+- **VNC 의존성 Setup Wizard 통합**: `x11vnc`, `websockify`를 `installMissingDependencies()`에 추가
+- **VNC 전용 Xvfb 관리**: `VncManager`에 별도 Xvfb(`:96/:95/:94`) 시작/정리 로직 추가
+- **DALi 실제 윈도우 크기 보고**: interactive 템플릿이 `READY <width> <height>` 출력, VncManager가 파싱하여 x11vnc clip에 반영
+
 ## [0.29.0] - 2026-04-16 — 10개 쇼케이스 샘플 + instrumentCode 안정성 + 프리뷰 UX 개선
 
 ### Added
