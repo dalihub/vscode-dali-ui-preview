@@ -5,6 +5,25 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-04-16 — 구조화 로거 통합 + FlexLayout Explorer 안정화
+
+### Added
+
+- **구조화 로거 (`src/logger.ts`)**: LogLevel(ERROR/WARN/INFO/DEBUG/TRACE) + LogCategory(Extraction/Build/Execute/Render/FlexLayout 등) 기반 카테고리별 필터링 지원. VS Code output channel에 구조화된 포맷으로 출력
+- **ConfigurationService**: `daliPreview.*` 설정을 중앙화된 싱글턴으로 읽기. 설정 변경 즉시 반영
+- **공유 타입 (`src/types.ts`)**: BuildResult 등 중복 정의 인터페이스 통합
+
+### Changed
+
+- **FlexLayout 메타데이터 보강 경로**: 메타데이터 읽기 실패 시 `log.trace` 로 정확한 오류 추적 가능
+- **전체 모듈 로거 통합**: buildRunner, codeExtractor, extension, previewManager, previewServer, vncManager, xvfbManager, sdbManager 등 모든 주요 모듈에 구조화 로거 적용
+- **buildRunner**: workspace별 임시 디렉토리 (`/tmp/dali_preview_<hash>`) 사용으로 멀티윈도우 충돌 방지
+- **CI**: 보안 감사 단계(`npm audit`) 추가
+
+### Fixed
+
+- **하네스 골든 파일**: `AreAllResourcesReady()` 함수 + `mTickCount` 멤버 반영 — `harnessGeneration` 테스트 1건 통과 복구
+
 ## [0.30.0] - 2026-04-16 — VNC 인터랙티브 모드 안정화 + ImageView 프리뷰 수정
 
 ### Fixed
