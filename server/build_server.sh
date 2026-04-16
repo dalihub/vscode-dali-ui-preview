@@ -1,13 +1,15 @@
 #!/bin/bash
 # build_server.sh — Compile the DALi Preview Server binary (run once).
-# Usage: ./server/build_server.sh [dali_prefix]
+# Usage: ./server/build_server.sh [dali_prefix] [out_dir]
 #   dali_prefix  Optional path to DALi installation prefix (e.g. /usr/local).
 #                Defaults to /usr if not provided.
+#   out_dir      Optional output directory for the server binary.
+#                Defaults to /tmp/dali_preview if not provided.
 
 set -e
 
 DALI_PREFIX="${1:-/usr}"
-OUT_DIR="/tmp/dali_preview"
+OUT_DIR="${2:-/tmp/dali_preview}"
 OUT_BIN="${OUT_DIR}/preview_server"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${SCRIPT_DIR}/preview_server.cpp"

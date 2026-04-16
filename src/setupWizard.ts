@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 import { exec } from 'child_process';
+import { getLogger } from './logger';
 
 export async function runSetupWizard(
     context: vscode.ExtensionContext

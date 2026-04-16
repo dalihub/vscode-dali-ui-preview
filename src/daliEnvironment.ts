@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { ConfigurationService } from './configurationService';
+import { getLogger } from './logger';
 
 const execAsync = promisify(exec);
 
@@ -16,32 +18,37 @@ const execAsync = promisify(exec);
  *  4. Common paths: ~/dali-env/opt, ~/tizen/{project}/dali-env/opt
  */
 export async function findDaliPrefix(): Promise<string | null> {
+    const log = getLogger();
     // 1. VS Code setting
-    const config = vscode.workspace.getConfiguration('daliPreview');
-    const settingValue = config.get<string>('daliPrefix', '');
+    const settingValue = ConfigurationService.getInstance().daliPrefix;
     if (settingValue && settingValue.trim().length > 0) {
+        log.trace('Environment', 'findDaliPrefix: found in settings', { path: settingValue.trim() });
         return settingValue.trim();
     }
 
     // 2. Environment variable
     const envPrefix = process.env.DESKTOP_PREFIX;
     if (envPrefix && envPrefix.trim().length > 0) {
+        log.trace('Environment', 'findDaliPrefix: found via DESKTOP_PREFIX env', { path: envPrefix.trim() });
         return envPrefix.trim();
     }
 
     // 3. Look for setenv file in workspace folders
+    log.trace('Environment', 'findDaliPrefix: searching setenv files');
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders) {
         for (const folder of workspaceFolders) {
             const setenvPath = path.join(folder.uri.fsPath, 'setenv');
             const prefix = parseSetenvFile(setenvPath);
             if (prefix) {
+                log.trace('Environment', 'findDaliPrefix: found in setenv', { path: prefix });
                 return prefix;
             }
         }
     }
 
     // 4. Search common paths
+    log.trace('Environment', 'findDaliPrefix: searching common paths');
     const home = process.env.HOME || '';
     if (!home) {
         return null;
@@ -50,6 +57,7 @@ export async function findDaliPrefix(): Promise<string | null> {
     // ~/dali-env/opt
     const directPath = path.join(home, 'dali-env', 'opt');
     if (fs.existsSync(directPath)) {
+        log.trace('Environment', 'findDaliPrefix: found at ~/dali-env/opt', { path: directPath });
         return directPath;
     }
 
@@ -62,15 +70,17 @@ export async function findDaliPrefix(): Promise<string | null> {
                 if (entry.isDirectory()) {
                     const candidate = path.join(tizenDir, entry.name, 'dali-env', 'opt');
                     if (fs.existsSync(candidate)) {
+                        log.trace('Environment', 'findDaliPrefix: found in ~/tizen/', { path: candidate });
                         return candidate;
                     }
                 }
             }
-        } catch {
-            // Ignore read errors on tizen directory
+        } catch (err) {
+            log.trace('Environment', 'findDaliPrefix: tizen dir read error', { error: String(err) });
         }
     }
 
+    log.trace('Environment', 'findDaliPrefix: not found');
     return null;
 }
 
@@ -80,11 +90,15 @@ export async function findDaliPrefix(): Promise<string | null> {
  * (needed for Dali::Ui::View and the preview plugin template).
  */
 export function validateDaliPrefix(prefix: string): boolean {
+    const log = getLogger();
     const coreLib = path.join(prefix, 'lib', 'libdali2-core.so');
     const uiFoundationPc = path.join(prefix, 'lib', 'pkgconfig', 'dali2-ui-foundation.pc');
     try {
-        return fs.existsSync(coreLib) && fs.existsSync(uiFoundationPc);
-    } catch {
+        const valid = fs.existsSync(coreLib) && fs.existsSync(uiFoundationPc);
+        log.trace('Environment', 'validateDaliPrefix', { prefix, valid });
+        return valid;
+    } catch (err) {
+        log.trace('Environment', 'validateDaliPrefix error', { error: String(err) });
         return false;
     }
 }
@@ -122,11 +136,13 @@ export async function validateEnvironment(
     daliPrefix: string | null,
     deps?: { gcc: boolean; xvfb: boolean; ccache: boolean; pkgconfig: boolean },
 ): Promise<EnvironmentIssue[]> {
+    const log = getLogger();
     const issues: EnvironmentIssue[] = [];
 
     const resolvedDeps = deps ?? await checkDependencies(daliPrefix ?? '');
 
     if (!resolvedDeps.gcc) {
+        log.debug('Environment', 'missing dependency: g++');
         issues.push({
             kind: 'missing_dep',
             message: 'g++ compiler not found on PATH.',
@@ -134,6 +150,7 @@ export async function validateEnvironment(
         });
     }
     if (!resolvedDeps.pkgconfig) {
+        log.debug('Environment', 'missing dependency: pkg-config');
         issues.push({
             kind: 'missing_dep',
             message: 'pkg-config not found on PATH.',
@@ -141,6 +158,7 @@ export async function validateEnvironment(
         });
     }
     if (!resolvedDeps.xvfb) {
+        log.debug('Environment', 'missing dependency: Xvfb');
         issues.push({
             kind: 'missing_dep',
             message: 'Xvfb not found on PATH (headless rendering unavailable).',
@@ -148,6 +166,7 @@ export async function validateEnvironment(
         });
     }
     if (!daliPrefix) {
+        log.debug('Environment', 'DALi SDK not found');
         issues.push({
             kind: 'missing_dali',
             message: 'DALi SDK not found.',
@@ -185,8 +204,8 @@ function parseSetenvFile(filePath: string): string | null {
                 return value;
             }
         }
-    } catch {
-        // Ignore parse errors
+    } catch (err) {
+        getLogger().trace('Environment', 'setenv parse error', { error: String(err) });
     }
     return null;
 }
@@ -195,7 +214,8 @@ async function isCommandAvailable(command: string): Promise<boolean> {
     try {
         await execAsync(`which ${command}`);
         return true;
-    } catch {
+    } catch (err) {
+        getLogger().trace('Environment', 'command not available', { command, error: String(err) });
         return false;
     }
 }

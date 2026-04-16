@@ -5,10 +5,10 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildResult } from './buildRunner';
 import { SceneNode } from './cppParser';
+import { getLogger } from './logger';
 
 const execAsync = promisify(exec);
 
-const SERVER_BIN = '/tmp/dali_preview/preview_server';
 const MAX_RESTARTS = 3;
 const READY_TIMEOUT_MS = 15000;
 
@@ -24,13 +24,17 @@ export class PreviewServer {
     private pendingRequest: PendingRequest | undefined;
     private stdoutBuffer = '';
     private restartTimer: NodeJS.Timeout | undefined;
+    private readonly serverBin: string;
 
     constructor(
         private readonly extensionPath: string,
         private readonly daliPrefix: string,
         private readonly display: string,
         private readonly outputChannel: vscode.OutputChannel,
-    ) {}
+        private readonly tmpDir: string = '/tmp/dali_preview',
+    ) {
+        this.serverBin = path.join(this.tmpDir, 'preview_server');
+    }
 
     // -----------------------------------------------------------------------
     // Public API
@@ -48,11 +52,11 @@ export class PreviewServer {
      */
     async ensureServerBinary(): Promise<void> {
         const srcPath = path.join(this.extensionPath, 'server', 'preview_server.cpp');
-        const binExists = fs.existsSync(SERVER_BIN);
+        const binExists = fs.existsSync(this.serverBin);
         const srcExists = fs.existsSync(srcPath);
 
         if (binExists && srcExists) {
-            const binMtime = fs.statSync(SERVER_BIN).mtimeMs;
+            const binMtime = fs.statSync(this.serverBin).mtimeMs;
             const srcMtime = fs.statSync(srcPath).mtimeMs;
             if (binMtime >= srcMtime) {
                 return; // up-to-date
@@ -69,14 +73,13 @@ export class PreviewServer {
             throw new Error(`build_server.sh not found at ${buildScript}`);
         }
 
-        const tmpDir = '/tmp/dali_preview';
-        if (!fs.existsSync(tmpDir)) {
-            fs.mkdirSync(tmpDir, { recursive: true });
+        if (!fs.existsSync(this.tmpDir)) {
+            fs.mkdirSync(this.tmpDir, { recursive: true });
         }
 
         this.outputChannel.appendLine('[PreviewServer] Compiling server binary...');
         try {
-            await execAsync(`bash "${buildScript}" "${this.daliPrefix}"`, {
+            await execAsync(`bash "${buildScript}" "${this.daliPrefix}" "${this.tmpDir}"`, {
                 timeout: 60000,
                 env: {
                     ...process.env,
@@ -167,9 +170,9 @@ export class PreviewServer {
         }
 
         // Use a unique temp file per request to avoid race conditions on concurrent calls
-        const jsonPath = `/tmp/dali_preview/scene-${Date.now()}.json`;
+        const jsonPath = path.join(this.tmpDir, `scene-${Date.now()}.json`);
         try {
-            await fs.promises.mkdir('/tmp/dali_preview', { recursive: true });
+            await fs.promises.mkdir(this.tmpDir, { recursive: true });
             await fs.promises.writeFile(jsonPath, JSON.stringify(scene));
         } catch (err: any) {
             return { success: false, error: `Failed to write scene JSON: ${err.message}` };
@@ -203,8 +206,8 @@ export class PreviewServer {
         if (this.serverProcess) {
             try {
                 this.serverProcess.kill('SIGTERM');
-            } catch {
-                // already dead
+            } catch (err) {
+                getLogger().trace('Server', 'server kill already dead', { error: String(err) });
             }
             this.serverProcess = undefined;
         }
@@ -229,7 +232,7 @@ export class PreviewServer {
                 DALI_WINDOW_HEIGHT: '600',
             };
 
-            const proc = this._spawn(SERVER_BIN, [], {
+            const proc = this._spawn(this.serverBin, [], {
                 env,
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
