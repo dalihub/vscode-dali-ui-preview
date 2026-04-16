@@ -41,11 +41,27 @@ export class PreviewServer {
     }
 
     /**
-     * Ensure the server binary is compiled. Compiles only if missing or stale.
+     * Ensure the server binary is compiled. Compiles if missing, or if the
+     * source file (server/preview_server.cpp) is newer than the existing
+     * binary — this protects against stale binaries after extension updates
+     * that change the IPC protocol or scene builder.
      */
     async ensureServerBinary(): Promise<void> {
-        if (fs.existsSync(SERVER_BIN)) {
-            return;
+        const srcPath = path.join(this.extensionPath, 'server', 'preview_server.cpp');
+        const binExists = fs.existsSync(SERVER_BIN);
+        const srcExists = fs.existsSync(srcPath);
+
+        if (binExists && srcExists) {
+            const binMtime = fs.statSync(SERVER_BIN).mtimeMs;
+            const srcMtime = fs.statSync(srcPath).mtimeMs;
+            if (binMtime >= srcMtime) {
+                return; // up-to-date
+            }
+            this.outputChannel.appendLine(
+                '[PreviewServer] Source newer than binary — rebuilding to avoid IPC protocol drift.'
+            );
+        } else if (binExists) {
+            return; // source not bundled (e.g. installed .vsix) — trust the existing binary
         }
 
         const buildScript = path.join(this.extensionPath, 'server', 'build_server.sh');
@@ -58,7 +74,7 @@ export class PreviewServer {
             fs.mkdirSync(tmpDir, { recursive: true });
         }
 
-        this.outputChannel.appendLine('[PreviewServer] Compiling server binary (one-time)...');
+        this.outputChannel.appendLine('[PreviewServer] Compiling server binary...');
         try {
             await execAsync(`bash "${buildScript}" "${this.daliPrefix}"`, {
                 timeout: 60000,
