@@ -755,6 +755,64 @@ export class BuildRunner {
     }
 
     dispose() {
-        // Cleanup
+        // Clean transient artifacts from /tmp/dali_preview/. The persistent
+        // preview_server binary is preserved because rebuilding it is
+        // expensive (~several seconds) and PreviewServer's mtime check
+        // handles staleness when the source changes.
+        try {
+            const removed = cleanupBuildTmpDir(this.tmpDir);
+            if (removed > 0) {
+                this.outputChannel.appendLine(
+                    `[BuildRunner] Removed ${removed} temp artifact${removed === 1 ? '' : 's'} from ${this.tmpDir}`
+                );
+            }
+        } catch (err: any) {
+            this.outputChannel.appendLine(`[BuildRunner] Temp cleanup failed: ${err?.message || err}`);
+        }
     }
+}
+
+/**
+ * Files to preserve across cleanup cycles. `preview_server` is an
+ * expensive-to-rebuild persistent binary — leave it in place so the next
+ * session starts instantly.
+ */
+const CLEANUP_KEEP = new Set(['preview_server']);
+
+/**
+ * Remove all transient extension artifacts from `tmpDir`, except files
+ * listed in CLEANUP_KEEP. Best-effort: individual failures are ignored.
+ * Exported for unit testing — the runtime caller is `BuildRunner.dispose()`.
+ *
+ * @returns the number of entries successfully removed.
+ */
+export function cleanupBuildTmpDir(tmpDir: string): number {
+    if (!fs.existsSync(tmpDir)) {
+        return 0;
+    }
+    let removed = 0;
+    let entries: string[];
+    try {
+        entries = fs.readdirSync(tmpDir);
+    } catch {
+        return 0;
+    }
+    for (const name of entries) {
+        if (CLEANUP_KEEP.has(name)) {
+            continue;
+        }
+        const full = path.join(tmpDir, name);
+        try {
+            const stat = fs.lstatSync(full);
+            if (stat.isDirectory()) {
+                fs.rmSync(full, { recursive: true, force: true });
+            } else {
+                fs.unlinkSync(full);
+            }
+            removed++;
+        } catch {
+            // best-effort: ignore individual failures
+        }
+    }
+    return removed;
 }
