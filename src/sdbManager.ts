@@ -1,5 +1,7 @@
 import { exec, spawnSync } from 'child_process';
 import * as vscode from 'vscode';
+import { ConfigurationService } from './configurationService';
+import { getLogger } from './logger';
 
 export interface SdbDevice {
     serial: string;
@@ -15,8 +17,7 @@ export class SdbManager {
     }
 
     private loadSdbPath(): void {
-        const config = vscode.workspace.getConfiguration('daliPreview');
-        const configuredPath = config.get<string>('sdbPath', '');
+        const configuredPath = ConfigurationService.getInstance().sdbPath;
         if (configuredPath) {
             this.sdbPath = configuredPath;
         }
@@ -27,8 +28,7 @@ export class SdbManager {
      * Returns null if available, or an error message string.
      */
     static checkDependencies(): string | null {
-        const config = vscode.workspace.getConfiguration('daliPreview');
-        const sdbPath = config.get<string>('sdbPath', '') || 'sdb';
+        const sdbPath = ConfigurationService.getInstance().sdbPath || 'sdb';
         const result = spawnSync('which', [sdbPath], { stdio: 'pipe' });
         if (result.status === 0) {
             return null;
@@ -165,7 +165,7 @@ export class SdbManager {
         const args = serial
             ? ['-s', serial, 'forward', '--remove', `tcp:${localPort}`]
             : ['forward', '--remove', `tcp:${localPort}`];
-        await this.exec(args).catch(() => { /* best effort */ });
+        await this.exec(args).catch((err) => { getLogger().trace('SDB', 'removeForward best-effort', { error: String(err) }); });
     }
 
     private exec(

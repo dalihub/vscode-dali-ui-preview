@@ -217,10 +217,27 @@ void ExportSceneMetadata(Actor root, const char* metadataPath, float winW, float
     out << json.str();
 }
 
+static bool AreAllResourcesReady(Actor actor)
+{
+    Dali::Ui::View view = Dali::Ui::View::DownCast(actor);
+    if(view && !view.IsResourceReady())
+    {
+        return false;
+    }
+    for(uint32_t i = 0; i < actor.GetChildCount(); i++)
+    {
+        if(!AreAllResourcesReady(actor.GetChildAt(i)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 class PreviewApp : public ConnectionTracker
 {
 public:
-  PreviewApp(Application& app) : mApp(app)
+  PreviewApp(Application& app) : mApp(app), mTickCount(0)
   {
     app.InitSignal().Connect(this, &PreviewApp::OnInit);
   }
@@ -234,14 +251,25 @@ public:
     View root = CreatePreviewUI();
     window.Add(root);
 
-    mTimer = Timer::New(500);
+    mTimer = Timer::New(100);
     mTimer.TickSignal().Connect(this, &PreviewApp::OnTimer);
     mTimer.Start();
   }
 
   bool OnTimer()
   {
+    mTickCount++;
+    if(mTickCount < 3)
+    {
+      return true;
+    }
+
     Window window = mApp.GetWindow();
+    if(!AreAllResourcesReady(Actor(window.GetRootLayer())) && mTickCount < 30)
+    {
+      return true;
+    }
+
     Capture capture = Capture::New();
     capture.FinishedSignal().Connect(this, &PreviewApp::OnCaptured);
     mCapture = capture;
@@ -256,7 +284,6 @@ public:
   {
     if(state == Capture::FinishState::SUCCEEDED)
     {
-      // Export metadata AFTER capture — layout positions are now fully computed
       Window window = mApp.GetWindow();
       ExportSceneMetadata(Actor(window.GetRootLayer()), "/tmp/preview_metadata.json", PREVIEW_WIDTH, PREVIEW_HEIGHT);
       std::cout << "OK:/tmp/preview.png" << std::endl;
@@ -270,6 +297,7 @@ private:
   Application& mApp;
   Timer        mTimer;
   Capture      mCapture;
+  int          mTickCount;
 };
 
 int main(int argc, char* argv[])

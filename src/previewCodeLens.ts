@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { getLogger } from './logger';
 
 const execAsync = promisify(exec);
 
@@ -72,8 +73,8 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
             await execAsync('pkg-config --exists dali2-ui-foundation');
             this._isDaliProject = true;
             return true;
-        } catch {
-            // pkg-config not found or package not present
+        } catch (err) {
+            getLogger().trace('CodeLens', 'pkg-config check failed', { error: String(err) });
         }
 
         this._isDaliProject = false;
@@ -126,6 +127,8 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
                 arguments: [document.uri, funcStartLine, bodyEndLine],
             }));
         }
+        const log = getLogger();
+        log.trace('CodeLens', 'scan', { fileName: document.fileName, lensCount: lenses.length });
         return lenses;
     }
 }
@@ -184,8 +187,8 @@ function setenvFileHasDesktopPrefix(filePath: string): boolean {
                 return true;
             }
         }
-    } catch {
-        // Ignore read errors
+    } catch (err) {
+        getLogger().trace('CodeLens', 'setenv read error', { error: String(err) });
     }
     return false;
 }

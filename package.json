@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -15,6 +15,9 @@
   "categories": [
     "Visualization",
     "Other"
+  ],
+  "os": [
+    "linux"
   ],
   "keywords": [
     "dali",
@@ -135,6 +138,26 @@
           "type": "string",
           "default": "",
           "description": "Default SDB device serial. Set automatically when you run 'DALi Preview: Select Target Device'."
+        },
+        "daliPreview.fontDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of directories containing custom font files for preview rendering."
+        },
+        "daliPreview.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "description": "Log verbosity level for the DALi Preview output channel. Use 'trace' for AI-friendly structured JSON diagnostics."
         }
       }
     }

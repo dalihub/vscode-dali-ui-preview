@@ -36,6 +36,11 @@ jobs:
             exit 1
           }
 
+      - name: Verify harness templates compile
+        env:
+          DISPLAY: ':99'
+        run: bash server/check-harness-compiles.sh
+
       - name: Clean up stale artifacts
         run: |
           rm -rf /tmp/dali_e2e

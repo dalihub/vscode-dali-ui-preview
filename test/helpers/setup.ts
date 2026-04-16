@@ -17,6 +17,7 @@ const vscodeMock = {
         }),
         workspaceFolders: undefined,
         applyEdit: (_edit: any) => Promise.resolve(true),
+        onDidChangeConfiguration: (_listener: any) => ({ dispose: () => {} }),
     },
     WorkspaceEdit: class WorkspaceEdit {
         private _ops: Array<{ uri: any; range: any; newText: string; kind: 'replace' | 'insert' }> = [];
@@ -127,3 +128,9 @@ Module.prototype.require = function (id: string, ...rest: any[]) {
     }
     return originalRequire.apply(this, [id, ...rest]);
 };
+
+// Initialize the logger so modules that call getLogger() don't throw.
+// Must run after the vscode mock is registered.
+const { initLogger } = require('../../src/logger');
+const mockOutputChannel = (vscodeMock.window as any).createOutputChannel();
+initLogger(mockOutputChannel);

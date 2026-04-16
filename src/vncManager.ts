@@ -1,6 +1,7 @@
 import { spawn, execSync, ChildProcess } from 'child_process';
 import * as net from 'net';
 import * as vscode from 'vscode';
+import { getLogger } from './logger';
 
 export interface VncStartParams {
     daliBinaryPath: string;
@@ -57,7 +58,8 @@ export class VncManager {
         for (const bin of ['x11vnc', 'websockify']) {
             try {
                 execSync(`which ${bin}`, { stdio: 'pipe' });
-            } catch {
+            } catch (err) {
+                getLogger().trace('VNC', 'dependency not found', { bin, error: String(err) });
                 return bin;
             }
         }
@@ -388,7 +390,7 @@ export class VncManager {
                         process.kill(pid, 0);
                         continue;
                     }
-                } catch { /* stale lock */ }
+                } catch (err) { getLogger().trace('VNC', 'stale lock file', { error: String(err) }); }
             }
             const started = await this.tryStartXvfb(display, width, height);
             if (started) {
@@ -420,10 +422,11 @@ export class VncManager {
                 setTimeout(() => {
                     if (!exited && child.pid) {
                         try { process.kill(child.pid, 0); this.vncXvfbProcess = child; resolve(true); }
-                        catch { resolve(false); }
+                        catch (err) { getLogger().trace('VNC', 'xvfb process not alive', { error: String(err) }); resolve(false); }
                     } else if (!exited) { resolve(false); }
                 }, XVFB_STARTUP_WAIT_MS);
-            } catch {
+            } catch (err) {
+                getLogger().trace('VNC', 'xvfb spawn failed', { error: String(err) });
                 resolve(false);
             }
         });
@@ -431,7 +434,7 @@ export class VncManager {
 
     private killVncXvfb(): void {
         if (this.vncXvfbProcess) {
-            try { this.vncXvfbProcess.kill('SIGTERM'); } catch { /* already dead */ }
+            try { this.vncXvfbProcess.kill('SIGTERM'); } catch (err) { getLogger().trace('VNC', 'killVncXvfb already dead', { error: String(err) }); }
             this.vncXvfbProcess = undefined;
             this.vncDisplay = undefined;
         }
@@ -441,7 +444,7 @@ export class VncManager {
         if (this.daliAppProcess) {
             try {
                 this.daliAppProcess.kill('SIGTERM');
-            } catch { /* already dead */ }
+            } catch (err) { getLogger().trace('VNC', 'killDaliApp already dead', { error: String(err) }); }
             this.daliAppProcess = undefined;
         }
     }
@@ -450,7 +453,7 @@ export class VncManager {
         if (this.x11vncProcess) {
             try {
                 this.x11vncProcess.kill('SIGTERM');
-            } catch { /* already dead */ }
+            } catch (err) { getLogger().trace('VNC', 'killX11vnc already dead', { error: String(err) }); }
             this.x11vncProcess = undefined;
         }
     }
@@ -459,7 +462,7 @@ export class VncManager {
         if (this.websockifyProcess) {
             try {
                 this.websockifyProcess.kill('SIGTERM');
-            } catch { /* already dead */ }
+            } catch (err) { getLogger().trace('VNC', 'killWebsockify already dead', { error: String(err) }); }
             this.websockifyProcess = undefined;
         }
     }
@@ -471,7 +474,8 @@ export class VncManager {
         try {
             process.kill(child.pid, 0);
             return true;
-        } catch {
+        } catch (err) {
+            getLogger().trace('VNC', 'process not alive', { error: String(err) });
             return false;
         }
     }

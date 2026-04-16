@@ -1,5 +1,6 @@
 import { spawn, execSync, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
+import { getLogger } from './logger';
 
 const CANDIDATE_DISPLAYS = [99, 98, 97];
 const STARTUP_WAIT_MS = 500;
@@ -13,6 +14,8 @@ export class XvfbManager {
      * Returns true if Xvfb was started successfully.
      */
     async start(): Promise<boolean> {
+        const log = getLogger();
+        log.info('Xvfb', 'starting virtual display');
         if (this.process && this.isAlive()) {
             return true;
         }
@@ -51,8 +54,8 @@ export class XvfbManager {
         if (this.process) {
             try {
                 this.process.kill('SIGTERM');
-            } catch {
-                // Process may have already exited
+            } catch (err) {
+                getLogger().trace('Xvfb', 'kill already exited', { error: String(err) });
             }
             this.process = undefined;
             this.display = undefined;
@@ -74,7 +77,8 @@ export class XvfbManager {
         try {
             execSync('which Xvfb', { stdio: 'pipe' });
             return true;
-        } catch {
+        } catch (err) {
+            getLogger().trace('Xvfb', 'Xvfb not installed', { error: String(err) });
             return false;
         }
     }
@@ -91,19 +95,22 @@ export class XvfbManager {
                     try {
                         process.kill(pid, 0);
                         return true; // Process is alive, display is in use
-                    } catch {
-                        // Process is dead, stale lock file
+                    } catch (err) {
+                        getLogger().trace('Xvfb', 'stale lock file', { error: String(err), displayNum });
                         return false;
                     }
                 }
             }
             return false;
-        } catch {
+        } catch (err) {
+            getLogger().trace('Xvfb', 'display check failed', { error: String(err) });
             return false;
         }
     }
 
     private tryStart(display: string): Promise<boolean> {
+        const log = getLogger();
+        log.debug('Xvfb', 'trying display', { display });
         return new Promise((resolve) => {
             try {
                 const child = spawn('Xvfb', [
@@ -166,7 +173,8 @@ export class XvfbManager {
         try {
             process.kill(child.pid, 0);
             return true;
-        } catch {
+        } catch (err) {
+            getLogger().trace('Xvfb', 'process not alive', { error: String(err) });
             return false;
         }
     }

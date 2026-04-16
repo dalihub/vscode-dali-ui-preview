@@ -1,10 +1,13 @@
 import { exec } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { XvfbManager } from './xvfbManager';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 import { SdbManager } from './sdbManager';
+import { ConfigurationService } from './configurationService';
+import { getLogger } from './logger';
 
 export interface BuildResult {
     success: boolean;
@@ -35,6 +38,23 @@ export class BuildRunner {
     private hasCcache: boolean = false;
     private extensionPath: string;
 
+    /**
+     * Compute a workspace-specific temp directory path.
+     *
+     * When a workspace folder is open, appends an 8-char MD5 hash of the
+     * workspace root URI to avoid multi-window conflicts.  Falls back to the
+     * plain `/tmp/dali_preview` when no workspace folder is available.
+     */
+    static getWorkspaceTmpDir(): string {
+        const folders = vscode.workspace.workspaceFolders;
+        if (folders && folders.length > 0) {
+            const rootPath = folders[0].uri.fsPath;
+            const hash = crypto.createHash('md5').update(rootPath).digest('hex').slice(0, 8);
+            return `/tmp/dali_preview_${hash}`;
+        }
+        return '/tmp/dali_preview';
+    }
+
     constructor(
         private context: vscode.ExtensionContext,
         private xvfbManager: XvfbManager | undefined,
@@ -53,7 +73,7 @@ export class BuildRunner {
         const animationTemplatePath = path.join(context.extensionPath, 'server', 'preview_animation.cpp.template');
         this.animationTemplateContent = fs.readFileSync(animationTemplatePath, 'utf-8');
 
-        this.tmpDir = '/tmp/dali_preview';
+        this.tmpDir = BuildRunner.getWorkspaceTmpDir();
         if (!fs.existsSync(this.tmpDir)) {
             fs.mkdirSync(this.tmpDir, { recursive: true });
         }
@@ -63,8 +83,9 @@ export class BuildRunner {
             require('child_process').execSync('which ccache', { stdio: 'ignore' });
             this.hasCcache = true;
             this.outputChannel.appendLine('ccache detected, will use for faster builds');
-        } catch {
+        } catch (err) {
             this.hasCcache = false;
+            getLogger().trace('Build', 'ccache not found', { error: String(err) });
         }
 
         // Load DALi prefix from settings
@@ -73,6 +94,10 @@ export class BuildRunner {
 
     getExtensionPath(): string {
         return this.extensionPath;
+    }
+
+    getTmpDir(): string {
+        return this.tmpDir;
     }
 
     getPluginTemplateContent(): string {
@@ -127,6 +152,8 @@ export class BuildRunner {
      * Returns the path to the .so on success.
      */
     async compilePlugin(userCode: string, configName?: string): Promise<BuildResult & { soPath?: string }> {
+        const log = getLogger();
+        log.debug('Build', 'compilePlugin', { configName: configName || 'default' });
         if (!(await this.ensureDaliPrefix())) {
             return {
                 success: false,
@@ -151,8 +178,8 @@ export class BuildRunner {
     }
 
     private loadDaliPrefix() {
-        const config = vscode.workspace.getConfiguration('daliPreview');
-        const settingsPath = config.get<string>('daliPrefix', '');
+        const cfg = ConfigurationService.getInstance();
+        const settingsPath = cfg.daliPrefix;
         if (settingsPath && validateDaliPrefix(settingsPath)) {
             this.daliPrefix = settingsPath;
         }
@@ -181,6 +208,8 @@ export class BuildRunner {
         fontScale?: number,
         font?: string
     ): Promise<BuildResult> {
+        const log = getLogger();
+        log.debug('Build', 'buildAndRun start', { width, height, theme });
         // Ensure DALi prefix is available
         if (!(await this.ensureDaliPrefix())) {
             return {
@@ -190,9 +219,9 @@ export class BuildRunner {
         }
 
         if (!width || !height) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            width = config.get('previewWidth', 1024);
-            height = config.get('previewHeight', 600);
+            const cfg = ConfigurationService.getInstance();
+            width = cfg.previewWidth;
+            height = cfg.previewHeight;
         }
         const pngPath = path.join(this.tmpDir, 'preview.png');
         const metadataPath = path.join(this.tmpDir, 'preview_metadata.json');
@@ -207,13 +236,13 @@ export class BuildRunner {
         // Build font setup code for harness template substitution
         let fontSetup = '';
         if (font) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDirs = ConfigurationService.getInstance().fontDirectories;
             // Find the directory containing the font file
             const fontDir = fontDirs.find(d => {
                 try {
                     return fs.existsSync(path.join(d, font!));
-                } catch {
+                } catch (err) {
+                    getLogger().trace('Build', 'font dir check failed', { error: String(err) });
                     return false;
                 }
             }) || path.dirname(font);
@@ -244,6 +273,7 @@ export class BuildRunner {
     }
 
     private compileShared(source: string, output: string): Promise<BuildResult> {
+        const log = getLogger();
         const pkgConfigPath = `${this.daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
         const compiler = this.hasCcache ? 'ccache g++' : 'g++';
 
@@ -257,6 +287,7 @@ export class BuildRunner {
             `-o "${output}"`
         ].join(' ');
 
+        log.trace('Compile', 'g++ command (shared)', { cmd });
         return new Promise((resolve) => {
             exec(cmd, { timeout: 30000, shell: '/bin/bash' }, (error, _stdout, stderr) => {
                 if (error) {
@@ -269,6 +300,7 @@ export class BuildRunner {
     }
 
     private compile(source: string, output: string): Promise<BuildResult> {
+        const log = getLogger();
         const pkgConfigPath = `${this.daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
         const compiler = this.hasCcache ? 'ccache g++' : 'g++';
 
@@ -282,6 +314,7 @@ export class BuildRunner {
             `-o "${output}"`
         ].join(' ');
 
+        log.trace('Compile', 'g++ command', { cmd });
         return new Promise((resolve) => {
             exec(cmd, { timeout: 30000, shell: '/bin/bash' }, (error, _stdout, stderr) => {
                 if (error) {
@@ -298,6 +331,7 @@ export class BuildRunner {
         width: number, height: number,
         locale?: string, fontScale?: number
     ): Promise<BuildResult> {
+        const log = getLogger();
         const display = this.xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
 
         const env: NodeJS.ProcessEnv = {
@@ -311,6 +345,8 @@ export class BuildRunner {
             // integration planned for a later phase.
             ...(fontScale !== undefined ? { DALI_FONT_SCALE: String(fontScale) } : {}),
         };
+
+        log.trace('Execute', 'running binary', { binPath, display, DALI_WINDOW_WIDTH: String(width), DALI_WINDOW_HEIGHT: String(height) });
 
         // Remove old PNG
         if (fs.existsSync(pngPath)) {
@@ -351,9 +387,9 @@ export class BuildRunner {
         }
 
         if (!width || !height) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            width = config.get('previewWidth', 1024);
-            height = config.get('previewHeight', 600);
+            const cfg = ConfigurationService.getInstance();
+            width = cfg.previewWidth;
+            height = cfg.previewHeight;
         }
 
         const metadataPath = path.join(this.tmpDir, 'preview_interactive_metadata.json');
@@ -366,12 +402,12 @@ export class BuildRunner {
 
         let fontSetup = '';
         if (font) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDirs = ConfigurationService.getInstance().fontDirectories;
             const fontDir = fontDirs.find(d => {
                 try {
                     return fs.existsSync(path.join(d, font!));
-                } catch {
+                } catch (err) {
+                    getLogger().trace('Build', 'interactive font dir check failed', { error: String(err) });
                     return false;
                 }
             }) || path.dirname(font);
@@ -464,12 +500,12 @@ export class BuildRunner {
 
         let fontSetup = '';
         if (font) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDirs = ConfigurationService.getInstance().fontDirectories;
             const fontDir = fontDirs.find(d => {
                 try {
                     return fs.existsSync(path.join(d, font!));
-                } catch {
+                } catch (err) {
+                    getLogger().trace('Build', 'animation font dir check failed', { error: String(err) });
                     return false;
                 }
             }) || path.dirname(font);
@@ -613,9 +649,9 @@ export class BuildRunner {
         }
 
         if (!width || !height) {
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            width = config.get('previewWidth', 1024);
-            height = config.get('previewHeight', 600);
+            const cfg = ConfigurationService.getInstance();
+            width = cfg.previewWidth;
+            height = cfg.previewHeight;
         }
 
         const localPng      = path.join(this.tmpDir, 'preview_device.png');
@@ -623,8 +659,8 @@ export class BuildRunner {
         const harnessPath   = path.join(this.tmpDir, 'preview_device_harness.cpp');
         const localBin      = path.join(this.tmpDir, 'preview_device_bin');
 
-        const config = vscode.workspace.getConfiguration('daliPreview');
-        const tizenSysroot = config.get<string>('tizenSysroot', '');
+        const deviceCfg = ConfigurationService.getInstance();
+        const tizenSysroot = deviceCfg.tizenSysroot;
         const remoteDir    = '/tmp/dali_preview';
         const remoteBin    = `${remoteDir}/preview_device_bin`;
         const remotePng    = `${remoteDir}/preview_device.png`;
@@ -636,11 +672,12 @@ export class BuildRunner {
 
         let fontSetup = '';
         if (font) {
-            const fontDirs = config.get<string[]>('fontDirectories', []);
+            const fontDirs = deviceCfg.fontDirectories;
             const fontDir = fontDirs.find(d => {
                 try {
                     return fs.existsSync(path.join(d, font!));
-                } catch {
+                } catch (err) {
+                    getLogger().trace('Build', 'device font dir check failed', { error: String(err) });
                     return false;
                 }
             }) || path.dirname(font);
@@ -672,8 +709,8 @@ export class BuildRunner {
         // 3. Prepare remote directory
         try {
             await sdbManager.shell(`mkdir -p ${remoteDir}`, deviceSerial);
-        } catch {
-            // Non-fatal: directory may already exist
+        } catch (err) {
+            getLogger().trace('SDB', 'remote mkdir non-fatal', { error: String(err) });
         }
 
         // 4. Push binary
@@ -718,8 +755,8 @@ export class BuildRunner {
 
         try {
             await sdbManager.pull(remoteMeta, localMeta, deviceSerial);
-        } catch {
-            // metadata is optional
+        } catch (err) {
+            getLogger().trace('SDB', 'metadata pull skipped', { error: String(err) });
         }
 
         return { success: true, pngPath: localPng, metadataPath: localMeta };
@@ -794,7 +831,8 @@ export function cleanupBuildTmpDir(tmpDir: string): number {
     let entries: string[];
     try {
         entries = fs.readdirSync(tmpDir);
-    } catch {
+    } catch (err) {
+        getLogger().trace('Cleanup', 'readdir failed', { error: String(err) });
         return 0;
     }
     for (const name of entries) {
@@ -810,8 +848,8 @@ export function cleanupBuildTmpDir(tmpDir: string): number {
                 fs.unlinkSync(full);
             }
             removed++;
-        } catch {
-            // best-effort: ignore individual failures
+        } catch (err) {
+            getLogger().trace('Cleanup', 'remove artifact failed', { error: String(err), name });
         }
     }
     return removed;

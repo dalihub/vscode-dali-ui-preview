@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { MultiPreviewResult } from './previewConfig';
 import { EDITABLE_PROPS } from './propertyEditor';
+import { getLogger } from './logger';
 
 export class PreviewManager {
     private panel: vscode.WebviewPanel | undefined;
@@ -21,7 +22,7 @@ export class PreviewManager {
     private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
-    constructor(private context: vscode.ExtensionContext) {}
+    constructor(private context: vscode.ExtensionContext, private tmpDir: string = '/tmp/dali_preview') {}
 
     show(preserveFocus = false): void {
         if (this.panel) {
@@ -39,7 +40,7 @@ export class PreviewManager {
                 enableScripts: true,
                 retainContextWhenHidden: true,
                 localResourceRoots: [
-                    vscode.Uri.file('/tmp/dali_preview'),
+                    vscode.Uri.file(this.tmpDir),
                     vscode.Uri.file(mediaPath),
                     vscode.Uri.file(path.join(mediaPath, 'vendor', 'noVNC')),
                 ],
@@ -139,7 +140,7 @@ export class PreviewManager {
             if (r.metadataPath) {
                 try {
                     item.metadata = JSON.parse(fs.readFileSync(r.metadataPath, 'utf-8'));
-                } catch { /* metadata is optional */ }
+                } catch (err) { getLogger().trace('Webview', 'multi-preview metadata read skipped', { error: String(err) }); }
             }
 
             return item;
@@ -388,6 +389,8 @@ export class PreviewManager {
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
+        const log = getLogger();
+        log.trace('Webview', 'message received', { command: message.command });
         switch (message.command) {
             case 'resize': {
                 const width = message.width as number;
@@ -504,7 +507,8 @@ export class PreviewManager {
         let html: string;
         try {
             html = fs.readFileSync(htmlPath, 'utf-8');
-        } catch {
+        } catch (err) {
+            getLogger().trace('Webview', 'preview.html read failed', { error: String(err) });
             return `<!DOCTYPE html>
 <html><body style="background:#1e1e1e;color:#f44747;padding:24px;font-family:sans-serif;">
 <h3>Error</h3><p>Could not load preview.html from extension media folder.</p>

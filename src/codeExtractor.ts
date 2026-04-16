@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { PreviewConfig } from './previewConfig';
+import { getLogger } from './logger';
 
 export interface ExtractionResult {
     code: string;
@@ -109,6 +110,7 @@ const VAR_DECL_RE = /^\s*(?:auto|[\w:]+(?:<[^>]*>)?)\s+\w+\s*=\s*/;
  * Returns null when the document is not previewable.
  */
 export function extractPreviewCode(document: vscode.TextDocument): ExtractionResult | null {
+    const log = getLogger();
     const fileName = document.fileName;
 
     // --- Mode 1: dedicated preview file ---
@@ -126,12 +128,14 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 codeLines.push(line);
             }
         }
-        return {
+        const result: ExtractionResult = {
             code: codeLines.join('\n'),
             startLine: configLineCount,
             mode: 'preview-file',
             configs: configs.length > 0 ? configs : undefined,
         };
+        log.debug('Extraction', 'mode selected', { mode: result.mode, fileName, lineCount: codeLines.length });
+        return result;
     }
 
     // --- Mode 2: single // @preview marker → next function body ---
@@ -201,6 +205,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 }
             }
 
+            log.debug('Extraction', 'mode selected', { mode: 'single-marker', fileName, lineCount: codeLines.length });
             return {
                 code,
                 startLine,
@@ -255,6 +260,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             }
         }
 
+        log.debug('Extraction', 'mode selected', { mode: 'marker', fileName, lineCount: codeLines.length });
         return {
             code,
             startLine: beginLine + 1,
@@ -263,6 +269,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
         };
     }
 
+    log.debug('Extraction', 'no preview code found', { fileName });
     return null;
 }
 
@@ -370,8 +377,10 @@ const ACTOR_TYPES = new Set([
  * The original user file is never modified — only the temporary build harness uses this.
  */
 export function instrumentCode(code: string, startLine: number): string {
+    const log = getLogger();
     let result = '';
     let lastIndex = 0;
+    let instrumentedCount = 0;
 
     // Match Type::New( at the start, then find the balanced closing ')' while
     // skipping characters inside string literals so that ')' inside strings
@@ -424,10 +433,12 @@ export function instrumentCode(code: string, startLine: number): string {
         result += code.substring(lastIndex, startMatch.index);
         result += `__tag(${fullMatch}, "__L${absoluteLine}")`;
         lastIndex = i;
+        instrumentedCount++;
 
         // Advance the regex past this match
         CALL_START_RE.lastIndex = i;
     }
     result += code.substring(lastIndex);
+    log.trace('Extraction', 'instrumentCode', { startLine, instrumentedCount });
     return result;
 }
