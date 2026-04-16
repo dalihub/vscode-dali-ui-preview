@@ -5,6 +5,38 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-04-16 — Parser-first 클릭-투-코드 호환 + 애니메이션 컴파일 수정 + 임시 파일 정리
+
+### Fixed
+
+- **클릭-투-코드 회귀 수정** (v0.23.0부터): Phase 4-2 parser-first 경로가 `instrumentCode()`를 건너뛰면서 scene JSON에 `__L` 라인 태그가 없어 프리뷰 클릭 / 위젯 인스펙터 양방향 하이라이트가 모두 실패. `parseChainExpression`이 토큰 라인을 추적해 `SceneNode.sourceLine`에 기록하고, C++ 서버가 이를 읽어 `Actor::Property::NAME = "__L{line}"`으로 태깅하도록 전 파이프라인 정비.
+- **애니메이션 샘플 컴파일 에러**: `instrumentCode`가 `Animation::New()`, `Timer::New()`, `Capture::New()` 등 non-Actor 핸들까지 `__tag()`로 래핑하면서 `SetProperty(Actor::Property::NAME, ...)` 호출이 컴파일 실패 (`‘class Dali::Animation’ has no member named ‘SetProperty’`). Actor 파생 타입 allowlist(15개) 도입으로 해결.
+- **Stale preview_server 바이너리**: IPC 프로토콜을 변경한 릴리즈 업데이트 후에도 `/tmp/dali_preview/preview_server`가 구버전 그대로 캐시되어 구 프로토콜을 내보내면서 RENDER_JSON 응답 파싱 실패 → 프리뷰 무응답. `ensureServerBinary()`가 소스 파일 mtime을 바이너리와 비교해 소스가 더 새로우면 자동 재빌드.
+
+### Added
+
+- **`src/cppParser.ts`**: 토크나이저가 토큰별 1-based `line` 번호 추적. `SceneNode`에 `sourceLine?: number` 필드 추가. `parseChainExpression(code, startLine?)` 시그니처로 절대 라인 오프셋 전달, 각 `::New()` 노드에 `(tokenLine - 1) + startLine` 값 주입. LRU 캐시 키도 `startLine:code` 복합 키로 확장.
+- **`server/preview_server.cpp`**: `SceneNodeJson`에 `int sourceLine = -1` 필드 + `JReadNumber` 헬퍼 + `JParseNode`의 `sourceLine` 키 처리. `SBBuildNode` 래퍼가 `SBBuildNodeRaw` 결과를 `__L{sourceLine}`로 태깅. 재귀 호출도 자동으로 같은 래퍼 경유해 자식 노드까지 일괄 태깅.
+- **`src/buildRunner.ts`**: `cleanupBuildTmpDir(tmpDir)` 순수 함수 export. `dispose()`가 extension 종료 시 `/tmp/dali_preview/`의 플러그인 `.so`/`.cpp`, 렌더 PNG, metadata JSON, `anim_frames/` 등 모든 임시 아티팩트를 제거. `preview_server` 바이너리는 재빌드 비용 회피 및 위 mtime 체크 로직으로 staleness가 해소되므로 보존.
+- **`src/previewServer.ts`**: `ensureServerBinary()`가 mtime 비교로 자동 재빌드. "Source newer than binary — rebuilding to avoid IPC protocol drift." 로그.
+- **`test/e2e/click_to_code_e2e.py`**: 독립 실행형 릴리즈 회귀 테스트. Xvfb 자동 기동 + preview_server 스폰 후 두 경로 검증 — **Path A** (RELOAD): `__tag()` 래핑 plugin 컴파일 + RELOAD, **Path B** (RENDER_JSON): `sourceLine` 필드가 든 scene JSON 직접 기입. 메타데이터 JSON의 `__L` 태그 개수로 검증.
+- **`package.json` 스크립트**: `npm run test:click-to-code` (e2e 단독) 및 `npm run test:release` (`test:unit` + `test:click-to-code`, 릴리즈 게이트).
+- **단위 테스트 확장**:
+  - `test/unit/codeExtractor.test.ts`: Actor allowlist 동작 6건 (FlexLayout / View / TextLabel / ImageView / ScrollView / Control 래핑, Animation / Timer / Capture 미래핑, mixed 스니펫).
+  - `test/unit/cleanupBuildTmpDir.test.ts` (신규): cleanup 로직 5건 — preview_server 보존, 재귀 디렉토리 삭제, 다수 파일 일괄 정리, 없는/빈 디렉토리 처리.
+
+### Changed
+
+- **`src/extension.ts`**: Phase 4-2 parser-first 경로 재활성화, `parseChainExpression`에 `extraction.startLine` 전달. parser-first 성능 이득(~200ms 절감)과 click-to-code 호환 양립.
+
+### Tests
+
+- 단위 테스트 415건 통과 (+11 신규: allowlist 6 + cleanup 5)
+- E2E click-to-code Path A + Path B 모두 통과
+- 애니메이션 샘플 실제 컴파일 + Xvfb 실행 검증: 20/20 프레임 캡처
+
+---
+
 ## [0.27.1] - 2026-04-10 — 골든 테스트 샘플 API 수정 + 골든 이미지 갱신
 
 ### Fixed
