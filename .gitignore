@@ -3,6 +3,7 @@ out/
 *.vsix
 /tmp/
 .vscode-test/
+.vscode/settings.json
 
 # E2E test artifacts
 test/e2e/actual/
