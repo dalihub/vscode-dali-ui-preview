@@ -81,8 +81,10 @@ async function installMissingDependencies(): Promise<void> {
     const hasGpp = await isCommandAvailable('g++');
     const hasXvfb = await isCommandAvailable('Xvfb');
     const hasCcache = await isCommandAvailable('ccache');
+    const hasX11vnc = await isCommandAvailable('x11vnc');
+    const hasWebsockify = await isCommandAvailable('websockify');
 
-    if (hasGpp && hasXvfb && hasCcache) {
+    if (hasGpp && hasXvfb && hasCcache && hasX11vnc && hasWebsockify) {
         return; // All dependencies present
     }
 
@@ -91,6 +93,8 @@ async function installMissingDependencies(): Promise<void> {
     if (!hasGpp) { packages.push('g++'); }
     if (!hasXvfb) { packages.push('xvfb'); }
     if (!hasCcache) { packages.push('ccache'); }
+    if (!hasX11vnc) { packages.push('x11vnc'); }
+    if (!hasWebsockify) { packages.push('websockify'); }
 
     const pkgList = packages.join(', ');
     const aptCmd = `sudo apt install -y ${packages.join(' ')}`;

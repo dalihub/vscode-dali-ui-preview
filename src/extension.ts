@@ -644,10 +644,19 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false, preExtr
             return;
         }
 
-        // Multi-config path: build each config independently
-        if (extraction.configs && extraction.configs.length > 0) {
+        // Multi-config path: build each config independently (2+ configs)
+        if (extraction.configs && extraction.configs.length > 1) {
             await runMultiPreview(doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime);
             return;
+        }
+
+        // Single config: apply its width/height/theme but use single-preview path
+        // so the full inspector and click-to-code overlay work.
+        if (extraction.configs && extraction.configs.length === 1) {
+            const cfg = extraction.configs[0];
+            if (cfg.width)  { currentWidth  = cfg.width;  }
+            if (cfg.height) { currentHeight = cfg.height; }
+            if (cfg.theme)  { currentTheme  = cfg.theme;  }
         }
 
         let result;
