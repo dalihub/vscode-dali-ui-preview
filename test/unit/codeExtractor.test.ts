@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { createMockDocument } from '../helpers/mockDocument';
-import { extractPreviewCode, isPreviewable } from '../../src/codeExtractor';
+import { extractPreviewCode, isPreviewable, instrumentCode } from '../../src/codeExtractor';
 
 describe('codeExtractor', () => {
     // -----------------------------------------------------------------
@@ -855,5 +855,48 @@ describe('codeExtractor', () => {
             expect(cfg.duration).to.equal(2000);
             expect(cfg.fps).to.equal(10);
         });
+    });
+});
+
+describe('instrumentCode() — Actor allowlist', () => {
+    it('wraps Actor-derived ::New() calls with __tag', () => {
+        const result = instrumentCode('auto root = FlexLayout::New();', 1);
+        expect(result).to.include('__tag(FlexLayout::New()');
+        expect(result).to.include('"__L1"');
+    });
+
+    it('leaves Animation::New() untouched so preview compiles', () => {
+        const code = 'Animation anim = Animation::New(2.0f);';
+        expect(instrumentCode(code, 15)).to.equal(code);
+    });
+
+    it('leaves Timer::New() untouched', () => {
+        const code = 'Timer t = Timer::New(500);';
+        expect(instrumentCode(code, 1)).to.equal(code);
+    });
+
+    it('leaves Capture::New() untouched', () => {
+        const code = 'Capture c = Capture::New();';
+        expect(instrumentCode(code, 1)).to.equal(code);
+    });
+
+    it('handles mixed Actor and non-Actor calls in the same snippet', () => {
+        const code = [
+            'auto box = View::New();',
+            'Animation anim = Animation::New(2.0f);',
+            'anim.Play();',
+        ].join('\n');
+        const result = instrumentCode(code, 10);
+        expect(result).to.include('__tag(View::New()');
+        expect(result).to.include('"__L10"');
+        expect(result).to.not.include('__tag(Animation::New');
+        expect(result).to.include('Animation::New(2.0f)');
+    });
+
+    it('tags each of View, TextLabel, ImageView, ScrollView, Control', () => {
+        for (const t of ['View', 'TextLabel', 'ImageView', 'ScrollView', 'Control']) {
+            const result = instrumentCode(`auto x = ${t}::New();`, 1);
+            expect(result, `${t} should be tagged`).to.include(`__tag(${t}::New()`);
+        }
     });
 });

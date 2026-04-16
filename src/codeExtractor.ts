@@ -340,21 +340,45 @@ export function extractFunctionBody(
 }
 
 /**
- * Instrument preview code by wrapping each ::New() call with __tag() for click-to-code.
- * __tag() is a template helper defined in the harness that sets Actor::Property::NAME
- * and returns the same handle, preserving the builder pattern chain.
+ * Actor-derived DALi-UI types whose ::New() factory returns a handle that
+ * inherits Dali::Handle::SetProperty — safe to wrap with __tag() for
+ * click-to-code. Non-Actor handles (Animation, Timer, Capture, gesture
+ * detectors, ...) are deliberately excluded: __tag() calls
+ * SetProperty(Actor::Property::NAME, ...) and would fail to compile
+ * against a non-Actor handle.
+ */
+const ACTOR_TYPES = new Set([
+    'View', 'FlexLayout', 'AbsoluteLayout', 'StackLayout', 'GridLayout',
+    'Label', 'TextLabel', 'ImageView', 'AnimatedImageView', 'LottieAnimationView',
+    'InputField', 'ScrollView', 'Control', 'Layout', 'Actor',
+]);
+
+/**
+ * Instrument preview code by wrapping each Actor-derived ::New() call with
+ * __tag() for click-to-code. __tag() is a template helper defined in the
+ * harness that sets Actor::Property::NAME and returns the same handle,
+ * preserving the builder pattern chain.
  *
  * Example: FlexLayout::New() → __tag(FlexLayout::New(), "__L5")
+ *
+ * Non-Actor types (Animation::New, Timer::New, Capture::New, ...) are left
+ * untouched so preview code that uses animation, timers, or captures still
+ * compiles.
  *
  * The original user file is never modified — only the temporary build harness uses this.
  */
 export function instrumentCode(code: string, startLine: number): string {
-    const NEW_CALL_RE = /(\w+::New\([^)]*\))/g;
+    const NEW_CALL_RE = /(\w+)::New\([^)]*\)/g;
     let result = '';
     let lastIndex = 0;
     let match;
 
     while ((match = NEW_CALL_RE.exec(code)) !== null) {
+        const typeName = match[1];
+        if (!ACTOR_TYPES.has(typeName)) {
+            continue;
+        }
+
         const before = code.substring(0, match.index);
         const codeLine = before.split('\n').length - 1;
         const absoluteLine = codeLine + startLine;
