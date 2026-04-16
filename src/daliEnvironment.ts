@@ -75,20 +75,15 @@ export async function findDaliPrefix(): Promise<string | null> {
 }
 
 /**
- * Validate that a DALi prefix directory contains the expected core library.
- * Checks for `${prefix}/lib/libdali2-core.so` (regular file or symlink).
+ * Validate that a DALi prefix directory contains the expected libraries.
+ * Checks for libdali2-core.so AND the dali2-ui-foundation pkg-config
+ * (needed for Dali::Ui::View and the preview plugin template).
  */
 export function validateDaliPrefix(prefix: string): boolean {
-    const libPath = path.join(prefix, 'lib', 'libdali2-core.so');
+    const coreLib = path.join(prefix, 'lib', 'libdali2-core.so');
+    const uiFoundationPc = path.join(prefix, 'lib', 'pkgconfig', 'dali2-ui-foundation.pc');
     try {
-        // lstatSync follows nothing; use existsSync which follows symlinks,
-        // plus an explicit lstat check so we detect both real files and symlinks.
-        if (fs.existsSync(libPath)) {
-            return true;
-        }
-        // existsSync returns false for broken symlinks, so also check lstat
-        const stat = fs.lstatSync(libPath);
-        return stat.isSymbolicLink() || stat.isFile();
+        return fs.existsSync(coreLib) && fs.existsSync(uiFoundationPc);
     } catch {
         return false;
     }
