@@ -116,17 +116,19 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
         const lines = document.getText().split('\n');
         const configs: PreviewConfig[] = [];
         const codeLines: string[] = [];
+        let configLineCount = 0;
         for (const line of lines) {
             const cfg = parsePreviewConfigLine(line);
             if (cfg) {
                 configs.push(cfg);
+                configLineCount++;
             } else {
                 codeLines.push(line);
             }
         }
         return {
             code: codeLines.join('\n'),
-            startLine: 0,
+            startLine: configLineCount,
             mode: 'preview-file',
             configs: configs.length > 0 ? configs : undefined,
         };
@@ -368,25 +370,63 @@ const ACTOR_TYPES = new Set([
  * The original user file is never modified — only the temporary build harness uses this.
  */
 export function instrumentCode(code: string, startLine: number): string {
-    const NEW_CALL_RE = /(\w+)::New\([^)]*\)/g;
     let result = '';
     let lastIndex = 0;
-    let match;
 
-    while ((match = NEW_CALL_RE.exec(code)) !== null) {
-        const typeName = match[1];
+    // Match Type::New( at the start, then find the balanced closing ')' while
+    // skipping characters inside string literals so that ')' inside strings
+    // (e.g. Label::New(")text)") does not prematurely close the match.
+    const CALL_START_RE = /(\w+)::New\(/g;
+    let startMatch;
+
+    while ((startMatch = CALL_START_RE.exec(code)) !== null) {
+        const typeName = startMatch[1];
         if (!ACTOR_TYPES.has(typeName)) {
             continue;
         }
 
-        const before = code.substring(0, match.index);
+        // Walk forward from the opening '(' to find the balanced ')'
+        const argsStart = startMatch.index + startMatch[0].length;
+        let depth = 1;
+        let i = argsStart;
+        let inString = false;
+        let stringChar = '';
+        while (i < code.length && depth > 0) {
+            const ch = code[i];
+            if (inString) {
+                if (ch === '\\') {
+                    i++; // skip escaped character
+                } else if (ch === stringChar) {
+                    inString = false;
+                }
+            } else {
+                if (ch === '"' || ch === '\'') {
+                    inString = true;
+                    stringChar = ch;
+                } else if (ch === '(') {
+                    depth++;
+                } else if (ch === ')') {
+                    depth--;
+                }
+            }
+            i++;
+        }
+
+        if (depth !== 0) {
+            continue; // unbalanced — skip
+        }
+
+        const fullMatch = code.substring(startMatch.index, i);
+        const before = code.substring(0, startMatch.index);
         const codeLine = before.split('\n').length - 1;
         const absoluteLine = codeLine + startLine;
 
-        // Wrap: Foo::New(...) → __tag(Foo::New(...), "__L{line}")
-        result += code.substring(lastIndex, match.index);
-        result += `__tag(${match[0]}, "__L${absoluteLine}")`;
-        lastIndex = match.index + match[0].length;
+        result += code.substring(lastIndex, startMatch.index);
+        result += `__tag(${fullMatch}, "__L${absoluteLine}")`;
+        lastIndex = i;
+
+        // Advance the regex past this match
+        CALL_START_RE.lastIndex = i;
     }
     result += code.substring(lastIndex);
     return result;
