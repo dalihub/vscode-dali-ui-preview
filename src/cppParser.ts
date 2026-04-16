@@ -24,6 +24,13 @@ export interface SceneNode {
     constructorArgs: string[];
     properties: Record<string, string[]>;
     children: SceneNode[];
+    /**
+     * Absolute source line of this node's `TypeName::New(...)` call.
+     * When present, the C++ server tags the resulting actor with
+     * `Actor::Property::NAME = "__L{sourceLine}"` so click-to-code
+     * and the widget inspector can resolve clicks back to source.
+     */
+    sourceLine?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +77,8 @@ type TokenKind =
 interface Token {
     kind: TokenKind;
     text: string;
+    /** 1-based line number within the tokenised source (before adding startLine). */
+    line: number;
 }
 
 // Keywords that indicate unparseable code → triggers compile fallback
@@ -88,10 +97,15 @@ const FAIL_KEYWORDS = new Set([
 function tokenize(src: string): Token[] | null {
     const tokens: Token[] = [];
     let i = 0;
+    let line = 1;
 
     while (i < src.length) {
         // Whitespace
-        if (/\s/.test(src[i])) { i++; continue; }
+        if (/\s/.test(src[i])) {
+            if (src[i] === '\n') { line++; }
+            i++;
+            continue;
+        }
 
         // Line comment
         if (src[i] === '/' && i + 1 < src.length && src[i + 1] === '/') {
@@ -102,7 +116,10 @@ function tokenize(src: string): Token[] | null {
         // Block comment
         if (src[i] === '/' && i + 1 < src.length && src[i + 1] === '*') {
             i += 2;
-            while (i + 1 < src.length && !(src[i] === '*' && src[i + 1] === '/')) { i++; }
+            while (i + 1 < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+                if (src[i] === '\n') { line++; }
+                i++;
+            }
             i += 2;
             continue;
         }
@@ -112,19 +129,19 @@ function tokenize(src: string): Token[] | null {
 
         // Scope operator
         if (src[i] === ':' && i + 1 < src.length && src[i + 1] === ':') {
-            tokens.push({ kind: 'SCOPE', text: '::' });
+            tokens.push({ kind: 'SCOPE', text: '::', line });
             i += 2; continue;
         }
 
         // Single-char punctuation
         switch (src[i]) {
-            case '.': tokens.push({ kind: 'DOT',    text: '.' }); i++; continue;
-            case ',': tokens.push({ kind: 'COMMA',  text: ',' }); i++; continue;
-            case ';': tokens.push({ kind: 'SEMI',   text: ';' }); i++; continue;
-            case '(': tokens.push({ kind: 'LPAREN', text: '(' }); i++; continue;
-            case ')': tokens.push({ kind: 'RPAREN', text: ')' }); i++; continue;
-            case '{': tokens.push({ kind: 'LBRACE', text: '{' }); i++; continue;
-            case '}': tokens.push({ kind: 'RBRACE', text: '}' }); i++; continue;
+            case '.': tokens.push({ kind: 'DOT',    text: '.', line }); i++; continue;
+            case ',': tokens.push({ kind: 'COMMA',  text: ',', line }); i++; continue;
+            case ';': tokens.push({ kind: 'SEMI',   text: ';', line }); i++; continue;
+            case '(': tokens.push({ kind: 'LPAREN', text: '(', line }); i++; continue;
+            case ')': tokens.push({ kind: 'RPAREN', text: ')', line }); i++; continue;
+            case '{': tokens.push({ kind: 'LBRACE', text: '{', line }); i++; continue;
+            case '}': tokens.push({ kind: 'RBRACE', text: '}', line }); i++; continue;
         }
 
         // Negative number: '-' followed immediately by a digit
@@ -132,7 +149,7 @@ function tokenize(src: string): Token[] | null {
             let j = i + 1;
             while (j < src.length && /[\d.]/.test(src[j])) { j++; }
             if (j < src.length && src[j] === 'f') { j++; }
-            tokens.push({ kind: 'NUMBER', text: src.slice(i, j) });
+            tokens.push({ kind: 'NUMBER', text: src.slice(i, j), line });
             i = j; continue;
         }
 
@@ -147,7 +164,7 @@ function tokenize(src: string): Token[] | null {
                 while (j < src.length && /[\d.]/.test(src[j])) { j++; }
                 if (j < src.length && src[j] === 'f') { j++; }
             }
-            tokens.push({ kind: 'NUMBER', text: src.slice(i, j) });
+            tokens.push({ kind: 'NUMBER', text: src.slice(i, j), line });
             i = j; continue;
         }
 
@@ -159,7 +176,7 @@ function tokenize(src: string): Token[] | null {
                 j++;
             }
             j++; // closing "
-            tokens.push({ kind: 'STRING', text: src.slice(i, j) });
+            tokens.push({ kind: 'STRING', text: src.slice(i, j), line });
             i = j; continue;
         }
 
@@ -169,7 +186,7 @@ function tokenize(src: string): Token[] | null {
             while (j < src.length && /[a-zA-Z0-9_]/.test(src[j])) { j++; }
             const text = src.slice(i, j);
             if (FAIL_KEYWORDS.has(text)) { return null; }
-            tokens.push({ kind: 'IDENT', text });
+            tokens.push({ kind: 'IDENT', text, line });
             i = j; continue;
         }
 
@@ -177,7 +194,7 @@ function tokenize(src: string): Token[] | null {
         return null;
     }
 
-    tokens.push({ kind: 'EOF', text: '' });
+    tokens.push({ kind: 'EOF', text: '', line });
     return tokens;
 }
 
@@ -188,7 +205,10 @@ function tokenize(src: string): Token[] | null {
 class CppChainParser {
     private idx = 0;
 
-    constructor(private readonly tokens: Token[]) {}
+    constructor(
+        private readonly tokens: Token[],
+        private readonly startLineOffset: number,
+    ) {}
 
     // -----------------------------------------------------------------------
 
@@ -247,11 +267,18 @@ class CppChainParser {
         if (constructorArgs === null) { return null; }
         if (!this.expect('RPAREN')) { return null; }
 
+        // typeToken.line is 1-based within the tokenised code. Convert to
+        // a 0-based line index and add startLineOffset so consumers (the
+        // C++ server + click-to-code handler) see absolute 0-based source lines
+        // that match instrumentCode()'s __L{line} convention.
+        const sourceLine = (typeToken.line - 1) + this.startLineOffset;
+
         const node: SceneNode = {
             type: typeToken.text,
             constructorArgs,
             properties: {},
             children: [],
+            sourceLine,
         };
 
         // Chained method calls
@@ -396,23 +423,28 @@ class CppChainParser {
 /**
  * Parse a dali-ui C++ chaining expression into a SceneNode tree.
  *
- * @param code  The extracted preview code (may include leading `return`).
- * @returns     SceneNode on success, null if unsupported pattern detected.
+ * @param code        The extracted preview code (may include leading `return`).
+ * @param startLine   Absolute 0-based line index in the original source file
+ *                    where `code` begins. Propagated into each SceneNode's
+ *                    `sourceLine` so the C++ server can tag actors with
+ *                    `__L{line}` for click-to-code. Defaults to 0.
+ * @returns           SceneNode on success, null if unsupported pattern detected.
  */
-export function parseChainExpression(code: string): SceneNode | null {
-    const cached = _cacheGet(code);
+export function parseChainExpression(code: string, startLine: number = 0): SceneNode | null {
+    const cacheKey = `${startLine}:${code}`;
+    const cached = _cacheGet(cacheKey);
     if (cached !== undefined) {
         return cached;
     }
 
     const tokens = tokenize(code);
     if (!tokens) {
-        _cacheSet(code, null);
+        _cacheSet(cacheKey, null);
         return null;
     }
 
-    const result = new CppChainParser(tokens).parse();
-    _cacheSet(code, result);
+    const result = new CppChainParser(tokens, startLine).parse();
+    _cacheSet(cacheKey, result);
     return result;
 }
 

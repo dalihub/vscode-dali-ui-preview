@@ -657,10 +657,14 @@ async function runPreview(doc: vscode.TextDocument, livePreview = false, preExtr
 
         outputChannel.appendLine(`[Perf]    previewServer: ${previewServer ? (previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`);
 
-        // Phase 4-2: Parser-first path (~200ms) — try before compile
+        // Phase 4-2: Parser-first path (~200ms) — try before compile.
+        // Click-to-code works because parseChainExpression tracks token line
+        // numbers, writes them to SceneNode.sourceLine, and the C++ server
+        // reads sourceLine from the scene JSON and tags each actor with
+        // Actor::Property::NAME = "__L{sourceLine}".
         if (previewServer?.isRunning) {
             const parseStart = Date.now();
-            const scene = parseChainExpression(extraction.code);
+            const scene = parseChainExpression(extraction.code, extraction.startLine);
             const parseEnd = Date.now();
             outputChannel.appendLine(`[Perf]    parse: ${parseEnd - parseStart}ms (${scene ? 'success' : 'null'})`);
             if (scene) {

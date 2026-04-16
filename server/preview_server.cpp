@@ -242,6 +242,9 @@ struct SceneNodeJson
     std::vector<std::string>                             constructorArgs;
     std::map<std::string, std::vector<std::string>>      properties;
     std::vector<SceneNodeJson>                           children;
+    // Absolute 0-based source line of the originating ::New() call.
+    // -1 means "not set" (render-only path without click-to-code).
+    int                                                  sourceLine = -1;
 };
 
 static void JSkipWs(const std::string& s, size_t& p)
@@ -288,6 +291,18 @@ static std::vector<std::string> JReadStringArray(const std::string& s, size_t& p
     }
     if (p < s.size()) ++p; // skip ']'
     return out;
+}
+
+// Parse an unquoted JSON number into an int. Advances p past the number.
+// Returns 0 on malformed input — acceptable because sourceLine defaults to -1.
+static int JReadNumber(const std::string& s, size_t& p)
+{
+    size_t start = p;
+    if (p < s.size() && (s[p] == '-' || s[p] == '+')) ++p;
+    while (p < s.size() && (s[p] >= '0' && s[p] <= '9')) ++p;
+    if (p == start) return 0;
+    try { return std::stoi(s.substr(start, p - start)); }
+    catch (...) { return 0; }
 }
 
 static std::map<std::string, std::vector<std::string>>
@@ -352,6 +367,8 @@ static SceneNodeJson JParseNode(const std::string& s, size_t& p)
                 node.properties = JReadPropertiesObject(s, p);
             else if (key == "children"       && p < s.size() && s[p] == '[')
                 node.children = JReadNodeArray(s, p);
+            else if (key == "sourceLine")
+                node.sourceLine = JReadNumber(s, p);
             else
             {
                 // Skip unknown value
@@ -488,9 +505,23 @@ static void SBApplyFlexProps(FlexLayout& fl,
     }
 }
 
-static View SBBuildNode(const SceneNodeJson& node);
+static View SBBuildNodeRaw(const SceneNodeJson& node);
 
+// Wrapper: build the actor, then tag it with __L{sourceLine} for click-to-code.
+// Recursive calls from SBBuildNodeRaw go through this wrapper (same name),
+// so every node in the subtree gets tagged.
 static View SBBuildNode(const SceneNodeJson& node)
+{
+    View result = SBBuildNodeRaw(node);
+    if (result && node.sourceLine >= 0)
+    {
+        std::string tag = "__L" + std::to_string(node.sourceLine);
+        result.SetProperty(Dali::Actor::Property::NAME, Dali::String(tag.c_str()));
+    }
+    return result;
+}
+
+static View SBBuildNodeRaw(const SceneNodeJson& node)
 {
     const std::string& type = node.type;
 
