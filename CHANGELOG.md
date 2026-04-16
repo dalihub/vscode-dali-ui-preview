@@ -5,6 +5,28 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-04-16 — 10개 쇼케이스 샘플 + instrumentCode 안정성 + 프리뷰 UX 개선
+
+### Added
+
+- **10개 프로덕션 급 쇼케이스 샘플**: Music Player, Weather Forecast, Fitness Dashboard, Food Delivery, Boarding Pass, Crypto Portfolio, Smart Home, 그리고 Flow Banking 앱 프로젝트(Home/Card/Transfer 3화면). 실제 이미지, 그라디언트, rounded corners, markup 텍스트, bar chart, 바코드 등 DALi UI Foundation의 다양한 기능을 시연.
+- **`test/samples/assets/`**: 쇼케이스 샘플용 이미지 자산 13개 (portrait, food, interior, album art).
+- **`test/samples/flow-banking/`**: 동일 브랜드(teal `#00d4a8`) 컨셉의 3화면 뱅킹 앱 프로젝트. 프로젝트 내 UI Preview 시연 목적.
+
+### Fixed
+
+- **`instrumentCode()` 문자열 내 `)` 처리**: 기존 regex `[^)]*`가 `Label::New(")")` 같은 문자열 안의 `)` 를 함수 닫는 괄호로 오인하여 `__tag()` 래핑이 깨지는 버그 수정. balanced-parenthesis walker로 교체하여 문자열 리터럴과 중첩 괄호를 정확히 처리.
+- **`@preview-config` 파일의 click-to-code 라인 오프셋**: `.preview.dali.cpp` 파일에서 `@preview-config` 줄을 제거한 뒤 `startLine: 0` 으로 고정하여 라인 번호가 config 줄 수만큼 밀리던 문제. `startLine: configLineCount`로 수정.
+- **`validateDaliPrefix()` 강화**: `libdali2-core.so` 만 확인하던 것에 `dali2-ui-foundation.pc` 존재도 검증. 여러 DALi 설치가 있을 때 `Dali::Ui::View` 없는 구버전이 선택되는 문제 방지.
+- **단일 `@preview-config` 인스펙터 지원**: config가 1개일 때 multi-preview 대신 single-preview 경로로 라우팅하여 위젯 인스펙터와 click-to-code 오버레이가 정상 동작.
+- **Multi-preview 에러 시 이전 이미지 유지**: 빌드 전체 실패 시 이전 성공 렌더를 보존하고 에러 배너만 오버레이.
+
+### Improved
+
+- **프리뷰 그리드 가운데 정렬**: multi-preview 이미지가 패널 중앙에 표시. `max-height`도 `60vh`에서 `calc(100vh - 90px)`로 확대.
+- **인스펙터 트리 텍스트 확대**: `.tree-node` 12→14px, toggle 9→11px, name 11→13px.
+- **에러 메시지 복사 가능**: `.preview-grid-error`에 `user-select: text` 추가.
+
 ## [0.28.0] - 2026-04-16 — Parser-first 클릭-투-코드 호환 + 애니메이션 컴파일 수정 + 임시 파일 정리
 
 ### Fixed
