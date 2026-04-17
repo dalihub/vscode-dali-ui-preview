@@ -1,11 +1,13 @@
 name: Golden Screenshot Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+  # Disabled: requires self-hosted runner with DALi SDK.
+  # Re-enable push/PR triggers once a Docker-based runner is set up.
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 concurrency:
   group: golden-test-${{ github.ref }}
