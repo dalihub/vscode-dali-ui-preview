@@ -215,6 +215,27 @@ static void ExportSceneMetadata(Actor root, const std::string& metadataPath,
 }
 
 // ---------------------------------------------------------------------------
+// Resource readiness check (same as preview_harness.cpp.template)
+// ---------------------------------------------------------------------------
+
+static bool AreAllResourcesReady(Actor actor)
+{
+    Dali::Ui::View view = Dali::Ui::View::DownCast(actor);
+    if(view && !view.IsResourceReady())
+    {
+        return false;
+    }
+    for(uint32_t i = 0; i < actor.GetChildCount(); i++)
+    {
+        if(!AreAllResourcesReady(actor.GetChildAt(i)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Pending reload request (set by stdin timer, consumed by capture callback)
 // ---------------------------------------------------------------------------
 
@@ -616,6 +637,7 @@ public:
         , mPluginHandle(nullptr)
         , mHasPending(false)
         , mCaptureBusy(false)
+        , mResourceTickCount(0)
     {
         app.InitSignal().Connect(this, &PreviewServer::OnInit);
     }
@@ -850,9 +872,11 @@ public:
             return;
         }
 
-        // Start capture immediately — Capture uses an internal RenderTask(REFRESH_ONCE)
-        // which DALi schedules AFTER the pending layout pass for the newly added actors.
-        OnStartCapture();
+        // Wait for all image resources to finish loading before capturing.
+        mResourceTickCount = 0;
+        mResourceTimer = Timer::New(100);
+        mResourceTimer.TickSignal().Connect(this, &PreviewServer::OnResourceTimer);
+        mResourceTimer.Start();
     }
 
     void DoReload(const ReloadRequest& req)
@@ -956,8 +980,28 @@ public:
             return;
         }
 
-        // Start capture immediately — same reasoning as DoRenderJson.
+        // Wait for all image resources to finish loading before capturing.
+        mResourceTickCount = 0;
+        mResourceTimer = Timer::New(100);
+        mResourceTimer.TickSignal().Connect(this, &PreviewServer::OnResourceTimer);
+        mResourceTimer.Start();
+    }
+
+    bool OnResourceTimer()
+    {
+        mResourceTickCount++;
+        if(mResourceTickCount < 3)
+        {
+            return true; // wait at least 300ms for layout
+        }
+
+        if(!AreAllResourcesReady(Actor(mWindow.GetRootLayer())) && mResourceTickCount < 30)
+        {
+            return true; // keep polling up to 3 seconds
+        }
+
         OnStartCapture();
+        return false; // stop timer
     }
 
     bool OnStartCapture()
@@ -1044,8 +1088,9 @@ private:
     Application& mApp;
     Window       mWindow;
     Timer        mPollTimer;
-    Timer        mCaptureTimer;
+    Timer        mResourceTimer;
     Capture      mCapture;
+    int          mResourceTickCount;
 
     void*        mPluginHandle;
     bool         mHasPending;
