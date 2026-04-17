@@ -5,6 +5,10 @@ out/
 .vscode-test/
 .vscode/settings.json
 
+# Coverage reports
+coverage/
+.nyc_output/
+
 # E2E test artifacts
 test/e2e/actual/
 test/e2e/diff/

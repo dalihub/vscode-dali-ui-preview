@@ -6,20 +6,15 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { SdbManager } from './sdbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
-import { extractPreviewCode, extractFunctionBody, isPreviewable, instrumentCode, ExtractionResult } from './codeExtractor';
+import { extractFunctionBody, isPreviewable } from './codeExtractor';
 import { PreviewCodeLensProvider } from './previewCodeLens';
-import { parseChainExpression, SceneNode } from './cppParser';
-import { enrichMetadataWithFlexProps } from './flexMetadata';
-import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
-import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import { validateEnvironment, findDaliPrefix } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { PropertyEditor } from './propertyEditor';
 import { initLogger, getLogger } from './logger';
 import { ConfigurationService } from './configurationService';
-import * as fs from 'fs';
-import * as path from 'path';
+import { PreviewOrchestrator } from './previewOrchestrator';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -29,35 +24,17 @@ let vncManager: VncManager | undefined;
 let sdbManager: SdbManager | undefined;
 let statusBar: StatusBarManager | undefined;
 let themeStatusBar: ThemeStatusBarItem | undefined;
-let isVncMode = false;
-let vncStarting = false;
-let hotReloading = false;
 let currentDeviceSerial: string | undefined;
-let devicePreviewRunning = false;
 let diagnosticCollection: vscode.DiagnosticCollection;
-let building = false;
 let outputChannel: vscode.OutputChannel;
-let lastPreviewedDoc: vscode.TextDocument | undefined;
 let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
-let buildGeneration = 0;
-let pendingRebuildDoc: vscode.TextDocument | undefined;
-let lastTextChangeTime = 0;           // T0: timestamp when text change was detected
-let lastCodeLensFunc: { uri: string; startLine: number; endLine: number } | undefined;
-let errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let bgColorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-// Current preview dimensions (managed directly, not via settings)
-let currentWidth = 1024;
-let currentHeight = 600;
-
-// Current theme (persisted in workspaceState)
-let currentTheme: 'light' | 'dark' = 'dark';
-
-// Current background color (persisted in workspaceState)
-let currentBgColor: string | undefined;
 
 // Code-to-Preview debounce timer
 let cursorHighlightTimer: ReturnType<typeof setTimeout> | undefined;
+
+// The orchestrator owns all preview pipeline state and logic
+let orchestrator: PreviewOrchestrator | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
@@ -67,19 +44,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Load initial size from settings
     const initialCfg = ConfigurationService.getInstance();
-    currentWidth = initialCfg.previewWidth;
-    currentHeight = initialCfg.previewHeight;
+    const initialWidth = initialCfg.previewWidth;
+    const initialHeight = initialCfg.previewHeight;
 
     // Load persisted theme
+    let initialTheme: 'light' | 'dark' = 'dark';
     const savedTheme = context.workspaceState.get<string>('daliPreview.theme');
     if (savedTheme === 'light' || savedTheme === 'dark') {
-        currentTheme = savedTheme;
+        initialTheme = savedTheme;
     }
 
     // Load persisted background color
+    let initialBgColor: string | undefined;
     const savedBgColor = context.workspaceState.get<string>('daliPreview.backgroundColor');
     if (savedBgColor && /^#[0-9a-fA-F]{6}$/.test(savedBgColor)) {
-        currentBgColor = savedBgColor;
+        initialBgColor = savedBgColor;
     }
 
     diagnosticCollection = vscode.languages.createDiagnosticCollection('dali-preview');
@@ -91,7 +70,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Theme status bar button (Secondary zone, right side)
     themeStatusBar = new ThemeStatusBarItem(context);
-    themeStatusBar.update(currentTheme);
+    themeStatusBar.update(initialTheme);
 
     // Xvfb (start in background)
     xvfbManager = new XvfbManager();
@@ -120,22 +99,22 @@ export async function activate(context: vscode.ExtensionContext) {
         const envIssues = await validateEnvironment(daliPrefixForCheck);
         if (envIssues.length > 0) {
             for (const issue of envIssues) {
-                outputChannel.appendLine(`[환경 경고] ${issue.message} → ${issue.action}`);
+                outputChannel.appendLine(`[Environment warning] ${issue.message} → ${issue.action}`);
             }
             const criticalDeps = envIssues.filter(i => i.kind === 'missing_dep');
             if (criticalDeps.length > 0) {
-                const lines = criticalDeps.map(i => `• ${i.message}\n  조치: ${i.action}`).join('\n');
+                const lines = criticalDeps.map(i => `• ${i.message}\n  Action: ${i.action}`).join('\n');
                 const choice = await vscode.window.showWarningMessage(
-                    `DALi Preview: 필수 의존성이 없어 프리뷰가 동작하지 않을 수 있습니다.\n${lines}`,
-                    '출력 패널 보기'
+                    `DALi Preview: Required dependencies are missing. Preview may not work.\n${lines}`,
+                    'View Output'
                 );
-                if (choice === '출력 패널 보기') {
+                if (choice === 'View Output') {
                     outputChannel.show();
                 }
             }
         }
     } catch (err: any) {
-        outputChannel.appendLine(`[환경 검증] 오류: ${err?.message ?? err}`);
+        outputChannel.appendLine(`[Environment validation] Error: ${err?.message ?? err}`);
     }
 
     // Build runner
@@ -147,13 +126,35 @@ export async function activate(context: vscode.ExtensionContext) {
     // VNC manager
     vncManager = new VncManager(outputChannel);
     vncManager.onDaliAppExitCallback = () => {
-        if (isVncMode) {
-            isVncMode = false;
+        if (orchestrator?.isInteractiveMode) {
+            orchestrator.setVncModeOff();
             previewManager?.stopVncMode();
             statusBar?.showReady();
             outputChannel.appendLine('[VNC] DALi app exited unexpectedly — interactive mode stopped');
         }
     };
+
+    // Create the orchestrator (previewManager will be set later via ensurePreviewManager)
+    // We pass a dummy previewManager initially; ensurePreviewManager will update it
+    orchestrator = new PreviewOrchestrator(
+        {
+            buildRunner,
+            previewManager: undefined as any,
+            previewServer: undefined,
+            xvfbManager,
+            vncManager,
+            sdbManager,
+            statusBar,
+            outputChannel,
+            diagnosticCollection,
+        },
+        {
+            width: initialWidth,
+            height: initialHeight,
+            theme: initialTheme,
+            bgColor: initialBgColor,
+        },
+    );
 
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable
     const initPreviewServer = async () => {
@@ -167,6 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (started) {
             outputChannel.appendLine('[PreviewServer] dlopen server started (Phase 2 mode)');
             statusBar?.showMode('server');
+            orchestrator?.updatePreviewServer(previewServer);
         } else {
             outputChannel.appendLine('[PreviewServer] Server unavailable, using Phase 1 fallback');
             previewServer = undefined;
@@ -178,16 +180,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Command: DALi Preview: Toggle Theme
     const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
-        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        context.workspaceState.update('daliPreview.theme', currentTheme);
-        currentBgColor = undefined;
+        if (!orchestrator) { return; }
+        orchestrator.theme = orchestrator.theme === 'dark' ? 'light' : 'dark';
+        context.workspaceState.update('daliPreview.theme', orchestrator.theme);
         context.workspaceState.update('daliPreview.backgroundColor', undefined);
-        themeStatusBar?.update(currentTheme);
+        themeStatusBar?.update(orchestrator.theme);
         if (previewManager) {
-            previewManager.setTheme(currentTheme);
+            previewManager.setTheme(orchestrator.theme);
             const editor = vscode.window.activeTextEditor;
             if (editor && isPreviewable(editor.document)) {
-                runPreview(editor.document);
+                orchestrator.runPreview(editor.document);
             }
         }
     });
@@ -196,21 +198,23 @@ export async function activate(context: vscode.ExtensionContext) {
     const openCmd = vscode.commands.registerCommand('dali.openPreview', () => {
         ensurePreviewManager(context);
         previewManager!.show();
-        previewManager!.setTheme(currentTheme);
-        if (currentBgColor) {
-            previewManager!.setBackgroundColor(currentBgColor);
+        if (orchestrator) {
+            previewManager!.setTheme(orchestrator.theme);
+            if (orchestrator.bgColor) {
+                previewManager!.setBackgroundColor(orchestrator.bgColor);
+            }
         }
     });
 
     // Command: DALi: Toggle Interactive Mode (VNC)
     const toggleInteractiveCmd = vscode.commands.registerCommand('dali.toggleInteractiveMode', async () => {
-        if (!buildRunner || !previewManager || !vncManager) {
+        if (!orchestrator || !buildRunner || !previewManager || !vncManager) {
             return;
         }
-        if (isVncMode) {
-            await stopVncMode();
+        if (orchestrator.isInteractiveMode) {
+            await orchestrator.stopVncMode();
         } else {
-            await startVncMode();
+            await orchestrator.startVncMode();
         }
     });
 
@@ -238,8 +242,8 @@ export async function activate(context: vscode.ExtensionContext) {
             const config = vscode.workspace.getConfiguration('daliPreview');
             await config.update('targetDevice', serial, vscode.ConfigurationTarget.Workspace);
             statusBar?.showMode('device');
-            outputChannel.appendLine(`[SDB] 타겟 디바이스 선택됨: ${serial}`);
-            vscode.window.showInformationMessage(`DALi: 디바이스 선택됨 — ${serial}`);
+            outputChannel.appendLine(`[SDB] Target device selected: ${serial}`);
+            vscode.window.showInformationMessage(`DALi: Device selected — ${serial}`);
         }
     });
     context.subscriptions.push(selectDeviceCmd);
@@ -264,14 +268,14 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }
         const editor = vscode.window.activeTextEditor;
-        const doc = editor && isPreviewable(editor.document) ? editor.document : lastPreviewedDoc;
+        const doc = editor && isPreviewable(editor.document) ? editor.document : orchestrator?.lastDocument;
         if (!doc) {
-            vscode.window.showWarningMessage('DALi: 프리뷰 가능한 파일이 없습니다. .preview.dali.cpp 파일을 열어주세요.');
+            vscode.window.showWarningMessage('DALi: No previewable file found. Please open a .preview.dali.cpp file.');
             return;
         }
         ensurePreviewManager(context);
         previewManager!.show();
-        await runDevicePreview(doc);
+        await orchestrator?.runDevicePreview(doc);
     });
     context.subscriptions.push(devicePreviewCmd);
 
@@ -279,7 +283,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const savedDeviceSerial = vscode.workspace.getConfiguration('daliPreview').get<string>('targetDevice', '') || undefined;
     if (savedDeviceSerial) {
         currentDeviceSerial = savedDeviceSerial;
-        outputChannel.appendLine(`[SDB] 저장된 타겟 디바이스: ${savedDeviceSerial}`);
+        outputChannel.appendLine(`[SDB] Saved target device: ${savedDeviceSerial}`);
     }
 
     // Auto-preview on save
@@ -289,18 +293,20 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         ensurePreviewManager(context);
         previewManager!.show(true);
-        previewManager!.setTheme(currentTheme);
-        if (currentBgColor) {
-            previewManager!.setBackgroundColor(currentBgColor);
-        }
+        if (orchestrator) {
+            previewManager!.setTheme(orchestrator.theme);
+            if (orchestrator.bgColor) {
+                previewManager!.setBackgroundColor(orchestrator.bgColor);
+            }
 
-        // VNC mode: hot reload the DALi app
-        if (isVncMode && vncManager?.isRunning) {
-            await hotReloadVnc(doc);
-            return;
-        }
+            // VNC mode: hot reload the DALi app
+            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
+                await orchestrator.hotReloadVnc(doc);
+                return;
+            }
 
-        await runPreview(doc);
+            await orchestrator.runPreview(doc);
+        }
     });
 
     // Auto-open preview panel when opening a previewable file
@@ -308,20 +314,24 @@ export async function activate(context: vscode.ExtensionContext) {
         if (editor && isPreviewable(editor.document)) {
             ensurePreviewManager(context);
             previewManager!.show(true);
-            previewManager!.setTheme(currentTheme);
-            if (currentBgColor) {
-                previewManager!.setBackgroundColor(currentBgColor);
+            if (orchestrator) {
+                previewManager!.setTheme(orchestrator.theme);
+                if (orchestrator.bgColor) {
+                    previewManager!.setBackgroundColor(orchestrator.bgColor);
+                }
             }
         }
     });
 
     // Live preview: auto-refresh on text change with debounce
     const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
-        const isCodeLensTarget = lastCodeLensFunc && lastCodeLensFunc.uri === event.document.uri.toString();
+        if (!orchestrator) { return; }
+        const codeLensFunc = orchestrator.lastCodeLensFunc;
+        const isCodeLensTarget = codeLensFunc && codeLensFunc.uri === event.document.uri.toString();
         if (!isCodeLensTarget && !isPreviewable(event.document)) {
             return;
         }
-        if (isVncMode) {
+        if (orchestrator.isInteractiveMode) {
             return;
         }
         const liveCfg = ConfigurationService.getInstance();
@@ -333,15 +343,15 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!liveDebouncer) {
             outputChannel.appendLine(`[LivePreview] Debouncer created with debounce=${debounceMs}ms`);
             liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
-                const debounceElapsed = Date.now() - lastTextChangeTime;
+                const debounceElapsed = Date.now() - (orchestrator!.lastTextChangeTime || 0);
                 outputChannel.appendLine(`[Perf] T1 debounce fired — ${debounceElapsed}ms since last text change`);
                 ensurePreviewManager(context);
                 previewManager!.show(true);
-                runPreview(doc, true);
+                orchestrator!.runPreview(doc, true);
             });
         }
         liveDebouncer.setDebounceMs(debounceMs);
-        lastTextChangeTime = Date.now();
+        orchestrator.setLastTextChangeTime(Date.now());
         liveDebouncer.schedule(event.document);
     });
 
@@ -360,7 +370,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // CodeLens provider: show "▶ Preview" buttons above DALi View-returning functions
+    // CodeLens provider: show "Preview" buttons above DALi View-returning functions
     const codeLensProvider = new PreviewCodeLensProvider();
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
@@ -380,14 +390,16 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
             // Remember which function was previewed for live preview updates
-            lastCodeLensFunc = { uri: uri.toString(), startLine: funcStartLine, endLine: funcEndLine };
+            orchestrator?.setLastCodeLensFunc({ uri: uri.toString(), startLine: funcStartLine, endLine: funcEndLine });
             ensurePreviewManager(context);
             previewManager!.show(true);
-            previewManager!.setTheme(currentTheme);
-            if (currentBgColor) {
-                previewManager!.setBackgroundColor(currentBgColor);
+            if (orchestrator) {
+                previewManager!.setTheme(orchestrator.theme);
+                if (orchestrator.bgColor) {
+                    previewManager!.setBackgroundColor(orchestrator.bgColor);
+                }
+                await orchestrator.runPreview(doc, false, extraction);
             }
-            await runPreview(doc, false, extraction);
         }
     );
     context.subscriptions.push(previewFunctionCmd);
@@ -401,15 +413,20 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
     if (!previewManager) {
         previewManager = new PreviewManager(context, BuildRunner.getWorkspaceTmpDir());
 
+        // Update the orchestrator's previewManager reference
+        orchestrator?.updatePreviewManager(previewManager);
+
         // Handle resize from webview
         previewManager.onResize((width, height) => {
             outputChannel.appendLine(`Resize requested: ${width}x${height}`);
-            currentWidth = width;
-            currentHeight = height;
-            // Re-run preview with new size
-            const editor = vscode.window.activeTextEditor;
-            if (editor && isPreviewable(editor.document)) {
-                runPreview(editor.document);
+            if (orchestrator) {
+                orchestrator.width = width;
+                orchestrator.height = height;
+                // Re-run preview with new size
+                const editor = vscode.window.activeTextEditor;
+                if (editor && isPreviewable(editor.document)) {
+                    orchestrator.runPreview(editor.document);
+                }
             }
         });
 
@@ -417,50 +434,52 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         previewManager.onRefresh(() => {
             const editor = vscode.window.activeTextEditor;
             if (editor && isPreviewable(editor.document)) {
-                runPreview(editor.document);
+                orchestrator?.runPreview(editor.document);
             }
         });
 
         // Handle theme toggle from webview
         previewManager.onThemeToggle(() => {
-            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            context.workspaceState.update('daliPreview.theme', currentTheme);
-            currentBgColor = undefined;
+            if (!orchestrator) { return; }
+            orchestrator.theme = orchestrator.theme === 'dark' ? 'light' : 'dark';
+            context.workspaceState.update('daliPreview.theme', orchestrator.theme);
             context.workspaceState.update('daliPreview.backgroundColor', undefined);
-            themeStatusBar?.update(currentTheme);
-            previewManager!.setTheme(currentTheme);
+            themeStatusBar?.update(orchestrator.theme);
+            previewManager!.setTheme(orchestrator.theme);
             // Rebuild with new theme
             const editor = vscode.window.activeTextEditor;
             if (editor && isPreviewable(editor.document)) {
-                runPreview(editor.document);
+                orchestrator.runPreview(editor.document);
             }
         });
 
         // Handle background color change from webview
         previewManager.onBackgroundChange((color: string) => {
-            currentBgColor = color;
+            if (!orchestrator) { return; }
+            orchestrator.bgColor = color;
             context.workspaceState.update('daliPreview.backgroundColor', color);
             clearTimeout(bgColorDebounceTimer);
             bgColorDebounceTimer = setTimeout(() => {
                 bgColorDebounceTimer = undefined;
                 const editor = vscode.window.activeTextEditor;
                 if (editor && isPreviewable(editor.document)) {
-                    runPreview(editor.document);
+                    orchestrator?.runPreview(editor.document);
                 }
             }, 300);
         });
 
         // Handle click-to-code from webview
         previewManager.onSelectElement((line: number) => {
-            if (!lastPreviewedDoc) {
+            const lastDoc = orchestrator?.lastDocument;
+            if (!lastDoc) {
                 return;
             }
-            if (line < 0 || line >= lastPreviewedDoc.lineCount) {
+            if (line < 0 || line >= lastDoc.lineCount) {
                 return;
             }
 
             const editor = vscode.window.visibleTextEditors.find(
-                e => e.document.uri.toString() === lastPreviewedDoc!.uri.toString()
+                e => e.document.uri.toString() === lastDoc.uri.toString()
             );
 
             if (editor) {
@@ -473,11 +492,11 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
                     backgroundColor: 'rgba(0, 122, 204, 0.3)',
                     isWholeLine: true,
                 });
-                const lineRange = new vscode.Range(line, 0, line, lastPreviewedDoc.lineAt(line).text.length);
+                const lineRange = new vscode.Range(line, 0, line, lastDoc.lineAt(line).text.length);
                 editor.setDecorations(decoration, [lineRange]);
                 setTimeout(() => decoration.dispose(), 2000);
             } else {
-                vscode.window.showTextDocument(lastPreviewedDoc.uri, {
+                vscode.window.showTextDocument(lastDoc.uri, {
                     viewColumn: vscode.ViewColumn.One,
                     selection: new vscode.Range(line, 0, line, 0),
                 });
@@ -497,23 +516,24 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             previewManager.setInspectorVisible(savedInspectorVisible);
         }
 
-        // Property editing: webview → source code modification via WorkspaceEdit
+        // Property editing: webview -> source code modification via WorkspaceEdit
         const propertyEditor = new PropertyEditor();
         context.subscriptions.push(
             previewManager.onEditProperty(async (sourceLine, propName, value) => {
-                if (!lastPreviewedDoc) {
+                const lastDoc = orchestrator?.lastDocument;
+                if (!lastDoc) {
                     return;
                 }
                 try {
-                    const result = await propertyEditor.applyEdit(lastPreviewedDoc, sourceLine, propName, value);
+                    const result = await propertyEditor.applyEdit(lastDoc, sourceLine, propName, value);
                     if (!result.success) {
                         outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
-                        vscode.window.showWarningMessage(`속성 편집 실패: ${result.reason}`);
+                        vscode.window.showWarningMessage(`Property edit failed: ${result.reason}`);
                     }
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
-                    outputChannel.appendLine(`[PropertyEditor] 예기치 않은 오류: ${msg}`);
-                    vscode.window.showWarningMessage(`속성 편집 중 오류 발생: ${msg}`);
+                    outputChannel.appendLine(`[PropertyEditor] Unexpected error: ${msg}`);
+                    vscode.window.showWarningMessage(`Error during property edit: ${msg}`);
                 }
             })
         );
@@ -521,15 +541,15 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         // VNC: webview requests start/stop
         context.subscriptions.push(
             previewManager.onStartVnc(async () => {
-                if (!isVncMode) {
-                    await startVncMode();
+                if (orchestrator && !orchestrator.isInteractiveMode) {
+                    await orchestrator.startVncMode();
                 }
             })
         );
         context.subscriptions.push(
             previewManager.onStopVnc(async () => {
-                if (isVncMode) {
-                    await stopVncMode();
+                if (orchestrator?.isInteractiveMode) {
+                    await orchestrator.stopVncMode();
                 }
             })
         );
@@ -549,16 +569,17 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             previewManager.notifyVncAvailable();
         }
 
-        // Code-to-Preview: editor cursor → highlight element in preview + Inspector tree
+        // Code-to-Preview: editor cursor -> highlight element in preview + Inspector tree
         context.subscriptions.push(
             vscode.window.onDidChangeTextEditorSelection((e) => {
                 if (!previewManager?.isVisible) {
                     return;
                 }
-                if (!lastPreviewedDoc) {
+                const lastDoc = orchestrator?.lastDocument;
+                if (!lastDoc) {
                     return;
                 }
-                if (e.textEditor.document.uri.toString() !== lastPreviewedDoc.uri.toString()) {
+                if (e.textEditor.document.uri.toString() !== lastDoc.uri.toString()) {
                     return;
                 }
                 const line = e.selections[0]?.active.line;
@@ -577,683 +598,9 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
     }
 }
 
-function scheduleShowError(message: string): void {
-    if (errorDebounceTimer !== undefined) {
-        clearTimeout(errorDebounceTimer);
-    }
-    errorDebounceTimer = setTimeout(() => {
-        errorDebounceTimer = undefined;
-        previewManager?.showError(message);
-    }, 500);
-}
-
-function cancelErrorDebounce(): void {
-    if (errorDebounceTimer !== undefined) {
-        clearTimeout(errorDebounceTimer);
-        errorDebounceTimer = undefined;
-    }
-    previewManager?.clearError();
-}
-
-async function runPreview(doc: vscode.TextDocument, livePreview = false, preExtracted?: ExtractionResult) {
-    if (!buildRunner || !previewManager) {
-        return;
-    }
-
-    const log = getLogger();
-    const startTime = Date.now();
-    const opId = log.createOpId();
-    log.debug('Extension', 'runPreview start', { livePreview, opId });
-
-    // If a build is already in progress, queue this doc and return
-    if (building) {
-        if (livePreview) {
-            pendingRebuildDoc = doc;
-        }
-        return;
-    }
-
-    // Extract code: use pre-extracted result, then try normal extraction,
-    // then fall back to the last CodeLens-previewed function range.
-    let extraction = preExtracted ?? extractPreviewCode(doc);
-    if (!extraction && lastCodeLensFunc && lastCodeLensFunc.uri === doc.uri.toString()) {
-        extraction = extractFunctionBody(doc, lastCodeLensFunc.startLine, lastCodeLensFunc.endLine);
-    }
-    if (!extraction) {
-        return;
-    }
-
-    log.debug('Extension', 'extraction mode selected', { mode: extraction.mode, fileName: doc.fileName });
-
-    lastPreviewedDoc = doc;
-
-    const myGeneration = ++buildGeneration;
-    building = true;
-
-    // For save-triggered builds show the loading overlay; live preview builds are silent
-    if (!livePreview) {
-        statusBar?.showBuilding();
-        previewManager.showLoading();
-    }
-    diagnosticCollection.delete(doc.uri);
-
-    outputChannel.appendLine(`[Perf] T2 runPreview start (live=${livePreview})`);
-
-    // Instrument code with line annotations for click-to-code
-    const instrumented = instrumentCode(extraction.code, extraction.startLine);
-    const instrumentTime = Date.now();
-    outputChannel.appendLine(`[Perf]    extract+instrument: ${instrumentTime - startTime}ms`);
-
-    try {
-        // Animation path: any config with animation=true triggers GIF capture
-        const animConfig = extraction.configs?.find(c => c.animation === true);
-        if (animConfig) {
-            await runAnimationPreview(
-                doc, animConfig, instrumented, myGeneration, startTime, extraction.startLine
-            );
-            return;
-        }
-
-        // Multi-config path: build each config independently (2+ configs)
-        if (extraction.configs && extraction.configs.length > 1) {
-            await runMultiPreview(doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime);
-            return;
-        }
-
-        // Single config: apply its width/height/theme but use single-preview path
-        // so the full inspector and click-to-code overlay work.
-        if (extraction.configs && extraction.configs.length === 1) {
-            const cfg = extraction.configs[0];
-            if (cfg.width)  { currentWidth  = cfg.width;  }
-            if (cfg.height) { currentHeight = cfg.height; }
-            if (cfg.theme)  { currentTheme  = cfg.theme;  }
-        }
-
-        let result;
-        let usedServerMode = false;
-        let usedParserMode = false;
-        let parserScene: SceneNode | null = null;
-
-        outputChannel.appendLine(`[Perf]    previewServer: ${previewServer ? (previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`);
-
-        // Phase 4-2: Parser-first path (~200ms) — try before compile.
-        // Click-to-code works because parseChainExpression tracks token line
-        // numbers, writes them to SceneNode.sourceLine, and the C++ server
-        // reads sourceLine from the scene JSON and tags each actor with
-        // Actor::Property::NAME = "__L{sourceLine}".
-        if (previewServer?.isRunning) {
-            log.debug('Build', 'trying parser path', { opId });
-            const parseStart = Date.now();
-            const scene = parseChainExpression(extraction.code, extraction.startLine);
-            const parseEnd = Date.now();
-            outputChannel.appendLine(`[Perf]    parse: ${parseEnd - parseStart}ms (${scene ? 'success' : 'null'})`);
-            if (scene) {
-                const tmpDir = buildRunner!.getTmpDir();
-                const pngPath      = path.join(tmpDir, 'preview.png');
-                const metadataPath = path.join(tmpDir, 'preview_metadata.json');
-                const renderStart = Date.now();
-                result = await previewServer.renderJson(
-                    scene, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
-                );
-                outputChannel.appendLine(`[Perf]    renderJson: ${Date.now() - renderStart}ms (${result.success ? 'OK' : 'FAIL'})`);
-
-                if (myGeneration !== buildGeneration) { return; }
-
-                if (result.success) {
-                    usedServerMode = true;
-                    usedParserMode = true;
-                    parserScene = scene;
-                } else {
-                    // Parser path failed at render time → fall through to compile
-                    outputChannel.appendLine('[Parser] renderJson failed, falling back to compile path');
-                    result = undefined;
-                    if (myGeneration !== buildGeneration) { return; }
-                }
-            }
-        }
-
-        // Phase 2: dlopen server mode
-        if (!usedServerMode && previewServer?.isRunning) {
-            log.debug('Build', 'trying server/dlopen path', { opId });
-            const compileStart = Date.now();
-            const pluginResult = await buildRunner.compilePlugin(instrumented);
-            const compileEnd = Date.now();
-            outputChannel.appendLine(`[Perf]    compilePlugin: ${compileEnd - compileStart}ms (${pluginResult.success ? 'OK' : 'FAIL'})`);
-
-            // Discard stale result if a newer build was queued during this compile
-            if (myGeneration !== buildGeneration) {
-                return;
-            }
-
-            if (pluginResult.success && pluginResult.soPath) {
-                const tmpDir = buildRunner!.getTmpDir();
-                const pngPath      = path.join(tmpDir, 'preview.png');
-                const metadataPath = path.join(tmpDir, 'preview_metadata.json');
-                const reloadStart = Date.now();
-                result = await previewServer.reload(
-                    pluginResult.soPath, pngPath, metadataPath, currentWidth, currentHeight, currentTheme, currentBgColor
-                );
-                outputChannel.appendLine(`[Perf]    server.reload (dlopen+render+screenshot): ${Date.now() - reloadStart}ms`);
-                usedServerMode = true;
-            } else {
-                // .so compile failed — parse errors against plugin template
-                const pluginTemplate = buildRunner.getPluginTemplateContent();
-                const offset = getPluginCodeOffset(pluginTemplate);
-                const errors = parseGccErrors(pluginResult.error || '', offset, true);
-                const buildTimeMs = Date.now() - startTime;
-                if (errors.length > 0) {
-                    const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                    diagnosticCollection.set(doc.uri, diagnostics);
-                    scheduleShowError(formatErrorsForDisplay(errors));
-                } else {
-                    scheduleShowError(formatRawError(pluginResult.error || ''));
-                }
-                statusBar?.showError(pluginResult.error?.split('\n')[0] || 'Build failed');
-                outputChannel.appendLine(`Plugin compile failed in ${(buildTimeMs / 1000).toFixed(1)}s`);
-                return;
-            }
-        }
-
-        // Phase 1 fallback: full harness compile + run
-        if (!usedServerMode) {
-            log.debug('Build', 'trying harness compile+run path', { opId });
-            const harnessStart = Date.now();
-            result = await buildRunner.buildAndRun(instrumented, currentWidth, currentHeight, currentTheme, currentBgColor);
-            outputChannel.appendLine(`[Perf]    buildAndRun (full harness): ${Date.now() - harnessStart}ms`);
-        }
-
-        // Discard stale result if a newer build was queued
-        if (myGeneration !== buildGeneration) {
-            return;
-        }
-
-        const buildTimeMs = Date.now() - startTime;
-
-        if (result!.success && result!.pngPath) {
-            // Load scene graph metadata for click-to-code overlay
-            const metaStart = Date.now();
-            let metadata: object | null = null;
-            if (result!.metadataPath) {
-                try {
-                    metadata = JSON.parse(fs.readFileSync(result!.metadataPath, 'utf-8'));
-                } catch (err) { log.trace('Extension', 'metadata read skipped', { error: String(err) }); }
-            }
-            // Enrich metadata with FlexLayout properties from the parser tree
-            if (metadata && parserScene) {
-                enrichMetadataWithFlexProps(metadata, parserScene);
-            }
-            outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
-            cancelErrorDebounce();
-            previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
-            const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
-            statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
-            statusBar?.showSuccess(buildTimeMs);
-            const totalElapsed = Date.now() - (lastTextChangeTime || startTime);
-            outputChannel.appendLine(`[Perf] T5 postMessage sent — total pipeline: ${buildTimeMs}ms (build), ${totalElapsed}ms (text change → update)`);
-            outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${currentWidth}x${currentHeight})`);
-        } else {
-            // Parse errors and show in editor
-            const templatePath = path.join(
-                buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
-            let template = '';
-            try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'harness template read failed', { error: String(err) }); }
-            const offset = getHarnessCodeOffset(template);
-            const errors = parseGccErrors(result!.error || '', offset, false);
-
-            if (errors.length > 0) {
-                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                diagnosticCollection.set(doc.uri, diagnostics);
-                scheduleShowError(formatErrorsForDisplay(errors));
-            } else {
-                scheduleShowError(formatRawError(result!.error || ''));
-            }
-
-            statusBar?.showError(result!.error?.split('\n')[0] || 'Build failed');
-            outputChannel.appendLine(`Preview failed: ${result!.error?.substring(0, 200)}`);
-        }
-    } catch (err: any) {
-        if (myGeneration === buildGeneration) {
-            scheduleShowError(`Unexpected error: ${err.message || err}`);
-            statusBar?.showError(err.message || 'Error');
-        }
-    } finally {
-        building = false;
-        log.debug('Extension', 'runPreview end', { opId, timeMs: Date.now() - startTime });
-        // Process pending rebuild queued during this build
-        if (pendingRebuildDoc) {
-            const nextDoc = pendingRebuildDoc;
-            pendingRebuildDoc = undefined;
-            setImmediate(() => runPreview(nextDoc, true));
-        }
-    }
-}
-
-async function runAnimationPreview(
-    doc: vscode.TextDocument,
-    animConfig: PreviewConfig,
-    instrumented: string,
-    myGeneration: number,
-    startTime: number,
-    startLine: number = 0
-) {
-    const log = getLogger();
-    log.debug('Extension', 'runAnimationPreview start', { configName: animConfig.name, duration: animConfig.duration, fps: animConfig.fps });
-    if (!buildRunner || !previewManager) {
-        return;
-    }
-
-    const width = animConfig.width || currentWidth;
-    const height = animConfig.height || currentHeight;
-    const theme = animConfig.theme || currentTheme;
-    const duration = animConfig.duration ?? 2000;
-    const fps = animConfig.fps ?? 10;
-
-    outputChannel.appendLine(
-        `[Animation] Starting capture: ${duration}ms @ ${fps}fps (${Math.floor(duration * fps / 1000)} frames)`
-    );
-
-    const result = await buildRunner.buildAndRunAnimation(
-        instrumented, width, height, theme, currentBgColor,
-        duration, fps, animConfig.locale, animConfig.fontScale, animConfig.font
-    );
-
-    if (myGeneration !== buildGeneration) {
-        return;
-    }
-
-    const buildTimeMs = Date.now() - startTime;
-
-    if (result.success) {
-        let metadata: object | null = null;
-        if (result.metadataPath) {
-            try {
-                metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
-            } catch (err) { log.trace('Extension', 'animation metadata read skipped', { error: String(err) }); }
-        }
-
-        const displayPath = result.gifPath || result.pngPath || '';
-        if (!displayPath) {
-            scheduleShowError('Animation build succeeded but produced no output file.');
-            outputChannel.appendLine('[Animation] Error: result.success=true but no gifPath/pngPath returned.');
-            return;
-        }
-        cancelErrorDebounce();
-        previewManager.updateAnimation(displayPath, buildTimeMs, result.frameCount || 0, metadata);
-        statusBar?.showMode('compile');
-        statusBar?.showSuccess(buildTimeMs);
-        outputChannel.appendLine(
-            `[Animation] Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s ` +
-            `(${result.frameCount} frames, ${result.gifPath ? 'GIF' : 'PNG fallback'})`
-        );
-    } else {
-        const templatePath = path.join(
-            buildRunner.getExtensionPath(), 'server', 'preview_animation.cpp.template');
-        let template = '';
-        try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'animation template read failed', { error: String(err) }); }
-        const offset = getHarnessCodeOffset(template);
-        const errors = parseGccErrors(result.error || '', offset, false);
-
-        if (errors.length > 0) {
-            const diagnostics = errorsToDiagnostics(errors, doc, startLine);
-            diagnosticCollection.set(doc.uri, diagnostics);
-            scheduleShowError(formatErrorsForDisplay(errors));
-        } else {
-            scheduleShowError(formatRawError(result.error || ''));
-        }
-        statusBar?.showError(result.error?.split('\n')[0] || 'Animation build failed');
-        outputChannel.appendLine(`[Animation] Failed: ${result.error?.substring(0, 200)}`);
-    }
-}
-
-async function runMultiPreview(
-    doc: vscode.TextDocument,
-    configs: PreviewConfig[],
-    instrumented: string,
-    startLine: number,
-    myGeneration: number,
-    startTime: number
-) {
-    const log = getLogger();
-    log.debug('Extension', 'runMultiPreview start', { configCount: configs.length });
-    if (!buildRunner || !previewManager) {
-        return;
-    }
-
-    const results: MultiPreviewResult[] = [];
-
-    for (const config of configs) {
-        if (myGeneration !== buildGeneration) {
-            return; // stale — a newer build was triggered
-        }
-
-        const configStart = Date.now();
-        const width     = config.width     ?? currentWidth;
-        const height    = config.height    ?? currentHeight;
-        const theme     = config.theme     ?? currentTheme;
-        const locale    = config.locale;
-        const fontScale = config.fontScale;
-        const font      = config.font;
-
-        // Resolve font filename to its absolute directory for the IPC server path.
-        // The server's C++ code expects an absolute directory in the font field, not a bare filename.
-        // (buildRunner.buildAndRun() does its own resolution for the harness path.)
-        let fontDir: string | undefined;
-        if (font) {
-            const fontDirs = ConfigurationService.getInstance().fontDirectories;
-            fontDir = fontDirs.find(d => {
-                try { return fs.existsSync(path.join(d, font)); }
-                catch (err) { log.trace('Extension', 'font dir check failed', { error: String(err) }); return false; }
-            });
-            // If not found in configured directories, omit (don't fall back to '.', which is useless)
-        }
-
-        try {
-            if (previewServer?.isRunning) {
-                const pluginResult = await buildRunner.compilePlugin(instrumented, config.name);
-
-                if (myGeneration !== buildGeneration) {
-                    return;
-                }
-
-                if (pluginResult.success && pluginResult.soPath) {
-                    const tmpDir = buildRunner!.getTmpDir();
-                    const pngPath      = path.join(tmpDir, `preview_${sanitizeForPath(config.name)}.png`);
-                    const metadataPath = path.join(tmpDir, `preview_${sanitizeForPath(config.name)}_metadata.json`);
-                    const reloadResult = await previewServer.reload(
-                        pluginResult.soPath, pngPath, metadataPath, width, height, theme, currentBgColor,
-                        locale, fontScale, fontDir
-                    );
-                    results.push({
-                        config,
-                        success: reloadResult.success,
-                        pngPath: reloadResult.success ? pngPath : undefined,
-                        metadataPath: reloadResult.success ? metadataPath : undefined,
-                        buildTimeMs: Date.now() - configStart,
-                        error: reloadResult.success ? undefined : (reloadResult.error || 'Reload failed'),
-                    });
-                } else {
-                    const pluginTemplate = buildRunner.getPluginTemplateContent();
-                    const offset = getPluginCodeOffset(pluginTemplate);
-                    const errors = parseGccErrors(pluginResult.error || '', offset, true);
-                    const errorMsg = errors.length > 0
-                        ? formatErrorsForDisplay(errors)
-                        : (pluginResult.error || 'Plugin compile failed');
-                    results.push({ config, success: false, buildTimeMs: Date.now() - configStart, error: errorMsg });
-                }
-            } else {
-                // Phase 1 fallback
-                const result = await buildRunner.buildAndRun(
-                    instrumented, width, height, theme, currentBgColor,
-                    locale, fontScale, font
-                );
-                results.push({
-                    config,
-                    success: result.success,
-                    pngPath: result.pngPath,
-                    metadataPath: result.metadataPath,
-                    buildTimeMs: Date.now() - configStart,
-                    error: result.error,
-                });
-            }
-        } catch (err: any) {
-            results.push({ config, success: false, buildTimeMs: Date.now() - configStart, error: err.message || String(err) });
-        }
-    }
-
-    if (myGeneration !== buildGeneration) {
-        return;
-    }
-
-    previewManager.updateMultiImage(results);
-
-    const totalMs = Date.now() - startTime;
-    const successCount = results.filter(r => r.success).length;
-    statusBar?.showSuccess(totalMs);
-    outputChannel.appendLine(
-        `Multi-preview: ${successCount}/${results.length} succeeded in ${(totalMs / 1000).toFixed(1)}s`
-    );
-}
-
-function sanitizeForPath(name: string): string {
-    return BuildRunner.sanitizeConfigName(name);
-}
-
-async function startVncMode() {
-    const log = getLogger();
-    log.debug('VNC', 'startVncMode entry');
-    if (!buildRunner || !previewManager || !vncManager) {
-        return;
-    }
-    if (vncStarting) {
-        return;
-    }
-    vncStarting = true;
-    try {
-        const editor = vscode.window.activeTextEditor;
-        const doc = editor && isPreviewable(editor.document) ? editor.document : lastPreviewedDoc;
-        if (!doc) {
-            vscode.window.showWarningMessage('DALi: 프리뷰 가능한 파일이 없습니다. 먼저 .preview.dali.cpp 파일을 열어주세요.');
-            return;
-        }
-
-        const extraction = extractPreviewCode(doc);
-        if (!extraction) {
-            return;
-        }
-
-        if (extraction.configs && extraction.configs.length >= 1) {
-            const cfg = extraction.configs[0];
-            if (cfg.width)  { currentWidth  = cfg.width;  }
-            if (cfg.height) { currentHeight = cfg.height; }
-        }
-
-        statusBar?.showBuilding();
-        previewManager.showLoading();
-
-        const instrumented = instrumentCode(extraction.code, extraction.startLine);
-        const buildResult = await buildRunner.buildInteractive(
-            instrumented, currentWidth, currentHeight, currentTheme, currentBgColor
-        );
-
-        if (!buildResult.success || !buildResult.binPath) {
-            statusBar?.showError('VNC 빌드 실패');
-            const interactiveTemplate = buildRunner.getInteractiveTemplateContent();
-            const offset = getHarnessCodeOffset(interactiveTemplate);
-            const errors = parseGccErrors(buildResult.error || '', offset, false, true);
-            if (errors.length > 0) {
-                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                diagnosticCollection.set(doc.uri, diagnostics);
-                scheduleShowError(formatErrorsForDisplay(errors));
-            } else {
-                scheduleShowError(buildResult.error || 'Interactive build failed');
-            }
-            return;
-        }
-
-        const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
-        const env = {
-            ...buildRunner.buildEnv(display),
-            DALI_WINDOW_WIDTH: String(currentWidth),
-            DALI_WINDOW_HEIGHT: String(currentHeight),
-        };
-
-        const vncResult = await vncManager.startInteractiveMode({
-            daliBinaryPath: buildResult.binPath,
-            display,
-            width: currentWidth,
-            height: currentHeight,
-            env,
-        });
-
-        if (!vncResult.success || !vncResult.wsUrl) {
-            statusBar?.showError('VNC 시작 실패');
-            scheduleShowError(vncResult.error || 'Failed to start VNC');
-            return;
-        }
-
-        isVncMode = true;
-        previewManager.startVncMode(vncResult.wsUrl);
-        statusBar?.showMode('vnc');
-        outputChannel.appendLine(`[VNC] Interactive mode started: ${vncResult.wsUrl}`);
-        log.debug('VNC', 'startVncMode done', { wsUrl: vncResult.wsUrl });
-    } finally {
-        vncStarting = false;
-    }
-}
-
-async function stopVncMode() {
-    if (!vncManager || !previewManager) {
-        return;
-    }
-    await vncManager.stopInteractiveMode();
-    isVncMode = false;
-    previewManager.stopVncMode();
-    statusBar?.showReady();
-    outputChannel.appendLine('[VNC] Interactive mode stopped');
-}
-
-async function hotReloadVnc(doc: vscode.TextDocument) {
-    const log = getLogger();
-    log.debug('VNC', 'hotReloadVnc entry');
-    if (!buildRunner || !previewManager || !vncManager) {
-        return;
-    }
-    if (hotReloading) {
-        return;
-    }
-    hotReloading = true;
-    try {
-        const extraction = extractPreviewCode(doc);
-        if (!extraction) {
-            return;
-        }
-
-        if (extraction.configs && extraction.configs.length >= 1) {
-            const cfg = extraction.configs[0];
-            if (cfg.width)  { currentWidth  = cfg.width;  }
-            if (cfg.height) { currentHeight = cfg.height; }
-        }
-
-        previewManager.notifyVncReloading();
-        const instrumented = instrumentCode(extraction.code, extraction.startLine);
-        const buildResult = await buildRunner.buildInteractive(
-            instrumented, currentWidth, currentHeight, currentTheme, currentBgColor
-        );
-
-        if (!buildResult.success || !buildResult.binPath) {
-            outputChannel.appendLine('[VNC] Hot reload build failed');
-            return;
-        }
-
-        const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
-        const env = {
-            ...buildRunner.buildEnv(display),
-            DALI_WINDOW_WIDTH: String(currentWidth),
-            DALI_WINDOW_HEIGHT: String(currentHeight),
-        };
-
-        const ok = await vncManager.restartDaliApp(buildResult.binPath, {
-            display,
-            width: currentWidth,
-            height: currentHeight,
-            env,
-        });
-
-        if (ok) {
-            previewManager.notifyVncReloaded(vncManager.getWebSocketUrl());
-            outputChannel.appendLine('[VNC] Hot reload succeeded');
-        } else {
-            outputChannel.appendLine('[VNC] Hot reload: DALi app restart failed');
-        }
-        log.debug('VNC', 'hotReloadVnc done', { success: ok });
-    } finally {
-        hotReloading = false;
-    }
-}
-
-async function runDevicePreview(doc: vscode.TextDocument) {
-    const log = getLogger();
-    log.debug('SDB', 'runDevicePreview entry', { serial: currentDeviceSerial });
-    if (!buildRunner || !previewManager || !sdbManager || !currentDeviceSerial) {
-        return;
-    }
-    if (devicePreviewRunning) {
-        return;
-    }
-    devicePreviewRunning = true;
-
-    const extraction = extractPreviewCode(doc);
-    if (!extraction) {
-        devicePreviewRunning = false;
-        return;
-    }
-
-    lastPreviewedDoc = doc;
-
-    statusBar?.showBuilding();
-    previewManager.showLoading();
-    diagnosticCollection.delete(doc.uri);
-
-    const startTime = Date.now();
-    const instrumented = instrumentCode(extraction.code, extraction.startLine);
-
-    try {
-        outputChannel.appendLine(`[SDB] 디바이스 프리뷰 시작: ${currentDeviceSerial}`);
-
-        const result = await buildRunner.buildAndRunOnDevice(
-            instrumented,
-            sdbManager,
-            currentDeviceSerial,
-            currentWidth,
-            currentHeight,
-            currentTheme,
-            currentBgColor
-        );
-
-        const buildTimeMs = Date.now() - startTime;
-
-        if (result.success && result.pngPath) {
-            let metadata: object | null = null;
-            if (result.metadataPath) {
-                try {
-                    metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
-                } catch (err) { log.trace('SDB', 'device metadata read skipped', { error: String(err) }); }
-            }
-            previewManager.updateImage(result.pngPath, buildTimeMs, metadata);
-            statusBar?.showMode('device');
-            statusBar?.showSuccess(buildTimeMs);
-            outputChannel.appendLine(
-                `[SDB] 디바이스 프리뷰 완료: ${(buildTimeMs / 1000).toFixed(1)}s (${currentDeviceSerial})`
-            );
-        } else {
-            const templatePath = path.join(
-                buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
-            let template = '';
-            try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('SDB', 'device template read failed', { error: String(err) }); }
-            const offset = getHarnessCodeOffset(template);
-            const errors = parseGccErrors(result.error || '', offset, false);
-
-            if (errors.length > 0) {
-                const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                diagnosticCollection.set(doc.uri, diagnostics);
-                scheduleShowError(formatErrorsForDisplay(errors));
-            } else {
-                scheduleShowError(formatRawError(result.error || ''));
-            }
-            statusBar?.showError(result.error?.split('\n')[0] || '디바이스 프리뷰 실패');
-            outputChannel.appendLine(`[SDB] 디바이스 프리뷰 실패: ${result.error?.substring(0, 200)}`);
-        }
-    } catch (err: any) {
-        scheduleShowError(`디바이스 프리뷰 오류: ${err.message || err}`);
-        statusBar?.showError(err.message || 'Error');
-    } finally {
-        devicePreviewRunning = false;
-        log.debug('SDB', 'runDevicePreview done');
-    }
-}
-
 export function deactivate() {
     liveDebouncer?.dispose();
+    orchestrator?.dispose();
     previewServer?.stop();
     vncManager?.dispose();
     sdbManager?.dispose();

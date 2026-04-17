@@ -156,18 +156,18 @@ export class PropertyEditor {
     ): Promise<EditResult> {
         // Empty value check
         if (!newValue) {
-            return { success: false, reason: `'${propName}' 편집값이 비어 있습니다` };
+            return { success: false, reason: `'${propName}' edit value is empty` };
         }
 
         const matchers = PROP_MATCHERS[propName];
         if (!matchers || matchers.length === 0) {
-            return { success: false, reason: `'${propName}' 속성 편집 패턴 없음` };
+            return { success: false, reason: `No edit pattern for property '${propName}'` };
         }
 
         // Input validation (H1) — reject values that don't match the allowlist
         const validator = PROP_VALIDATORS[propName];
         if (validator && !validator(newValue)) {
-            return { success: false, reason: `'${propName}' 입력값이 유효하지 않습니다: ${newValue}` };
+            return { success: false, reason: `Invalid value for '${propName}': ${newValue}` };
         }
 
         // Bounds check for sourceLine (M7)
@@ -189,7 +189,7 @@ export class PropertyEditor {
                 edit.replace(doc.uri, range, replacement);
                 const ok = await vscode.workspace.applyEdit(edit);
                 if (!ok) {
-                    return { success: false, reason: 'applyEdit 실패 (WorkspaceEdit 적용 거부)' };
+                    return { success: false, reason: 'applyEdit failed (WorkspaceEdit rejected)' };
                 }
                 // doc.save() is intentionally omitted (H2):
                 // applyEdit triggers onDidChangeTextDocument → live preview debounce.
@@ -240,7 +240,7 @@ export class PropertyEditor {
                 edit.insert(doc.uri, insertPos, insertText);
                 const ok = await vscode.workspace.applyEdit(edit);
                 if (!ok) {
-                    return { success: false, reason: 'applyEdit 실패 (WorkspaceEdit 적용 거부)' };
+                    return { success: false, reason: 'applyEdit failed (WorkspaceEdit rejected)' };
                 }
                 return { success: true };
             }
@@ -248,7 +248,7 @@ export class PropertyEditor {
 
         return {
             success: false,
-            reason: `'${propName}' setter를 line ${sourceLine + 1} 주변 ${searchRadius}줄 내에서 찾지 못했습니다`,
+            reason: `Could not find '${propName}' setter within ${searchRadius} lines of line ${sourceLine + 1}`,
         };
     }
 }

@@ -1154,24 +1154,24 @@
 
     <div class="toolbar-separator"></div>
 
-    <button id="btnBgColor" class="btn-bg-color" title="배경색 선택 (Background color)"></button>
+    <button id="btnBgColor" class="btn-bg-color" title="Background color"></button>
 
     <div class="toolbar-separator"></div>
 
-    <button id="btnInspector" class="btn-inspector" title="Widget Inspector 토글">&#x1F50D;</button>
+    <button id="btnInspector" class="btn-inspector" title="Toggle Widget Inspector">&#x1F50D;</button>
 
     <div class="toolbar-separator" id="flexSeparator" style="display:none;"></div>
-    <button id="btnFlexExplorer" class="btn-flex-explorer" title="FlexLayout Explorer 토글" style="display:none;">&#x25A6;</button>
+    <button id="btnFlexExplorer" class="btn-flex-explorer" title="Toggle FlexLayout Explorer" style="display:none;">&#x25A6;</button>
 
     <div class="toolbar-separator" id="vncSeparator" style="display:none;"></div>
-    <button id="btnVnc" class="btn-vnc" title="인터랙티브 모드 전환 (VNC)" style="display:none;">&#x1F5A5;</button>
+    <button id="btnVnc" class="btn-vnc" title="Toggle interactive mode (VNC)" style="display:none;">&#x1F5A5;</button>
   </div>
 
   <!-- Background color picker popup -->
   <div id="colorPickerPopup" class="color-picker-popup hidden">
     <div class="cp-row">
       <input type="color" id="cpNative" class="cp-native" value="#1a1a2e">
-      <span class="cp-title">배경색</span>
+      <span class="cp-title">Background</span>
     </div>
     <div class="cp-row">
       <label>HEX</label>
@@ -1185,7 +1185,7 @@
       <label>B</label>
       <input type="number" id="cpB" class="cp-rgb" min="0" max="255" value="46">
     </div>
-    <button id="cpReset" class="cp-reset">기본값으로 초기화</button>
+    <button id="cpReset" class="cp-reset">Reset to default</button>
   </div>
 
   <!-- Content row: preview (left) + inspector (right) -->
@@ -1205,8 +1205,8 @@
           <div id="animationContainer" class="animation-container hidden">
             <img id="animationImage" alt="DALi Animation" draggable="false">
             <div class="animation-controls" id="animationControls">
-              <button id="animPlayPause" title="재생/일시정지">&#x23F8;</button>
-              <button id="animRestart" title="처음부터">&#x23EE;</button>
+              <button id="animPlayPause" title="Play/Pause">&#x23F8;</button>
+              <button id="animRestart" title="Restart">&#x23EE;</button>
               <label for="animSpeedSlider" style="font-size:11px;color:#999;">Speed:</label>
               <input type="range" id="animSpeedSlider" min="0.25" max="3" step="0.25" value="1">
               <span class="animation-speed-label" id="animSpeedLabel">1x</span>
@@ -1223,7 +1223,7 @@
 
         <!-- VNC container (shown in interactive mode) -->
         <div id="vncContainer" class="vnc-container hidden">
-          <div id="vncStatus" class="vnc-status">연결 중...</div>
+          <div id="vncStatus" class="vnc-status">Connecting...</div>
         </div>
 
         <!-- Overlays -->
@@ -1253,7 +1253,7 @@
       <div class="inspector-header">Widget Inspector</div>
       <div id="treeView" class="tree-view"></div>
       <div id="propertyPanel" class="property-panel">
-        <p class="property-placeholder">노드를 선택하세요</p>
+        <p class="property-placeholder">Select a node</p>
       </div>
       <!-- FlexLayout Explorer section (shown when a FlexLayout node is selected) -->
       <div id="flexExplorerPanel" class="flex-explorer-panel hidden">
@@ -1262,7 +1262,7 @@
           <span class="flex-explorer-badge">FLEX</span>
         </div>
         <div id="flexExplorerBody" class="flex-explorer-body">
-          <p class="flex-explorer-placeholder">FlexLayout 노드를 선택하세요</p>
+          <p class="flex-explorer-placeholder">Select a FlexLayout node</p>
         </div>
       </div>
     </div>
@@ -1436,14 +1436,14 @@
       rfbClient.disconnect();
       rfbClient = null;
     }
-    vncStatus.textContent = '연결 중...';
+    vncStatus.textContent = 'Connecting...';
     vncStatus.style.display = '';
     if (typeof RFB === 'undefined') {
-      vncStatus.textContent = 'RFB 클라이언트를 로드할 수 없습니다';
+      vncStatus.textContent = 'Failed to load RFB client';
       return;
     }
     if (!/^ws:\/\/localhost:[0-9]{4,5}$/.test(wsUrl)) {
-      vncStatus.textContent = '잘못된 WebSocket URL';
+      vncStatus.textContent = 'Invalid WebSocket URL';
       return;
     }
     rfbClient = new RFB(vncContainer, wsUrl);
@@ -1453,7 +1453,7 @@
       vscode.postMessage({ command: 'vncConnected' });
     });
     rfbClient.addEventListener('disconnect', function (e) {
-      vncStatus.textContent = '연결 끊김: ' + (e.detail && e.detail.reason ? e.detail.reason : '알 수 없는 이유');
+      vncStatus.textContent = 'Disconnected: ' + (e.detail && e.detail.reason ? e.detail.reason : 'unknown reason');
       vncStatus.style.display = '';
       vscode.postMessage({ command: 'vncDisconnected', reason: (e.detail && e.detail.reason) || '' });
     });
@@ -1813,7 +1813,7 @@
   function renderFlexExplorer(node) {
     flexExplorerBody.innerHTML = '';
     if (!flexHasData(node)) {
-      flexExplorerBody.innerHTML = '<p class="flex-explorer-placeholder">FlexLayout 노드를 선택하세요</p>';
+      flexExplorerBody.innerHTML = '<p class="flex-explorer-placeholder">Select a FlexLayout node</p>';
       flexExplorerPanel.classList.add('hidden');
       return;
     }
@@ -2024,7 +2024,7 @@
   function renderPropertyPanel(node) {
     propertyPanelEl.innerHTML = '';
     if (!node) {
-      propertyPanelEl.innerHTML = '<p class="property-placeholder">노드를 선택하세요</p>';
+      propertyPanelEl.innerHTML = '<p class="property-placeholder">Select a node</p>';
       return;
     }
 
@@ -2472,7 +2472,7 @@
         overlayLoading.classList.add('hidden');
         previewArea.classList.add('hidden');
         previewGrid.classList.remove('hidden');
-        // Inspector는 단일 프리뷰 모드 전용
+        // Inspector is for single-preview mode only
         if (inspectorVisible) { setInspectorVisible(false); }
         // Keep last successful grid if ALL configs failed (preserve previous render)
         var allFailed = msg.images.every(function(im) { return !im.success; });
@@ -2588,10 +2588,10 @@
         overlayError.classList.add('hidden');
         overlayLoading.classList.add('hidden');
         btnVnc.classList.add('active');
-        btnVnc.title = '정적 모드로 전환';
+        btnVnc.title = 'Switch to static mode';
         vncMode = true;
         startVncClient(msg.wsUrl);
-        timestampText.textContent = '인터랙티브 모드';
+        timestampText.textContent = 'Interactive mode';
         break;
       }
 
@@ -2601,7 +2601,7 @@
         vncContainer.classList.add('hidden');
         previewContainer.style.display = '';
         btnVnc.classList.remove('active');
-        btnVnc.title = '인터랙티브 모드 전환 (VNC)';
+        btnVnc.title = 'Toggle interactive mode (VNC)';
         vncMode = false;
         timestampText.textContent = '';
         break;
@@ -2613,7 +2613,7 @@
           var overlay = document.createElement('div');
           overlay.className = 'vnc-reload-overlay';
           overlay.id = 'vncReloadOverlay';
-          overlay.textContent = '다시 로딩 중...';
+          overlay.textContent = 'Reloading...';
           vncContainer.appendChild(overlay);
         }
         break;

@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -110,6 +110,14 @@
           "maximum": 3000,
           "description": "Debounce interval in milliseconds for live preview. Lower values update more frequently. (default: 300)"
         },
+        "daliPreview.fontDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Directories containing custom TTF/OTF font files. Fonts in these directories are registered via FontClient::AddCustomFontDirectory and can be referenced by filename in @preview-config (e.g. font=NotoSansKR.ttf)."
+        },
         "daliPreview.vncPort": {
           "type": "number",
           "default": 5900,
@@ -168,7 +176,9 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "test": "npm run test:unit",
-    "test:unit": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+    "test:unit": "c8 mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+    "test:unit:no-coverage": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
+    "coverage": "c8 report --reporter=html && echo 'Coverage report: coverage/index.html'",
     "test:e2e": "node out/test/e2e/goldenTestRunner.js",
     "test:golden:update": "UPDATE_GOLDENS=1 node out/test/e2e/goldenTestRunner.js",
     "test:click-to-code": "python3 test/e2e/click_to_code_e2e.py",
@@ -188,6 +198,7 @@
     "mocha": "^11.3.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0",
+    "c8": "^10.0.0",
     "sinon": "^17.0.0",
     "typescript": "^5.9.3"
   },

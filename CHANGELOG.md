@@ -5,6 +5,27 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-04-17 — Mid-Project Stability Overhaul
+
+### Added
+
+- **PreviewOrchestrator** (`src/previewOrchestrator.ts`): Extracted all preview pipeline logic from `extension.ts` into a dedicated orchestrator class. Reduces `extension.ts` from ~1,237 lines to ~612 lines, making it testable and maintainable.
+- **Strategy Pattern**: Three build strategies (`ParserStrategy`, `DlopenStrategy`, `HarnessStrategy`) replace the monolithic `runPreview()` switch logic, enabling clean addition of future rendering backends.
+- **95 new tests** (414 → 509): `xvfbManager.test.ts` (26), `previewCodeLens.test.ts` (32), `integration.test.ts` (36 — including 7 P0 pipeline scenarios).
+- **c8 coverage reporting**: V8-native code coverage with HTML reports (`npm run coverage`).
+- **`server/check-harness-compiles.sh`**: CI script that syntax-checks all C++ harness templates, preventing v0.15.x-style include path regressions.
+
+### Changed
+
+- **Error messages unified to English**: All user-facing strings across 6 source files and `preview.html` translated from Korean to English for marketplace consistency.
+- **`package.json` OS restriction**: Added `"os": ["linux"]` to prevent installation on unsupported platforms.
+- **CI hardened**: `npm audit --audit-level=moderate` added to ci.yml, release.yml; harness template compilation check added to golden-test.yml.
+- **Coverage tooling**: Switched from nyc to c8 (V8-native) for compatibility with the vscode module mock.
+
+### Fixed
+
+- **statusBar test**: Updated assertions to match English tooltip text after i18n unification.
+
 ## [0.31.0] - 2026-04-16 — 구조화 로거 통합 + FlexLayout Explorer 안정화
 
 ### Added

@@ -98,10 +98,10 @@ export class ThemeStatusBarItem {
     update(theme: 'light' | 'dark'): void {
         if (theme === 'light') {
             this.item.text = '$(sun)';
-            this.item.tooltip = 'DALi Preview: 라이트 테마 — 클릭하여 다크 테마로 전환';
+            this.item.tooltip = 'DALi Preview: Light theme — click to switch to dark';
         } else {
             this.item.text = '$(moon)';
-            this.item.tooltip = 'DALi Preview: 다크 테마 — 클릭하여 라이트 테마로 전환';
+            this.item.tooltip = 'DALi Preview: Dark theme — click to switch to light';
         }
         this.item.show();
     }

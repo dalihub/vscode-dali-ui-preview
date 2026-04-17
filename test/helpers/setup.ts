@@ -120,6 +120,12 @@ const vscodeMock = {
         fire() {}
         dispose() {}
     },
+    CodeLens: class CodeLens {
+        constructor(
+            public range: any,
+            public command?: any,
+        ) {}
+    },
 };
 
 Module.prototype.require = function (id: string, ...rest: any[]) {

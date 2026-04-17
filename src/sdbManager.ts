@@ -77,14 +77,14 @@ export class SdbManager {
         try {
             devices = await this.getDevices();
         } catch (err: any) {
-            vscode.window.showErrorMessage(`SDB: 디바이스 목록 조회 실패 — ${err.message}`);
+            vscode.window.showErrorMessage(`SDB: Failed to query device list — ${err.message}`);
             return undefined;
         }
 
         const connected = devices.filter(d => d.state === 'device');
 
         if (connected.length === 0) {
-            vscode.window.showWarningMessage('SDB: 연결된 디바이스가 없습니다. 디바이스를 연결하고 SDB를 활성화하세요.');
+            vscode.window.showWarningMessage('SDB: No connected devices found. Connect a device and enable SDB.');
             return undefined;
         }
 
@@ -98,7 +98,7 @@ export class SdbManager {
         }));
 
         const picked = await vscode.window.showQuickPick(items, {
-            placeHolder: '프리뷰할 Tizen 디바이스를 선택하세요',
+            placeHolder: 'Select a Tizen device for preview',
         });
 
         return picked?.label;

@@ -105,16 +105,16 @@ describe('ThemeStatusBarItem', () => {
         expect(item.shown).to.be.true;
     });
 
-    it('update("dark") tooltip mentions 다크 테마', () => {
+    it('update("dark") tooltip mentions Dark theme', () => {
         const { themeItem, item } = makeThemeItemWithSpy();
         themeItem.update('dark');
-        expect(String(item.tooltip)).to.include('다크 테마');
+        expect(String(item.tooltip)).to.include('Dark theme');
     });
 
-    it('update("light") tooltip mentions 라이트 테마', () => {
+    it('update("light") tooltip mentions Light theme', () => {
         const { themeItem, item } = makeThemeItemWithSpy();
         themeItem.update('light');
-        expect(String(item.tooltip)).to.include('라이트 테마');
+        expect(String(item.tooltip)).to.include('Light theme');
     });
 
     it('command is dali.toggleTheme', () => {
