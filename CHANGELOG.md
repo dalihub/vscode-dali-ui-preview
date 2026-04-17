@@ -5,6 +5,16 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.1] - 2026-04-17 — First-Preview Image Fix
+
+### Fixed
+
+- **Preview server: images missing on first preview**: The preview server captured screenshots immediately after building the scene, before asynchronous image decoding completed. Images only appeared on subsequent previews due to DALi's internal texture cache. Added `AreAllResourcesReady()` polling (min 300ms, up to 3s timeout) to `DoReload()` and `DoRenderJson()` — matching the existing harness template behavior.
+
+### Changed
+
+- **Animation sample simplified**: Removed unnecessary FlexLayout wrapper, increased animation duration to 3s and travel distance to 200px for clearer visual feedback.
+
 ## [0.32.0] - 2026-04-17 — Mid-Project Stability Overhaul
 
 ### Added
