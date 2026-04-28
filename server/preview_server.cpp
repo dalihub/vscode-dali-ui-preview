@@ -124,7 +124,7 @@ static void CollectActorMetadata(Actor actor, std::ostringstream& json,
     Dali::String name = actor.GetProperty<Dali::String>(Actor::Property::NAME);
     Vector3 pos       = actor.GetCurrentProperty<Vector3>(Actor::Property::POSITION);
     Vector3 size      = actor.GetCurrentProperty<Vector3>(Actor::Property::SIZE);
-    Vector3 anchor    = actor.GetCurrentProperty<Vector3>(Actor::Property::ANCHOR_POINT);
+    Vector3 anchor    = actor.GetCurrentProperty<Vector3>(Actor::Property::PIVOT);
     Vector3 parentOrigin = actor.GetCurrentProperty<Vector3>(Actor::Property::PARENT_ORIGIN);
 
     float w = size.x;
@@ -137,7 +137,23 @@ static void CollectActorMetadata(Actor actor, std::ostringstream& json,
 
     bool    visible = actor.GetCurrentProperty<bool>(Actor::Property::VISIBLE);
     float   opacity = actor.GetCurrentProperty<float>(Actor::Property::OPACITY);
-    Vector4 color   = actor.GetCurrentProperty<Vector4>(Actor::Property::COLOR);
+
+    // User-facing color: text color for Label/InputField (the visible color the
+    // user set via SetTextColor), background color for other Views, transparent
+    // for non-View actors. Actor::Property::COLOR is intentionally avoided — that
+    // is the tint multiplier (always white by default), not the user's color.
+    Vector4 color(0.0f, 0.0f, 0.0f, 0.0f);
+    const char* colorKey = "backgroundColor";
+    {
+        Label      label = Label::DownCast(actor);
+        InputField input = InputField::DownCast(actor);
+        if(label)      { color = label.GetTextColor(); colorKey = "textColor"; }
+        else if(input) { color = input.GetTextColor(); colorKey = "textColor"; }
+        else {
+            View view = View::DownCast(actor);
+            if(view) color = view.GetBackgroundColor();
+        }
+    }
 
     float safeOpacity = std::isfinite(opacity) ? opacity : 0.0f;
     float cr = std::isfinite(color.r) ? color.r : 0.0f;
@@ -152,7 +168,7 @@ static void CollectActorMetadata(Actor actor, std::ostringstream& json,
          << "\"visible\":" << (visible ? "true" : "false") << ","
          << "\"opacity\":" << safeOpacity << ","
          << "\"properties\":{"
-         << "\"color\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
+         << "\"" << colorKey << "\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
          << "}";
 
     // FlexLayout-specific properties (runtime computed values)
@@ -481,8 +497,8 @@ static void SBApplyCommonProps(View& view,
         if      (n == "SetRequestedWidth")  view.SetRequestedWidth(SBParseDimension(a0));
         else if (n == "SetRequestedHeight") view.SetRequestedHeight(SBParseDimension(a0));
         else if (n == "SetBackgroundColor") view.SetBackgroundColor(SBParseUiColor(a0));
-        else if (n == "SetViewPadding")     view.SetViewPadding(SBParseExtents(a0));
-        else if (n == "SetViewMargin")      view.SetViewMargin(SBParseExtents(a0));
+        else if (n == "SetPadding" || n == "SetViewPadding") view.SetPadding(SBParseExtents(a0));
+        else if (n == "SetMargin"  || n == "SetViewMargin")  view.SetMargin(SBParseExtents(a0));
     }
 }
 
@@ -495,14 +511,14 @@ static void SBApplyFlexProps(FlexLayout& fl,
         const std::string& n  = kv.first;
         const std::string& a0 = kv.second[0];
 
-        if (n == "Direction")
+        if (n == "SetDirection" || n == "Direction")
         {
             if      (a0.find("COLUMN_REVERSE") != std::string::npos) fl.SetDirection(FlexDirection::COLUMN_REVERSE);
             else if (a0.find("ROW_REVERSE")    != std::string::npos) fl.SetDirection(FlexDirection::ROW_REVERSE);
             else if (a0.find("COLUMN")         != std::string::npos) fl.SetDirection(FlexDirection::COLUMN);
             else                                                      fl.SetDirection(FlexDirection::ROW);
         }
-        else if (n == "AlignItems")
+        else if (n == "SetAlignItems" || n == "AlignItems")
         {
             if      (a0.find("FLEX_END")   != std::string::npos) fl.SetAlignItems(FlexAlign::FLEX_END);
             else if (a0.find("FLEX_START") != std::string::npos) fl.SetAlignItems(FlexAlign::FLEX_START);
@@ -510,7 +526,7 @@ static void SBApplyFlexProps(FlexLayout& fl,
             else if (a0.find("BASELINE")   != std::string::npos) fl.SetAlignItems(FlexAlign::BASELINE);
             else if (a0.find("CENTER")     != std::string::npos) fl.SetAlignItems(FlexAlign::CENTER);
         }
-        else if (n == "JustifyContent")
+        else if (n == "SetJustifyContent" || n == "JustifyContent")
         {
             if      (a0.find("SPACE_EVENLY")  != std::string::npos) fl.SetJustifyContent(FlexJustify::SPACE_EVENLY);
             else if (a0.find("SPACE_BETWEEN") != std::string::npos) fl.SetJustifyContent(FlexJustify::SPACE_BETWEEN);
@@ -518,7 +534,7 @@ static void SBApplyFlexProps(FlexLayout& fl,
             else if (a0.find("FLEX_END")      != std::string::npos) fl.SetJustifyContent(FlexJustify::FLEX_END);
             else if (a0.find("CENTER")        != std::string::npos) fl.SetJustifyContent(FlexJustify::CENTER);
         }
-        else if (n == "Wrap")
+        else if (n == "SetWrap" || n == "Wrap")
         {
             if      (a0.find("WRAP_REVERSE") != std::string::npos) fl.SetWrap(FlexWrap::WRAP_REVERSE);
             else if (a0.find("WRAP")         != std::string::npos) fl.SetWrap(FlexWrap::WRAP);
@@ -588,7 +604,7 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
         for (const auto& kv : node.properties)
         {
             if (kv.second.empty()) continue;
-            if (kv.first == "Spacing") sl.SetSpacing(SBParseFloat(kv.second[0]));
+            if (kv.first == "SetSpacing" || kv.first == "Spacing") sl.SetSpacing(SBParseFloat(kv.second[0]));
         }
         SBApplyCommonProps(sl, node.properties);
         for (const auto& child : node.children)
@@ -872,11 +888,7 @@ public:
             return;
         }
 
-        // Wait for all image resources to finish loading before capturing.
-        mResourceTickCount = 0;
-        mResourceTimer = Timer::New(100);
-        mResourceTimer.TickSignal().Connect(this, &PreviewServer::OnResourceTimer);
-        mResourceTimer.Start();
+        ScheduleCapture();
     }
 
     void DoReload(const ReloadRequest& req)
@@ -980,7 +992,22 @@ public:
             return;
         }
 
-        // Wait for all image resources to finish loading before capturing.
+        ScheduleCapture();
+    }
+
+    void ScheduleCapture()
+    {
+        // Fast path: if no async image loads are pending, capture immediately.
+        // Image-less previews (red-box, plain layouts) skip the polling overhead entirely.
+        if(AreAllResourcesReady(Actor(mWindow.GetRootLayer())))
+        {
+            std::cout << "[ServerPerf] ScheduleCapture: fast path (resources ready immediately)" << std::endl;
+            OnStartCapture();
+            return;
+        }
+
+        // Slow path: poll every 100ms (up to 3s) for image decoding to finish.
+        std::cout << "[ServerPerf] ScheduleCapture: slow path (polling for resources)" << std::endl;
         mResourceTickCount = 0;
         mResourceTimer = Timer::New(100);
         mResourceTimer.TickSignal().Connect(this, &PreviewServer::OnResourceTimer);
@@ -990,12 +1017,9 @@ public:
     bool OnResourceTimer()
     {
         mResourceTickCount++;
-        if(mResourceTickCount < 3)
-        {
-            return true; // wait at least 300ms for layout
-        }
-
-        if(!AreAllResourcesReady(Actor(mWindow.GetRootLayer())) && mResourceTickCount < 30)
+        bool ready = AreAllResourcesReady(Actor(mWindow.GetRootLayer()));
+        std::cout << "[ServerPerf]   tick=" << mResourceTickCount << " ready=" << (ready ? "true" : "false") << std::endl;
+        if(!ready && mResourceTickCount < 30)
         {
             return true; // keep polling up to 3 seconds
         }
@@ -1106,7 +1130,7 @@ private:
 
 int main(int argc, char* argv[])
 {
-    Application app = Application::New(&argc, &argv, "", Application::OPAQUE);
+    Application app = Application::New(&argc, &argv, "");
     UiConfig::New().Apply();
     PreviewServer server(app);
     app.MainLoop();

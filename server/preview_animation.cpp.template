@@ -79,7 +79,7 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
     Dali::String name = actor.GetProperty<Dali::String>(Actor::Property::NAME);
     Vector3 pos = actor.GetCurrentProperty<Vector3>(Actor::Property::POSITION);
     Vector3 size = actor.GetCurrentProperty<Vector3>(Actor::Property::SIZE);
-    Vector3 anchor = actor.GetCurrentProperty<Vector3>(Actor::Property::ANCHOR_POINT);
+    Vector3 anchor = actor.GetCurrentProperty<Vector3>(Actor::Property::PIVOT);
     Vector3 parentOrigin = actor.GetCurrentProperty<Vector3>(Actor::Property::PARENT_ORIGIN);
 
     float w = size.x;
@@ -92,7 +92,23 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
 
     bool    visible = actor.GetCurrentProperty<bool>(Actor::Property::VISIBLE);
     float   opacity = actor.GetCurrentProperty<float>(Actor::Property::OPACITY);
-    Vector4 color   = actor.GetCurrentProperty<Vector4>(Actor::Property::COLOR);
+
+    // User-facing color: text color for Label/InputField (the visible color the
+    // user set via SetTextColor), background color for other Views, transparent
+    // for non-View actors. Actor::Property::COLOR is intentionally avoided — that
+    // is the tint multiplier (always white by default), not the user's color.
+    Vector4 color(0.0f, 0.0f, 0.0f, 0.0f);
+    const char* colorKey = "backgroundColor";
+    {
+        Label      label = Label::DownCast(actor);
+        InputField input = InputField::DownCast(actor);
+        if(label)      { color = label.GetTextColor(); colorKey = "textColor"; }
+        else if(input) { color = input.GetTextColor(); colorKey = "textColor"; }
+        else {
+            View view = View::DownCast(actor);
+            if(view) color = view.GetBackgroundColor();
+        }
+    }
 
     float safeOpacity = std::isfinite(opacity) ? opacity : 0.0f;
     float cr = std::isfinite(color.r) ? color.r : 0.0f;
@@ -108,7 +124,7 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
          << "\"visible\":" << (visible ? "true" : "false") << ","
          << "\"opacity\":" << safeOpacity << ","
          << "\"properties\":{"
-         << "\"color\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
+         << "\"" << colorKey << "\":[" << cr << "," << cg << "," << cb << "," << ca << "]"
          << "}";
 
     uint32_t childCount = actor.GetChildCount();
@@ -248,7 +264,7 @@ private:
 
 int main(int argc, char* argv[])
 {
-  Application app = Application::New(&argc, &argv, "", Application::OPAQUE);
+  Application app = Application::New(&argc, &argv, "");
   UiConfig::New().Apply();
   PreviewApp preview(app);
   app.MainLoop();

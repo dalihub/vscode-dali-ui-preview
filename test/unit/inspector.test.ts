@@ -92,8 +92,13 @@ describe('Inspector — harness template JSON structure', () => {
         expect(template).to.include('\\"properties\\":{');
     });
 
-    it('CollectActorMetadata emits "color" as JSON array inside properties', () => {
-        expect(template).to.include('\\"color\\":[');
+    it('CollectActorMetadata emits color under a typed key (backgroundColor or textColor)', () => {
+        // The runtime key is decided per-actor via DownCast: textColor for
+        // Label/InputField, backgroundColor for other Views.
+        expect(template).to.include('colorKey = "textColor"');
+        expect(template).to.include('"backgroundColor"');
+        // Still emitted as a JSON array
+        expect(template).to.match(/colorKey.*<<.*"\\":\["/);
     });
 
     it('CollectActorMetadata uses Actor::Property::VISIBLE', () => {
@@ -104,8 +109,13 @@ describe('Inspector — harness template JSON structure', () => {
         expect(template).to.include('Actor::Property::OPACITY');
     });
 
-    it('CollectActorMetadata uses Actor::Property::COLOR', () => {
-        expect(template).to.include('Actor::Property::COLOR');
+    it('CollectActorMetadata resolves color via Label/View handles, not Actor::Property::COLOR', () => {
+        // Color must come from the visible color the user set (text or background),
+        // not the actor tint multiplier (which is always white by default).
+        expect(template).to.include('Label::DownCast(actor)');
+        expect(template).to.include('View::DownCast(actor)');
+        expect(template).to.include('GetTextColor()');
+        expect(template).to.include('GetBackgroundColor()');
     });
 
     it('CollectActorMetadata calls actor.GetTypeName()', () => {
@@ -168,9 +178,9 @@ describe('Inspector — harness template JSON structure', () => {
 
     // Color format contract (High)
     it('color serialised as JSON array not a plain string', () => {
-        // Array format: "color":[cr,cg,cb,ca]
-        expect(template).to.include('\\"color\\":[');
-        // Must NOT use old string format "color":"..."
+        // The cr,cg,cb,ca array form is used regardless of the key (textColor/backgroundColor)
+        expect(template).to.include('cr << "," << cg << "," << cb << "," << ca');
+        // Must NOT use old string format
         expect(template).to.not.include('\\"color\\":\\"');
     });
 
