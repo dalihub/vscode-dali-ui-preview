@@ -3,11 +3,11 @@
 // Expected log: parse: 0ms (null), compilePlugin: ~350ms, server.reload: ~80ms
 
 auto root = FlexLayout::New();
-root.Direction(FlexDirection::COLUMN);
-root.AlignItems(FlexAlign::STRETCH);
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::STRETCH);
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
-root.SetViewPadding(Extents(20, 20, 24, 20));
+root.SetPadding(Extents(20, 20, 24, 20));
 root.SetBackgroundColor(UiColor(0x1B1B2F));
 
 auto title = Label::New("dlopen Path");
@@ -19,21 +19,21 @@ auto divider = View::New();
 divider.SetBackgroundColor(UiColor(0x333355));
 divider.SetRequestedWidth(MATCH_PARENT);
 divider.SetRequestedHeight(2.0f);
-divider.SetViewMargin(Extents(0, 0, 12, 12));
+divider.SetMargin(Extents(0, 0, 12, 12));
 root.Add(divider);
 
 uint32_t colors[] = { 0x6C63FF, 0xFF6584, 0x43E97B, 0xF7971E, 0x38F9D7 };
-const char* names[] = { "Alpha", "Beta", "Gamma", "Delta", "Epsilon" };
+const char* names[] = { "Alpha", "Beta", "Gamma", "Delta", "Test" };
 
 for (int i = 0; i < 5; i++)
 {
     auto row = FlexLayout::New();
-    row.Direction(FlexDirection::ROW);
-    row.AlignItems(FlexAlign::CENTER);
+    row.SetDirection(FlexDirection::ROW);
+    row.SetAlignItems(FlexAlign::CENTER);
     row.SetRequestedWidth(MATCH_PARENT);
     row.SetRequestedHeight(44.0f);
-    row.SetViewPadding(Extents(12, 12, 6, 6));
-    row.SetViewMargin(Extents(0, 0, 0, 4));
+    row.SetPadding(Extents(12, 12, 6, 6));
+    row.SetMargin(Extents(0, 0, 0, 4));
 
     if (i % 2 == 0)
         row.SetBackgroundColor(UiColor(0x16213E));
@@ -44,7 +44,7 @@ for (int i = 0; i < 5; i++)
     dot.SetBackgroundColor(UiColor(colors[i]));
     dot.SetRequestedWidth(20.0f);
     dot.SetRequestedHeight(20.0f);
-    dot.SetViewMargin(Extents(0, 12, 0, 0));
+    dot.SetMargin(Extents(0, 12, 0, 0));
     row.Add(dot);
 
     auto label = Label::New(names[i]);
@@ -58,7 +58,7 @@ for (int i = 0; i < 5; i++)
 auto footer = Label::New("for loop + if/else + auto");
 footer.SetFontSize(12);
 footer.SetTextColor(UiColor(0x888888));
-footer.SetViewMargin(Extents(0, 0, 16, 0));
+footer.SetMargin(Extents(0, 0, 16, 0));
 root.Add(footer);
 
 return root;

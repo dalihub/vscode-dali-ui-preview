@@ -13,9 +13,9 @@ using namespace Dali::Ui;
 View CreateUI()
 {
     return FlexLayout::New()
-        .Direction(FlexDirection::COLUMN)
-        .AlignItems(FlexAlign::CENTER)
-        .JustifyContent(FlexJustify::CENTER)
+        .SetDirection(FlexDirection::COLUMN)
+        .SetAlignItems(FlexAlign::CENTER)
+        .SetJustifyContent(FlexJustify::CENTER)
         .SetRequestedWidth(MATCH_PARENT)
         .SetRequestedHeight(MATCH_PARENT)
         .SetBackgroundColor(UiColor(0x1B1B2F))
@@ -27,7 +27,7 @@ View CreateUI()
                 .SetBackgroundColor(UiColor(0x4a90d9))
                 .SetRequestedWidth(200.0f)
                 .SetRequestedHeight(2.0f)
-                .SetViewMargin(Extents(0, 0, 16, 16)),
+                .SetMargin(Extents(0, 0, 16, 16)),
             Label::New("Single @preview marker — no end marker needed.")
                 .SetFontSize(14)
                 .SetTextColor(UiColor(0x888888)),

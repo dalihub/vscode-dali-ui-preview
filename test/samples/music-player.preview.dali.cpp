@@ -1,24 +1,24 @@
 // @preview-config: name="Music Player", width=2520, height=4480
 return StackLayout::New(StackOrientation::VERTICAL)
-    .Spacing(0.0f)
+    .SetSpacing(0.0f)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .SetBackgroundColor(UiColor(0x0a0a14))
-    .SetViewPadding(Extents(140, 140, 210, 140))
+    .SetPadding(Extents(140, 140, 210, 140))
     .Children({
 
         // ========== TOP BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(168.0f)
             .Children({
                 Label::New("⌄").SetFontSize(119).SetTextColor(UiColor(0xffffff)),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::COLUMN)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .Children({
                         Label::New("PLAYING FROM PLAYLIST")
                             .SetFontSize(42)
@@ -26,7 +26,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         Label::New("Late Night Drive")
                             .SetFontSize(56)
                             .SetTextColor(UiColor(0xffffff))
-                            .SetViewMargin(Extents(0, 0, 14, 0)),
+                            .SetMargin(Extents(0, 0, 14, 0)),
                     }),
                 Label::New("⋯").SetFontSize(119).SetTextColor(UiColor(0xffffff)),
             }),
@@ -36,8 +36,8 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== ALBUM ART ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/album_art.jpg")
@@ -51,14 +51,14 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== SONG TITLE + ARTIST ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
-                    .AlignItems(FlexAlign::FLEX_START)
+                    .SetDirection(FlexDirection::COLUMN)
+                    .SetAlignItems(FlexAlign::FLEX_START)
                     .Children({
                         Label::New("Midnight City")
                             .SetFontSize(140)
@@ -66,7 +66,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         Label::New("M83")
                             .SetFontSize(70)
                             .SetTextColor(UiColor(0x9ba1b8))
-                            .SetViewMargin(Extents(0, 0, 21, 0)),
+                            .SetMargin(Extents(0, 0, 21, 0)),
                     }),
                 Label::New("♥")
                     .SetFontSize(112)
@@ -78,8 +78,8 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== PROGRESS BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(21.0f)
             .SetBackgroundColor(UiColor(0x1f2540))
@@ -92,10 +92,10 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Time row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
-            .SetViewMargin(Extents(0, 0, 35, 0))
+            .SetMargin(Extents(0, 0, 35, 0))
             .Children({
                 Label::New("1:32").SetFontSize(46).SetTextColor(UiColor(0x9ba1b8)),
                 Label::New("4:03").SetFontSize(46).SetTextColor(UiColor(0x9ba1b8)),
@@ -106,17 +106,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== PLAYBACK CONTROLS ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 Label::New("⇄").SetFontSize(133).SetTextColor(UiColor(0xd1d5e3)),
                 Label::New("◀◀").SetFontSize(133).SetTextColor(UiColor(0xffffff)),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
-                    .JustifyContent(FlexJustify::CENTER)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::COLUMN)
+                    .SetJustifyContent(FlexJustify::CENTER)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(336.0f)
                     .SetRequestedHeight(336.0f)
                     .SetBackgroundColor(UiColor(0xffffff))
@@ -135,16 +135,16 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== BOTTOM ACTION BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 Label::New("◉ JBL Flip 5").SetFontSize(49).SetTextColor(UiColor(0x2dd47b)),
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
+                    .SetDirection(FlexDirection::ROW)
                     .Children({
-                        Label::New("♫").SetFontSize(77).SetTextColor(UiColor(0x9ba1b8)).SetViewMargin(Extents(0, 98, 0, 0)),
+                        Label::New("♫").SetFontSize(77).SetTextColor(UiColor(0x9ba1b8)).SetMargin(Extents(0, 98, 0, 0)),
                         Label::New("≡").SetFontSize(91).SetTextColor(UiColor(0x9ba1b8)),
                     }),
             }),

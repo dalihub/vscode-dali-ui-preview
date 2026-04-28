@@ -1,6 +1,6 @@
 // @preview-config: name="Food Delivery", width=2520, height=4480
 return StackLayout::New(StackOrientation::VERTICAL)
-    .Spacing(0.0f)
+    .SetSpacing(0.0f)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .SetBackgroundColor(UiColor(0xfafafa))
@@ -8,12 +8,12 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== STATUS BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(154.0f)
-            .SetViewPadding(Extents(98, 98, 49, 0))
+            .SetPadding(Extents(98, 98, 49, 0))
             .Children({
                 Label::New("9:41").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)),
                 Label::New("●●●  5G  ▮ 88%").SetFontSize(39).SetTextColor(UiColor(0x1a1a1a)),
@@ -21,21 +21,21 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== HEADER ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(252.0f)
-            .SetViewPadding(Extents(98, 98, 14, 0))
+            .SetPadding(Extents(98, 98, 14, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                     Label::New("DELIVER TO").SetFontSize(42).SetTextColor(UiColor(0xff5a1f)),
-                    Label::New("450 Market St  ⌄").SetFontSize(67).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 18, 0)),
+                    Label::New("450 Market St  ⌄").SetFontSize(67).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 18, 0)),
                 }),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
-                    .JustifyContent(FlexJustify::CENTER)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::COLUMN)
+                    .SetJustifyContent(FlexJustify::CENTER)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(154.0f)
                     .SetRequestedHeight(154.0f)
                     .SetBackgroundColor(UiColor(0xf2f2f2))
@@ -47,14 +47,14 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== SEARCH BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(182.0f)
             .SetBackgroundColor(UiColor(0xf2f2f2))
             .SetCornerRadius(91.0f)
-            .SetViewPadding(Extents(84, 84, 0, 0))
-            .SetViewMargin(Extents(84, 84, 14, 0))
+            .SetPadding(Extents(84, 84, 0, 0))
+            .SetMargin(Extents(84, 84, 14, 0))
             .Children({
                 Label::New("⌕  Search restaurants, cuisines...").SetFontSize(56).SetTextColor(UiColor(0x8a8a8a)),
             }),
@@ -63,41 +63,41 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== CATEGORIES ROW ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
-            .SetViewPadding(Extents(84, 84, 0, 0))
+            .SetPadding(Extents(84, 84, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
-                    FlexLayout::New().Direction(FlexDirection::COLUMN).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(126.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
+                    FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(126.0f).Children({
                         Label::New("★").SetFontSize(105).SetTextColor(UiColor(0xff5a1f)),
                     }),
-                    Label::New("Popular").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 35, 0)),
+                    Label::New("Popular").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 35, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
-                    FlexLayout::New().Direction(FlexDirection::COLUMN).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xe8f5ff)).SetCornerRadius(126.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
+                    FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xe8f5ff)).SetCornerRadius(126.0f).Children({
                         Label::New("◉").SetFontSize(105).SetTextColor(UiColor(0x2563eb)),
                     }),
-                    Label::New("Pizza").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 35, 0)),
+                    Label::New("Pizza").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 35, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
-                    FlexLayout::New().Direction(FlexDirection::COLUMN).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xf3f0ff)).SetCornerRadius(126.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
+                    FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xf3f0ff)).SetCornerRadius(126.0f).Children({
                         Label::New("◆").SetFontSize(105).SetTextColor(UiColor(0x7c3aed)),
                     }),
-                    Label::New("Sushi").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 35, 0)),
+                    Label::New("Sushi").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 35, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
-                    FlexLayout::New().Direction(FlexDirection::COLUMN).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(126.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
+                    FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(126.0f).Children({
                         Label::New("✿").SetFontSize(105).SetTextColor(UiColor(0x1f8a4c)),
                     }),
-                    Label::New("Salad").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 35, 0)),
+                    Label::New("Salad").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 35, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
-                    FlexLayout::New().Direction(FlexDirection::COLUMN).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xfff9e6)).SetCornerRadius(126.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
+                    FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetRequestedWidth(252.0f).SetRequestedHeight(252.0f).SetBackgroundColor(UiColor(0xfff9e6)).SetCornerRadius(126.0f).Children({
                         Label::New("❁").SetFontSize(98).SetTextColor(UiColor(0xe0a800)),
                     }),
-                    Label::New("Ramen").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetViewMargin(Extents(0, 0, 35, 0)),
+                    Label::New("Ramen").SetFontSize(49).SetTextColor(UiColor(0x1a1a1a)).SetMargin(Extents(0, 0, 35, 0)),
                 }),
             }),
 
@@ -105,9 +105,9 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== HERO PROMO BANNER ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
-            .SetViewMargin(Extents(84, 84, 0, 0))
+            .SetMargin(Extents(84, 84, 0, 0))
             .Children({
                 ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/banner_food.jpg")
                     .SetRequestedWidth(MATCH_PARENT)
@@ -119,11 +119,11 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== POPULAR NEAR YOU HEADER ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
-            .SetViewPadding(Extents(98, 98, 0, 0))
+            .SetPadding(Extents(98, 98, 0, 0))
             .Children({
                 Label::New("Popular near you").SetFontSize(70).SetTextColor(UiColor(0x1a1a1a)),
                 Label::New("See all  →").SetFontSize(46).SetTextColor(UiColor(0xff5a1f)),
@@ -133,25 +133,25 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== RESTAURANT CARD 1 ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetBackgroundColor(UiColor(0xffffff))
             .SetCornerRadius(70.0f)
-            .SetViewMargin(Extents(84, 84, 0, 0))
+            .SetMargin(Extents(84, 84, 0, 0))
             .Children({
                 ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/meal1.jpg")
                     .SetRequestedWidth(MATCH_PARENT)
                     .SetRequestedHeight(490.0f)
                     .SetCornerRadius(70.0f, 70.0f, 0.0f, 0.0f),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
+                    .SetDirection(FlexDirection::COLUMN)
                     .SetRequestedWidth(MATCH_PARENT)
-                    .SetViewPadding(Extents(63, 63, 49, 56))
+                    .SetPadding(Extents(63, 63, 49, 56))
                     .Children({
                         FlexLayout::New()
-                            .Direction(FlexDirection::ROW)
-                            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                            .AlignItems(FlexAlign::CENTER)
+                            .SetDirection(FlexDirection::ROW)
+                            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                            .SetAlignItems(FlexAlign::CENTER)
                             .SetRequestedWidth(MATCH_PARENT)
                             .Children({
                                 Label::New("Bella Vista Trattoria").SetFontSize(70).SetTextColor(UiColor(0x1a1a1a)),
@@ -160,19 +160,19 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         Label::New("Italian  ·  $$  ·  1.2 mi")
                             .SetFontSize(49)
                             .SetTextColor(UiColor(0x8a8a8a))
-                            .SetViewMargin(Extents(0, 0, 28, 0)),
+                            .SetMargin(Extents(0, 0, 28, 0)),
                         FlexLayout::New()
-                            .Direction(FlexDirection::ROW)
-                            .AlignItems(FlexAlign::CENTER)
-                            .SetViewMargin(Extents(0, 0, 35, 0))
+                            .SetDirection(FlexDirection::ROW)
+                            .SetAlignItems(FlexAlign::CENTER)
+                            .SetMargin(Extents(0, 0, 35, 0))
                             .Children({
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).SetViewMargin(Extents(0, 28, 0, 0)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).SetMargin(Extents(0, 28, 0, 0)).Children({
                                     Label::New("★ 4.8").SetFontSize(39).SetTextColor(UiColor(0x1f8a4c)),
                                 }),
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).SetViewMargin(Extents(0, 28, 0, 0)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).SetMargin(Extents(0, 28, 0, 0)).Children({
                                     Label::New("25–35 min").SetFontSize(39).SetTextColor(UiColor(0xff5a1f)),
                                 }),
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xf2f2f2)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xf2f2f2)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).Children({
                                     Label::New("Free delivery").SetFontSize(39).SetTextColor(UiColor(0x1a1a1a)),
                                 }),
                             }),
@@ -183,25 +183,25 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== RESTAURANT CARD 2 ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetBackgroundColor(UiColor(0xffffff))
             .SetCornerRadius(70.0f)
-            .SetViewMargin(Extents(84, 84, 0, 0))
+            .SetMargin(Extents(84, 84, 0, 0))
             .Children({
                 ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/meal2.jpg")
                     .SetRequestedWidth(MATCH_PARENT)
                     .SetRequestedHeight(490.0f)
                     .SetCornerRadius(70.0f, 70.0f, 0.0f, 0.0f),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
+                    .SetDirection(FlexDirection::COLUMN)
                     .SetRequestedWidth(MATCH_PARENT)
-                    .SetViewPadding(Extents(63, 63, 49, 56))
+                    .SetPadding(Extents(63, 63, 49, 56))
                     .Children({
                         FlexLayout::New()
-                            .Direction(FlexDirection::ROW)
-                            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                            .AlignItems(FlexAlign::CENTER)
+                            .SetDirection(FlexDirection::ROW)
+                            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                            .SetAlignItems(FlexAlign::CENTER)
                             .SetRequestedWidth(MATCH_PARENT)
                             .Children({
                                 Label::New("Sakura Sushi Bar").SetFontSize(70).SetTextColor(UiColor(0x1a1a1a)),
@@ -210,19 +210,19 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         Label::New("Japanese  ·  $$$  ·  0.8 mi")
                             .SetFontSize(49)
                             .SetTextColor(UiColor(0x8a8a8a))
-                            .SetViewMargin(Extents(0, 0, 28, 0)),
+                            .SetMargin(Extents(0, 0, 28, 0)),
                         FlexLayout::New()
-                            .Direction(FlexDirection::ROW)
-                            .AlignItems(FlexAlign::CENTER)
-                            .SetViewMargin(Extents(0, 0, 35, 0))
+                            .SetDirection(FlexDirection::ROW)
+                            .SetAlignItems(FlexAlign::CENTER)
+                            .SetMargin(Extents(0, 0, 35, 0))
                             .Children({
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).SetViewMargin(Extents(0, 28, 0, 0)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xecfaf1)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).SetMargin(Extents(0, 28, 0, 0)).Children({
                                     Label::New("★ 4.9").SetFontSize(39).SetTextColor(UiColor(0x1f8a4c)),
                                 }),
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).SetViewMargin(Extents(0, 28, 0, 0)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfff5ed)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).SetMargin(Extents(0, 28, 0, 0)).Children({
                                     Label::New("15–25 min").SetFontSize(39).SetTextColor(UiColor(0xff5a1f)),
                                 }),
-                                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).AlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfef3f3)).SetCornerRadius(38.5f).SetViewPadding(Extents(35, 35, 14, 14)).Children({
+                                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetAlignItems(FlexAlign::CENTER).SetBackgroundColor(UiColor(0xfef3f3)).SetCornerRadius(38.5f).SetPadding(Extents(35, 35, 14, 14)).Children({
                                     Label::New("$2.99 deliv").SetFontSize(39).SetTextColor(UiColor(0xdc2626)),
                                 }),
                             }),
@@ -233,28 +233,28 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== BOTTOM TAB BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_EVENLY)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_EVENLY)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(252.0f)
             .SetBackgroundColor(UiColor(0xffffff))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
                     Label::New("⌂").SetFontSize(77).SetTextColor(UiColor(0xff5a1f)),
-                    Label::New("Home").SetFontSize(35).SetTextColor(UiColor(0xff5a1f)).SetViewMargin(Extents(0, 0, 14, 0)),
+                    Label::New("Home").SetFontSize(35).SetTextColor(UiColor(0xff5a1f)).SetMargin(Extents(0, 0, 14, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
                     Label::New("⌕").SetFontSize(77).SetTextColor(UiColor(0x8a8a8a)),
-                    Label::New("Search").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetViewMargin(Extents(0, 0, 14, 0)),
+                    Label::New("Search").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetMargin(Extents(0, 0, 14, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
                     Label::New("☰").SetFontSize(77).SetTextColor(UiColor(0x8a8a8a)),
-                    Label::New("Orders").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetViewMargin(Extents(0, 0, 14, 0)),
+                    Label::New("Orders").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetMargin(Extents(0, 0, 14, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).Children({
                     Label::New("◉").SetFontSize(77).SetTextColor(UiColor(0x8a8a8a)),
-                    Label::New("Profile").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetViewMargin(Extents(0, 0, 14, 0)),
+                    Label::New("Profile").SetFontSize(35).SetTextColor(UiColor(0x8a8a8a)).SetMargin(Extents(0, 0, 14, 0)),
                 }),
             }),
     });

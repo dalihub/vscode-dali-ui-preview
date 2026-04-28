@@ -1,9 +1,9 @@
 return StackLayout::New(StackOrientation::VERTICAL)
-    .Spacing(0.0f)
+    .SetSpacing(0.0f)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .SetBackgroundColor(UiColor(0x1a1a2e))
-    .SetViewPadding(Extents(32, 32, 24, 16))
+    .SetPadding(Extents(32, 32, 24, 16))
     .Children({
 
         // ── Header ──
@@ -17,7 +17,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
             .SetBackgroundColor(UiColor(0x6c63ff))
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(2.0f)
-            .SetViewMargin(Extents(0, 0, 8, 16)),
+            .SetMargin(Extents(0, 0, 8, 16)),
 
         // ── Display Section ──
         Label::New("Display")
@@ -27,17 +27,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Brightness row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x22223a))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0xf9a825)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Brightness").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Brightness").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x4caf50)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -46,17 +46,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Dark Mode row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x22223a))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0x7c4dff)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Dark Mode").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Dark Mode").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x4caf50)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -72,17 +72,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Volume row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x1e2038))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0xef5350)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Volume").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Volume").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x4caf50)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -91,17 +91,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Vibration row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x1e2038))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0xff7043)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Vibration").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Vibration").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x555568)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -117,17 +117,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Wi-Fi row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x1c1e36))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0x42a5f5)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Wi-Fi").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Wi-Fi").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x4caf50)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -136,17 +136,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Bluetooth row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x1c1e36))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0x1565c0)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Bluetooth").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Bluetooth").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x555568)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),
@@ -155,17 +155,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // Airplane Mode row
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .AlignItems(FlexAlign::CENTER)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetAlignItems(FlexAlign::CENTER)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(44.0f)
             .SetBackgroundColor(UiColor(0x1c1e36))
-            .SetViewPadding(Extents(16, 16, 0, 0))
+            .SetPadding(Extents(16, 16, 0, 0))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0x66bb6a)).SetRequestedWidth(24.0f).SetRequestedHeight(24.0f),
-                    Label::New("Airplane Mode").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetViewMargin(Extents(12, 0, 0, 0)),
+                    Label::New("Airplane Mode").SetFontSize(18).SetTextColor(UiColor(0xe0e0e0)).SetMargin(Extents(12, 0, 0, 0)),
                 }),
                 View::New().SetBackgroundColor(UiColor(0x555568)).SetRequestedWidth(48.0f).SetRequestedHeight(22.0f),
             }),

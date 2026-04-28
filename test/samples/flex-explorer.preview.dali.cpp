@@ -1,7 +1,7 @@
 return FlexLayout::New()
-    .Direction(FlexDirection::COLUMN)
-    .AlignItems(FlexAlign::CENTER)
-    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+    .SetDirection(FlexDirection::COLUMN)
+    .SetAlignItems(FlexAlign::CENTER)
+    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .Children({

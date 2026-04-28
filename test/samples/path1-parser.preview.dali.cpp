@@ -3,11 +3,11 @@
 // Expected log: parse: 0ms (success), renderJson: ~80ms
 
 return FlexLayout::New()
-    .Direction(FlexDirection::COLUMN)
-    .AlignItems(FlexAlign::STRETCH)
+    .SetDirection(FlexDirection::COLUMN)
+    .SetAlignItems(FlexAlign::STRETCH)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
-    .SetViewPadding(Extents(20, 20, 24, 20))
+    .SetPadding(Extents(20, 20, 24, 20))
     .SetBackgroundColor(UiColor(0x1B1B2F))
     .Children({
         Label::New("Parser Path")
@@ -17,10 +17,10 @@ return FlexLayout::New()
             .SetBackgroundColor(UiColor(0x333355))
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(2.0f)
-            .SetViewMargin(Extents(0, 0, 12, 12)),
+            .SetMargin(Extents(0, 0, 12, 12)),
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 View::New().SetBackgroundColor(UiColor(0x6C63FF)).SetRequestedWidth(100.0f).SetRequestedHeight(80.0f),
@@ -30,5 +30,5 @@ return FlexLayout::New()
         Label::New("No C++ compile needed")
             .SetFontSize(12)
             .SetTextColor(UiColor(0x888888))
-            .SetViewMargin(Extents(0, 0, 16, 0)),
+            .SetMargin(Extents(0, 0, 16, 0)),
     });
