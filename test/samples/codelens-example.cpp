@@ -9,11 +9,11 @@ using Dali::Ui::View;
 View CreateMainUI()
 {
     return FlexLayout::New()
-        .Direction(FlexDirection::COLUMN)
-        .AlignItems(FlexAlign::STRETCH)
+        .SetDirection(FlexDirection::COLUMN)
+        .SetAlignItems(FlexAlign::STRETCH)
         .SetRequestedWidth(MATCH_PARENT)
         .SetRequestedHeight(MATCH_PARENT)
-        .SetViewPadding(Extents(20, 20, 24, 20))
+        .SetPadding(Extents(20, 20, 24, 20))
         .SetBackgroundColor(UiColor(0x1B1B2F))
         .Children({
             Label::New("Main Page")
@@ -24,8 +24,8 @@ View CreateMainUI()
                 .SetRequestedWidth(MATCH_PARENT)
                 .SetRequestedHeight(2.0f),
             FlexLayout::New()
-                .Direction(FlexDirection::ROW)
-                .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                .SetDirection(FlexDirection::ROW)
+                .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                 .SetRequestedWidth(MATCH_PARENT)
                 .Children({
                     View::New().SetBackgroundColor(UiColor(0x6C63FF)).SetRequestedWidth(100.0f).SetRequestedHeight(80.0f),
@@ -38,9 +38,9 @@ View CreateMainUI()
 View CreateSettings()
 {
     return FlexLayout::New()
-        .Direction(FlexDirection::COLUMN)
-        .AlignItems(FlexAlign::CENTER)
-        .JustifyContent(FlexJustify::CENTER)
+        .SetDirection(FlexDirection::COLUMN)
+        .SetAlignItems(FlexAlign::CENTER)
+        .SetJustifyContent(FlexJustify::CENTER)
         .SetRequestedWidth(MATCH_PARENT)
         .SetRequestedHeight(MATCH_PARENT)
         .SetBackgroundColor(UiColor(0x2D2D3F))
@@ -52,7 +52,7 @@ View CreateSettings()
                 .SetBackgroundColor(UiColor(0x4a90d9))
                 .SetRequestedWidth(200.0f)
                 .SetRequestedHeight(4.0f)
-                .SetViewMargin(Extents(0, 0, 12, 12)),
+                .SetMargin(Extents(0, 0, 12, 12)),
             Label::New("Toggle dark mode, adjust font size, etc.")
                 .SetFontSize(14)
                 .SetTextColor(UiColor(0x888888)),

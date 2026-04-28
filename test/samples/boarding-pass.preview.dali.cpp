@@ -1,6 +1,6 @@
 // @preview-config: name="Boarding Pass", width=2520, height=4480
 return StackLayout::New(StackOrientation::VERTICAL)
-    .Spacing(0.0f)
+    .SetSpacing(0.0f)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .SetBackgroundColor(UiColor(0xeef0f5))
@@ -8,12 +8,12 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== STATUS BAR ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(154.0f)
-            .SetViewPadding(Extents(98, 98, 49, 0))
+            .SetPadding(Extents(98, 98, 49, 0))
             .Children({
                 Label::New("9:41").SetFontSize(49).SetTextColor(UiColor(0x1a1a2e)),
                 Label::New("●●●  5G  ▮ 81%").SetFontSize(39).SetTextColor(UiColor(0x1a1a2e)),
@@ -21,12 +21,12 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== HEADER ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(224.0f)
-            .SetViewPadding(Extents(98, 98, 28, 0))
+            .SetPadding(Extents(98, 98, 28, 0))
             .Children({
                 Label::New("←").SetFontSize(91).SetTextColor(UiColor(0x1a1a2e)),
                 Label::New("Boarding Pass").SetFontSize(63).SetTextColor(UiColor(0x1a1a2e)),
@@ -35,17 +35,17 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== AIRLINE BADGE ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
-            .SetViewPadding(Extents(119, 119, 14, 49))
+            .SetPadding(Extents(119, 119, 14, 49))
             .Children({
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     FlexLayout::New()
-                        .Direction(FlexDirection::COLUMN)
-                        .JustifyContent(FlexJustify::CENTER)
-                        .AlignItems(FlexAlign::CENTER)
+                        .SetDirection(FlexDirection::COLUMN)
+                        .SetJustifyContent(FlexJustify::CENTER)
+                        .SetAlignItems(FlexAlign::CENTER)
                         .SetRequestedWidth(140.0f)
                         .SetRequestedHeight(140.0f)
                         .SetBackgroundColor(UiColor(0x0b2545))
@@ -53,38 +53,38 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         .Children({
                             Label::New("LH").SetFontSize(46).SetTextColor(UiColor(0xffc72c)),
                         }),
-                    Label::New("Lufthansa").SetFontSize(49).SetTextColor(UiColor(0x1a1a2e)).SetViewMargin(Extents(42, 0, 0, 0)),
+                    Label::New("Lufthansa").SetFontSize(49).SetTextColor(UiColor(0x1a1a2e)).SetMargin(Extents(42, 0, 0, 0)),
                 }),
-                FlexLayout::New().Direction(FlexDirection::ROW).AlignItems(FlexAlign::CENTER).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetAlignItems(FlexAlign::CENTER).Children({
                     View::New().SetBackgroundColor(UiColor(0x1f8a4c)).SetRequestedWidth(28.0f).SetRequestedHeight(28.0f).SetCornerRadius(14.0f),
-                    Label::New("BOARDING").SetFontSize(39).SetTextColor(UiColor(0x1f8a4c)).SetViewMargin(Extents(28, 0, 0, 0)),
+                    Label::New("BOARDING").SetFontSize(39).SetTextColor(UiColor(0x1f8a4c)).SetMargin(Extents(28, 0, 0, 0)),
                 }),
             }),
 
         // ========== BOARDING PASS CARD ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetBackgroundColor(UiColor(0x0b2545))
             .SetCornerRadius(98.0f)
-            .SetViewMargin(Extents(84, 84, 0, 0))
-            .SetViewPadding(Extents(112, 112, 105, 98))
+            .SetMargin(Extents(84, 84, 0, 0))
+            .SetPadding(Extents(112, 112, 105, 98))
             .Children({
 
                 // --- Top info row: FLIGHT + DATE ---
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("FLIGHT").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("LH 440").SetFontSize(77).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 21, 0)),
+                            Label::New("LH 440").SetFontSize(77).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 21, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_END).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_END).Children({
                             Label::New("DATE").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("Apr 15, 2026").SetFontSize(77).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 21, 0)),
+                            Label::New("Apr 15, 2026").SetFontSize(77).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 21, 0)),
                         }),
                     }),
 
@@ -92,32 +92,32 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // --- Route: FRA → SFO ---
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("FRANKFURT").SetFontSize(39).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("FRA").SetFontSize(203).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 7, 0)),
-                            Label::New("07:45").SetFontSize(49).SetTextColor(UiColor(0xcbd5e1)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("FRA").SetFontSize(203).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 7, 0)),
+                            Label::New("07:45").SetFontSize(49).SetTextColor(UiColor(0xcbd5e1)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::CENTER).JustifyContent(FlexJustify::CENTER).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::CENTER).SetJustifyContent(FlexJustify::CENTER).Children({
                             Label::New("◆").SetFontSize(84).SetTextColor(UiColor(0xffc72c)),
-                            View::New().SetRequestedWidth(420.0f).SetRequestedHeight(3.5f).SetBackgroundColor(UiColor(0x4a6b9a)).SetViewMargin(Extents(0, 0, 28, 28)),
+                            View::New().SetRequestedWidth(420.0f).SetRequestedHeight(3.5f).SetBackgroundColor(UiColor(0x4a6b9a)).SetMargin(Extents(0, 0, 28, 28)),
                             Label::New("11h 35m").SetFontSize(39).SetTextColor(UiColor(0x7b90b5)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_END).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_END).Children({
                             Label::New("SAN FRANCISCO").SetFontSize(39).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("SFO").SetFontSize(203).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 7, 0)),
-                            Label::New("10:20").SetFontSize(49).SetTextColor(UiColor(0xcbd5e1)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("SFO").SetFontSize(203).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 7, 0)),
+                            Label::New("10:20").SetFontSize(49).SetTextColor(UiColor(0xcbd5e1)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
                     }),
 
                 View::New().SetRequestedHeight(136.5f),
 
                 // --- Divider ---
-                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::SPACE_BETWEEN).SetRequestedWidth(MATCH_PARENT).SetRequestedHeight(14.0f).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::SPACE_BETWEEN).SetRequestedWidth(MATCH_PARENT).SetRequestedHeight(14.0f).Children({
                     View::New().SetBackgroundColor(UiColor(0x4a6b9a)).SetRequestedWidth(28.0f).SetRequestedHeight(7.0f),
                     View::New().SetBackgroundColor(UiColor(0x4a6b9a)).SetRequestedWidth(28.0f).SetRequestedHeight(7.0f),
                     View::New().SetBackgroundColor(UiColor(0x4a6b9a)).SetRequestedWidth(28.0f).SetRequestedHeight(7.0f),
@@ -140,42 +140,42 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // --- Passenger info grid: 3 cols × 2 rows ---
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("PASSENGER").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("ALEX MORGAN").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("ALEX MORGAN").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("CLASS").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("BUSINESS").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("BUSINESS").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("SEAT").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("4A").SetFontSize(60).SetTextColor(UiColor(0xffc72c)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("4A").SetFontSize(60).SetTextColor(UiColor(0xffc72c)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
                     }),
 
                 View::New().SetRequestedHeight(91.0f),
 
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("GATE").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("Z18").SetFontSize(60).SetTextColor(UiColor(0xffc72c)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("Z18").SetFontSize(60).SetTextColor(UiColor(0xffc72c)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("BOARDING").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("07:05").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("07:05").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("GROUP").SetFontSize(35).SetTextColor(UiColor(0x7b90b5)),
-                            Label::New("2").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("2").SetFontSize(60).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
                     }),
 
@@ -185,9 +185,9 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // --- Barcode (stylized vertical bars) ---
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .AlignItems(FlexAlign::CENTER)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetAlignItems(FlexAlign::CENTER)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .SetRequestedHeight(266.0f)
                     .Children({
@@ -229,7 +229,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
                     }),
 
                 View::New().SetRequestedHeight(63.7f),
-                FlexLayout::New().Direction(FlexDirection::ROW).JustifyContent(FlexJustify::CENTER).SetRequestedWidth(MATCH_PARENT).Children({
+                FlexLayout::New().SetDirection(FlexDirection::ROW).SetJustifyContent(FlexJustify::CENTER).SetRequestedWidth(MATCH_PARENT).Children({
                     Label::New("LH0440  ·  FRA-SFO  ·  15APR  ·  BUSINESS").SetFontSize(39).SetTextColor(UiColor(0x7b90b5)),
                 }),
             }),
@@ -238,14 +238,14 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== CTA: ADD TO WALLET ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::CENTER)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::CENTER)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .SetRequestedHeight(196.0f)
             .SetBackgroundColor(UiColor(0x1a1a2e))
             .SetCornerRadius(98.0f)
-            .SetViewMargin(Extents(280, 280, 0, 0))
+            .SetMargin(Extents(280, 280, 0, 0))
             .Children({
                 Label::New("Add to Wallet  →").SetFontSize(53).SetTextColor(UiColor(0xffffff)),
             }),

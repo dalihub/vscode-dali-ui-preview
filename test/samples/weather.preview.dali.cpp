@@ -1,9 +1,9 @@
 return FlexLayout::New()
-    .Direction(FlexDirection::COLUMN)
-    .AlignItems(FlexAlign::CENTER)
+    .SetDirection(FlexDirection::COLUMN)
+    .SetAlignItems(FlexAlign::CENTER)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
-    .SetViewPadding(Extents(30, 30, 30, 30))
+    .SetPadding(Extents(30, 30, 30, 30))
     .SetBackgroundColor(UiColor(0x1a1a2e))
     .Children({
         Label::New("Test")

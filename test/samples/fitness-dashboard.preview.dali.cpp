@@ -1,22 +1,22 @@
 // @preview-config: name="Fitness Dashboard", width=2520, height=4480
 return StackLayout::New(StackOrientation::VERTICAL)
-    .Spacing(0.0f)
+    .SetSpacing(0.0f)
     .SetRequestedWidth(MATCH_PARENT)
     .SetRequestedHeight(MATCH_PARENT)
     .SetBackgroundColor(UiColor(0x0b0d16))
-    .SetViewPadding(Extents(112, 112, 196, 112))
+    .SetPadding(Extents(112, 112, 196, 112))
     .Children({
 
         // ========== HEADER ==========
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
-            .JustifyContent(FlexJustify::SPACE_BETWEEN)
-            .AlignItems(FlexAlign::CENTER)
+            .SetDirection(FlexDirection::ROW)
+            .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+            .SetAlignItems(FlexAlign::CENTER)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
-                    .AlignItems(FlexAlign::FLEX_START)
+                    .SetDirection(FlexDirection::COLUMN)
+                    .SetAlignItems(FlexAlign::FLEX_START)
                     .Children({
                         Label::New("Good morning,")
                             .SetFontSize(56)
@@ -24,7 +24,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
                         Label::New("Alex")
                             .SetFontSize(119)
                             .SetTextColor(UiColor(0xffffff))
-                            .SetViewMargin(Extents(0, 0, 14, 0)),
+                            .SetMargin(Extents(0, 0, 14, 0)),
                     }),
                 ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/portrait1.jpg")
                     .SetRequestedWidth(238.0f)
@@ -36,16 +36,16 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== ACTIVITY SUMMARY CARD ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetBackgroundColor(UiColor(0x15182a))
             .SetCornerRadius(84.0f)
-            .SetViewPadding(Extents(91, 91, 84, 84))
+            .SetPadding(Extents(91, 91, 84, 84))
             .Children({
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
                         Label::New("TODAY'S ACTIVITY")
@@ -66,7 +66,7 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // Progress bar
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
+                    .SetDirection(FlexDirection::ROW)
                     .SetRequestedWidth(MATCH_PARENT)
                     .SetRequestedHeight(28.0f)
                     .SetBackgroundColor(UiColor(0x242842))
@@ -83,23 +83,23 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // Stat pills row
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("Calories").SetFontSize(42).SetTextColor(UiColor(0x7a82a5)),
-                            Label::New("<color value='#ff8a5c'>⧫ </color><color value='#ffffff'>482</color>").SetMarkupEnabled(true).SetFontSize(77).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("<color value='#ff8a5c'>⧫ </color><color value='#ffffff'>482</color>").SetMarkupEnabled(true).SetFontSize(77).SetMargin(Extents(0, 0, 14, 0)),
                             Label::New("kcal").SetFontSize(39).SetTextColor(UiColor(0x7a82a5)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("Distance").SetFontSize(42).SetTextColor(UiColor(0x7a82a5)),
-                            Label::New("<color value='#5cb2ff'>◉ </color><color value='#ffffff'>6.2</color>").SetMarkupEnabled(true).SetFontSize(77).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("<color value='#5cb2ff'>◉ </color><color value='#ffffff'>6.2</color>").SetMarkupEnabled(true).SetFontSize(77).SetMargin(Extents(0, 0, 14, 0)),
                             Label::New("km").SetFontSize(39).SetTextColor(UiColor(0x7a82a5)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("Active").SetFontSize(42).SetTextColor(UiColor(0x7a82a5)),
-                            Label::New("<color value='#c879ff'>◆ </color><color value='#ffffff'>54</color>").SetMarkupEnabled(true).SetFontSize(77).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("<color value='#c879ff'>◆ </color><color value='#ffffff'>54</color>").SetMarkupEnabled(true).SetFontSize(77).SetMargin(Extents(0, 0, 14, 0)),
                             Label::New("min").SetFontSize(39).SetTextColor(UiColor(0x7a82a5)),
                         }),
                     }),
@@ -109,26 +109,26 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
         // ========== HEART RATE CARD ==========
         FlexLayout::New()
-            .Direction(FlexDirection::COLUMN)
+            .SetDirection(FlexDirection::COLUMN)
             .SetRequestedWidth(MATCH_PARENT)
             .SetBackgroundColor(UiColor(0x15182a))
             .SetCornerRadius(84.0f)
-            .SetViewPadding(Extents(91, 91, 77, 77))
+            .SetPadding(Extents(91, 91, 77, 77))
             .Children({
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
-                    .AlignItems(FlexAlign::CENTER)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetAlignItems(FlexAlign::CENTER)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_START).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_START).Children({
                             Label::New("HEART RATE").SetFontSize(39).SetTextColor(UiColor(0x7a82a5)),
                             Label::New("<color value='#ff4d7a'>♥ </color><color value='#ffffff'><font size='140'>72</font></color><color value='#7a82a5'><font size='63'> bpm</font></color>")
-                                .SetMarkupEnabled(true).SetViewMargin(Extents(0, 0, 21, 0)),
+                                .SetMarkupEnabled(true).SetMargin(Extents(0, 0, 21, 0)),
                         }),
-                        FlexLayout::New().Direction(FlexDirection::COLUMN).AlignItems(FlexAlign::FLEX_END).Children({
+                        FlexLayout::New().SetDirection(FlexDirection::COLUMN).SetAlignItems(FlexAlign::FLEX_END).Children({
                             Label::New("RESTING").SetFontSize(35).SetTextColor(UiColor(0x7a82a5)),
-                            Label::New("62").SetFontSize(77).SetTextColor(UiColor(0xd7ddf5)).SetViewMargin(Extents(0, 0, 14, 0)),
+                            Label::New("62").SetFontSize(77).SetTextColor(UiColor(0xd7ddf5)).SetMargin(Extents(0, 0, 14, 0)),
                         }),
                     }),
 
@@ -136,9 +136,9 @@ return StackLayout::New(StackOrientation::VERTICAL)
 
                 // Fake heart-rate sparkline using bars of varying height
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .AlignItems(FlexAlign::FLEX_END)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetAlignItems(FlexAlign::FLEX_END)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .SetRequestedHeight(280.0f)
                     .Children({
@@ -167,8 +167,8 @@ return StackLayout::New(StackOrientation::VERTICAL)
                 View::New().SetRequestedHeight(45.5f),
 
                 FlexLayout::New()
-                    .Direction(FlexDirection::ROW)
-                    .JustifyContent(FlexJustify::SPACE_BETWEEN)
+                    .SetDirection(FlexDirection::ROW)
+                    .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
                     .SetRequestedWidth(MATCH_PARENT)
                     .Children({
                         Label::New("6AM").SetFontSize(39).SetTextColor(UiColor(0x7a82a5)),
@@ -189,45 +189,45 @@ return StackLayout::New(StackOrientation::VERTICAL)
         View::New().SetRequestedHeight(63.7f),
 
         FlexLayout::New()
-            .Direction(FlexDirection::ROW)
+            .SetDirection(FlexDirection::ROW)
             .SetRequestedWidth(MATCH_PARENT)
             .Children({
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
+                    .SetDirection(FlexDirection::COLUMN)
                     .SetRequestedWidth(686.0f)
                     .SetBackgroundColor(UiColor(0x15182a))
                     .SetCornerRadius(70.0f)
-                    .SetViewPadding(Extents(63, 63, 63, 63))
-                    .SetViewMargin(Extents(0, 49, 0, 0))
+                    .SetPadding(Extents(63, 63, 63, 63))
+                    .SetMargin(Extents(0, 49, 0, 0))
                     .Children({
                         Label::New("◉").SetFontSize(98).SetTextColor(UiColor(0x00d4a8)),
-                        Label::New("Running").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 49, 0)),
-                        Label::New("5.2 km").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetViewMargin(Extents(0, 0, 14, 0)),
+                        Label::New("Running").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 49, 0)),
+                        Label::New("5.2 km").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetMargin(Extents(0, 0, 14, 0)),
                         Label::New("32 min").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)),
                     }),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
+                    .SetDirection(FlexDirection::COLUMN)
                     .SetRequestedWidth(686.0f)
                     .SetBackgroundColor(UiColor(0x15182a))
                     .SetCornerRadius(70.0f)
-                    .SetViewPadding(Extents(63, 63, 63, 63))
-                    .SetViewMargin(Extents(0, 49, 0, 0))
+                    .SetPadding(Extents(63, 63, 63, 63))
+                    .SetMargin(Extents(0, 49, 0, 0))
                     .Children({
                         Label::New("◆").SetFontSize(98).SetTextColor(UiColor(0xc879ff)),
-                        Label::New("Yoga").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 49, 0)),
-                        Label::New("Flow class").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetViewMargin(Extents(0, 0, 14, 0)),
+                        Label::New("Yoga").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 49, 0)),
+                        Label::New("Flow class").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetMargin(Extents(0, 0, 14, 0)),
                         Label::New("45 min").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)),
                     }),
                 FlexLayout::New()
-                    .Direction(FlexDirection::COLUMN)
+                    .SetDirection(FlexDirection::COLUMN)
                     .SetRequestedWidth(686.0f)
                     .SetBackgroundColor(UiColor(0x15182a))
                     .SetCornerRadius(70.0f)
-                    .SetViewPadding(Extents(63, 63, 63, 63))
+                    .SetPadding(Extents(63, 63, 63, 63))
                     .Children({
                         Label::New("⧫").SetFontSize(98).SetTextColor(UiColor(0xff8a5c)),
-                        Label::New("Cycling").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetViewMargin(Extents(0, 0, 49, 0)),
-                        Label::New("18.4 km").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetViewMargin(Extents(0, 0, 14, 0)),
+                        Label::New("Cycling").SetFontSize(53).SetTextColor(UiColor(0xffffff)).SetMargin(Extents(0, 0, 49, 0)),
+                        Label::New("18.4 km").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)).SetMargin(Extents(0, 0, 14, 0)),
                         Label::New("52 min").SetFontSize(46).SetTextColor(UiColor(0x7a82a5)),
                     }),
             }),

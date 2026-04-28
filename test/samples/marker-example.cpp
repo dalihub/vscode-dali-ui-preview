@@ -23,12 +23,12 @@ public:
         View BuildCard()
         {
             return FlexLayout::New()
-                .Direction(FlexDirection::COLUMN)
-                .AlignItems(FlexAlign::CENTER)
-                .JustifyContent(FlexJustify::CENTER)
+                .SetDirection(FlexDirection::COLUMN)
+                .SetAlignItems(FlexAlign::CENTER)
+                .SetJustifyContent(FlexJustify::CENTER)
                 .SetRequestedWidth(MATCH_PARENT)
                 .SetRequestedHeight(MATCH_PARENT)
-                .SetViewPadding(Extents(20, 20, 20, 20))
+                .SetPadding(Extents(20, 20, 20, 20))
                 .SetBackgroundColor(UiColor(0x2d2d3f))
                 .Children({
                     Label::New("Marker")
@@ -39,8 +39,8 @@ public:
                         .SetRequestedWidth(MATCH_PARENT)
                         .SetRequestedHeight(2.0f),
                     FlexLayout::New()
-                        .Direction(FlexDirection::ROW)
-                        .JustifyContent(FlexJustify::CENTER)
+                        .SetDirection(FlexDirection::ROW)
+                        .SetJustifyContent(FlexJustify::CENTER)
                         .SetRequestedWidth(MATCH_PARENT)
                         .Children({
                             View::New()
