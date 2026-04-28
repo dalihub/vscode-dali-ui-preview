@@ -155,8 +155,15 @@ export async function activate(context: vscode.ExtensionContext) {
         },
     );
 
-    // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable
+    // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable.
+    // Honored at startup: when daliPreview.disablePreviewServer is true the server
+    // is never spawned, so every preview goes through the full g++ harness path.
     const initPreviewServer = async () => {
+        if (ConfigurationService.getInstance().disablePreviewServer) {
+            outputChannel.appendLine('[PreviewServer] Skipped (daliPreview.disablePreviewServer is true) — using Phase 1 full harness path');
+            statusBar?.showMode('compile');
+            return;
+        }
         const daliPrefix = await buildRunner!.getDaliPrefix();
         if (!daliPrefix) {
             return;

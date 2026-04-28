@@ -5,6 +5,113 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-04-28 — Inspector Read-Only + Multi-Config UX Polish
+
+### Highlights
+
+- Inspector becomes a faithful read-only view of runtime state; the
+  source-rewriting property editor is gone. ~1100 LOC removed.
+- Multi-config previews finally show all configs reliably and respond
+  to UI controls (theme toggle, bg color picker) consistently.
+- Inspector finally reports the user's actual color (text color for
+  Label, background color for View) instead of the actor tint
+  multiplier (which was always white).
+- A dedicated diagnostic setting replaces the no-longer-working
+  "delete the binary" instruction for measuring the full harness path.
+
+### Added
+
+- **`daliPreview.disablePreviewServer`** boolean setting. When true the
+  preview server is never spawned, so every build falls through to the
+  full g++ harness path (~1100 ms). Useful for measuring or reproducing
+  the slow path. Reflected in the toolbar status as "compile" mode.
+- **Inspector color swatch**: color/textColor/backgroundColor properties
+  now render as a 12 px swatch + `#RRGGBB` label, with the raw RGBA
+  visible in the tooltip.
+- **Click-to-code expands the inspector tree**: clicking a bbox in the
+  preview unfolds every collapsed ancestor and scrolls the matching
+  node into view, instead of silently selecting an invisible node.
+
+### Changed
+
+- **Inspector is now read-only.** The property editor (regex-based
+  rewrites of `.SetX(...)` calls in the user's source) is removed
+  along with its 600 LOC of tests. Live preview + direct source edit
+  is the supported flow; GUI input forms only beat keyboard editing
+  for color and opacity, and both were too fragile to keep.
+- **Inspector button disables in multi-config and welcome modes** with
+  a tooltip explaining why. Inspector relies on per-actor metadata
+  that only single-preview produces.
+- **Multi-config grid layout** switched from flex-wrap with vertical
+  centering (which pushed the 3rd config off-screen on narrow panels)
+  to CSS grid with `auto-fit, minmax(220px, 1fr)` and `align-content:
+  start`. Each thumbnail capped at 60vh so multi-row layouts fit.
+- **Multi-config dimensions label** moved below the canvas to match
+  single-preview layout. Name stays above; size sits below using the
+  shared `.dimensions-label` style.
+- **Theme toggle now applies globally in multi-config.** Once the user
+  flips theme via the UI in a session, every config follows that
+  choice — including configs that pin `theme=` in `@preview-config`.
+  Per-config theme is still honored on initial render so dark/light
+  comparison configs default correctly.
+- **Theme / bg color rebuild trigger** now resolves the target document
+  via `lastDocument` fallback when `vscode.window.activeTextEditor` is
+  undefined (the typical case while the webview panel has focus). The
+  picker no longer silently no-ops.
+- **Active editor switch auto-rebuilds the preview** for the new
+  previewable file (single-preview or VNC hot-reload). Switching files
+  no longer leaves a stale preview from the previous file.
+- **FlexLayout Explorer button** toggles the panel + direction-arrow
+  overlay together. It used to flip only the easy-to-miss arrow
+  overlay; the panel itself only opened on tree-node selection so
+  the button felt unresponsive. Active state stays in sync with
+  panel visibility from both entry points.
+- **Sample API alignment**: `.Direction()` → `.SetDirection()`,
+  `.AlignItems()` → `.SetAlignItems()`, `.JustifyContent()` →
+  `.SetJustifyContent()`, `.Wrap()` → `.SetWrap()`,
+  `.SetViewPadding()` → `.SetPadding()` across 24 preview samples.
+  Several samples no longer compiled against the current API.
+- **path3-fullbuild.preview.dali.cpp header** rewritten with
+  instructions that actually work (toggle the new
+  `disablePreviewServer` setting + Reload Window). The previous "kill
+  the process / delete the binary" steps were silently undone within
+  hundreds of milliseconds by the extension's auto-respawn and
+  auto-rebuild logic, so they no longer measured the slow path.
+
+### Fixed
+
+- **Inspector showed every actor as `#FFFFFF`.** The harness was
+  reading `Actor::Property::COLOR`, which is the actor tint multiplier
+  (always white by default), not the user-set color. Now reads
+  `Label::GetTextColor()` for Label / InputField (emitted as
+  `textColor`) and `View::GetBackgroundColor()` for everything else
+  (emitted as `backgroundColor`). All four metadata emitters updated:
+  `preview_server.cpp`, `preview_harness.cpp.template`,
+  `preview_animation.cpp.template`, `preview_interactive.cpp.template`.
+- **Preview window kept previous file's huge size.** Opening
+  `boarding-pass.preview.dali.cpp` (2520 × 4480) and then a cfg-less
+  file used to keep the 2520 × 4480 canvas. Orchestrator now tracks
+  the last cfg-supplied width/height and resets to settings defaults
+  when the cfg key disappears between files. Webview-driven manual
+  resize is preserved when the cfg key is unchanged.
+- **Marker-mode multi-config silently failed to update.** When a
+  `@dali-preview-begin` file failed to compile, the multi-grid kept
+  the previous file's previews intact and only added an error banner
+  on top. Saves looked like no-ops. The "keep last good grid on
+  all-failed" branch is removed; per-cell error text replaces it.
+- **`TextLabel::New(...)` in `multi-config-marker.cpp`** never built
+  because `Dali::Toolkit::TextLabel` is not in scope (the plugin
+  template links only dali-ui-foundation, not dali-toolkit). Replaced
+  with `Label::New(...)` which is in `Dali::Ui`.
+- **`gallery.preview.dali.cpp`** had `.Wrap(FlexWrap::WRAP)` which
+  doesn't exist on `FlexLayout`. Renamed to `.SetWrap(...)`.
+
+### Removed
+
+- **`src/propertyEditor.ts`** (254 LOC) and
+  **`test/unit/propertyEditor.test.ts`** (605 LOC). See "Inspector is
+  now read-only" above.
+
 ## [0.32.1] - 2026-04-17 — First-Preview Image Fix
 
 ### Fixed

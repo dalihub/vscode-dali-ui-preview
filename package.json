@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.32.1",
+  "version": "0.33.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -166,6 +166,11 @@
           ],
           "default": "info",
           "description": "Log verbosity level for the DALi Preview output channel. Use 'trace' for AI-friendly structured JSON diagnostics."
+        },
+        "daliPreview.disablePreviewServer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Diagnostic-only. When true, skip the long-running preview-server / dlopen / parser fast paths and always run the full g++ harness compile (~1100ms). Useful for measuring the slow path."
         }
       }
     }

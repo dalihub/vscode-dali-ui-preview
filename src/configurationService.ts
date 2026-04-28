@@ -73,6 +73,15 @@ export class ConfigurationService {
         return this.getConfig().get<string>('logLevel', 'info');
     }
 
+    /**
+     * When true, the preview-server / dlopen / parser fast paths are skipped and
+     * every preview falls through to the full g++ harness compile (~1100ms).
+     * Diagnostic-only — used to measure or test the slow path. Default false.
+     */
+    get disablePreviewServer(): boolean {
+        return this.getConfig().get<boolean>('disablePreviewServer', false);
+    }
+
     /** Update a setting value */
     async update(key: string, value: unknown, target?: vscode.ConfigurationTarget): Promise<void> {
         await this.getConfig().update(key, value, target);
