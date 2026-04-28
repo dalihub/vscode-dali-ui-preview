@@ -240,6 +240,19 @@ export class PreviewOrchestrator {
     private currentTheme_: 'light' | 'dark';
     private currentBgColor_: string | undefined;
 
+    // Tracks the width/height most recently supplied by a @preview-config directive
+    // (undefined when the previewed file had none). Used to detect transitions
+    // between cfg-bearing and cfg-less files so currentWidth_/Height_ can be reset
+    // to defaults instead of leaking a previous file's size.
+    private lastCfgWidth_: number | undefined;
+    private lastCfgHeight_: number | undefined;
+
+    // True once the user has explicitly toggled theme via the UI in this session.
+    // While true, per-config `theme=` in @preview-config is ignored so the toggle
+    // has a consistent effect across all configs (including those that pin theme).
+    // Resets to false on extension reactivation (i.e. fresh session).
+    private userThemeOverride_ = false;
+
     private deps: OrchestratorDeps;
 
     // Strategy instances
@@ -324,6 +337,7 @@ export class PreviewOrchestrator {
     set theme(t: 'light' | 'dark') {
         this.currentTheme_ = t;
         this.currentBgColor_ = undefined;
+        this.userThemeOverride_ = true;
     }
 
     set bgColor(c: string | undefined) {
@@ -332,6 +346,37 @@ export class PreviewOrchestrator {
 
     setLastCodeLensFunc(func: { uri: string; startLine: number; endLine: number } | undefined): void {
         this.lastCodeLensFunc_ = func;
+    }
+
+    /**
+     * Reconcile currentWidth_/Height_/Theme_ with the @preview-config of the file
+     * about to be previewed. When the cfg-supplied width/height changes (including
+     * appearing or disappearing between files), reset to that value or to the
+     * settings default; when it is unchanged, leave currentWidth_/Height_ alone so
+     * a webview-driven manual resize survives subsequent rebuilds.
+     */
+    private applyConfigSize(extraction: ExtractionResult): void {
+        const cfg = extraction.configs && extraction.configs.length === 1
+            ? extraction.configs[0]
+            : undefined;
+        const cfgWidth = cfg?.width;
+        const cfgHeight = cfg?.height;
+        const defaults = ConfigurationService.getInstance();
+
+        if (cfgWidth !== this.lastCfgWidth_) {
+            this.currentWidth_ = cfgWidth ?? defaults.previewWidth;
+            this.lastCfgWidth_ = cfgWidth;
+        }
+        if (cfgHeight !== this.lastCfgHeight_) {
+            this.currentHeight_ = cfgHeight ?? defaults.previewHeight;
+            this.lastCfgHeight_ = cfgHeight;
+        }
+        // Per-config theme is the *initial* render hint. Once the user has
+        // toggled theme in this session, their choice wins so the toggle button
+        // behaves consistently across files.
+        if (cfg?.theme && !this.userThemeOverride_) {
+            this.currentTheme_ = cfg.theme;
+        }
     }
 
     setLastTextChangeTime(t: number): void {
@@ -448,14 +493,10 @@ export class PreviewOrchestrator {
                 return;
             }
 
-            // Single config: apply its width/height/theme but use single-preview path
-            // so the full inspector and click-to-code overlay work.
-            if (extraction.configs && extraction.configs.length === 1) {
-                const cfg = extraction.configs[0];
-                if (cfg.width) { this.currentWidth_ = cfg.width; }
-                if (cfg.height) { this.currentHeight_ = cfg.height; }
-                if (cfg.theme) { this.currentTheme_ = cfg.theme; }
-            }
+            // Reconcile size/theme with the cfg of the file being previewed.
+            // Goes through applyConfigSize so a stale size from a prior cfg-bearing
+            // file (e.g. boarding-pass at 2520x4480) doesn't leak into the next file.
+            this.applyConfigSize(extraction);
 
             let result: BuildResult | undefined;
             let usedServerMode = false;
@@ -710,7 +751,12 @@ export class PreviewOrchestrator {
             const configStart = Date.now();
             const width = config.width ?? this.currentWidth_;
             const height = config.height ?? this.currentHeight_;
-            const theme = config.theme ?? this.currentTheme_;
+            // Per-config theme is honored on initial render; once the user has
+            // toggled the theme button, their choice overrides every config so
+            // the global toggle has a consistent visual effect.
+            const theme = this.userThemeOverride_
+                ? this.currentTheme_
+                : (config.theme ?? this.currentTheme_);
             const locale = config.locale;
             const fontScale = config.fontScale;
             const font = config.font;
@@ -820,11 +866,7 @@ export class PreviewOrchestrator {
                 return;
             }
 
-            if (extraction.configs && extraction.configs.length >= 1) {
-                const cfg = extraction.configs[0];
-                if (cfg.width) { this.currentWidth_ = cfg.width; }
-                if (cfg.height) { this.currentHeight_ = cfg.height; }
-            }
+            this.applyConfigSize(extraction);
 
             this.deps.statusBar?.showBuilding();
             previewManager.showLoading();
@@ -909,11 +951,7 @@ export class PreviewOrchestrator {
                 return;
             }
 
-            if (extraction.configs && extraction.configs.length >= 1) {
-                const cfg = extraction.configs[0];
-                if (cfg.width) { this.currentWidth_ = cfg.width; }
-                if (cfg.height) { this.currentHeight_ = cfg.height; }
-            }
+            this.applyConfigSize(extraction);
 
             previewManager.notifyVncReloading();
             const instrumented = instrumentCode(extraction.code, extraction.startLine);
