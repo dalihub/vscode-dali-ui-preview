@@ -11,7 +11,6 @@ import { PreviewCodeLensProvider } from './previewCodeLens';
 import { runSetupWizard, isDaliConfigured } from './setupWizard';
 import { validateEnvironment, findDaliPrefix } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
-import { PropertyEditor } from './propertyEditor';
 import { initLogger, getLogger } from './logger';
 import { ConfigurationService } from './configurationService';
 import { PreviewOrchestrator } from './previewOrchestrator';
@@ -309,16 +308,27 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // Auto-open preview panel when opening a previewable file
+    // Auto-open preview panel when opening a previewable file, and rebuild
+    // when the active editor switches to a different previewable file so the
+    // preview tracks the user's focus instead of going stale.
     const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (editor && isPreviewable(editor.document)) {
-            ensurePreviewManager(context);
-            previewManager!.show(true);
-            if (orchestrator) {
-                previewManager!.setTheme(orchestrator.theme);
-                if (orchestrator.bgColor) {
-                    previewManager!.setBackgroundColor(orchestrator.bgColor);
-                }
+        if (!editor || !isPreviewable(editor.document)) { return; }
+        ensurePreviewManager(context);
+        previewManager!.show(true);
+        if (!orchestrator) { return; }
+        previewManager!.setTheme(orchestrator.theme);
+        if (orchestrator.bgColor) {
+            previewManager!.setBackgroundColor(orchestrator.bgColor);
+        }
+        // Skip if we're already showing this exact doc to avoid redundant rebuilds
+        // when the user re-focuses the same tab.
+        const lastUri = orchestrator.lastDocument?.uri.toString();
+        if (lastUri !== editor.document.uri.toString()) {
+            // VNC mode: hot reload the DALi app for the new doc
+            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
+                orchestrator.hotReloadVnc(editor.document);
+            } else {
+                orchestrator.runPreview(editor.document);
             }
         }
     });
@@ -438,6 +448,19 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             }
         });
 
+        // Resolve the document to rebuild against. activeTextEditor is undefined
+        // while the webview panel itself has focus (which is the typical case
+        // when these UI controls are used), so fall back to the orchestrator's
+        // last previewed doc.
+        const resolveTargetDoc = (): vscode.TextDocument | undefined => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isPreviewable(editor.document)) {
+                return editor.document;
+            }
+            const last = orchestrator?.lastDocument;
+            return last && isPreviewable(last) ? last : undefined;
+        };
+
         // Handle theme toggle from webview
         previewManager.onThemeToggle(() => {
             if (!orchestrator) { return; }
@@ -446,11 +469,8 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             context.workspaceState.update('daliPreview.backgroundColor', undefined);
             themeStatusBar?.update(orchestrator.theme);
             previewManager!.setTheme(orchestrator.theme);
-            // Rebuild with new theme
-            const editor = vscode.window.activeTextEditor;
-            if (editor && isPreviewable(editor.document)) {
-                orchestrator.runPreview(editor.document);
-            }
+            const doc = resolveTargetDoc();
+            if (doc) { orchestrator.runPreview(doc); }
         });
 
         // Handle background color change from webview
@@ -461,10 +481,8 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             clearTimeout(bgColorDebounceTimer);
             bgColorDebounceTimer = setTimeout(() => {
                 bgColorDebounceTimer = undefined;
-                const editor = vscode.window.activeTextEditor;
-                if (editor && isPreviewable(editor.document)) {
-                    orchestrator?.runPreview(editor.document);
-                }
+                const doc = resolveTargetDoc();
+                if (doc) { orchestrator?.runPreview(doc); }
             }, 300);
         });
 
@@ -515,28 +533,6 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         if (savedInspectorVisible) {
             previewManager.setInspectorVisible(savedInspectorVisible);
         }
-
-        // Property editing: webview -> source code modification via WorkspaceEdit
-        const propertyEditor = new PropertyEditor();
-        context.subscriptions.push(
-            previewManager.onEditProperty(async (sourceLine, propName, value) => {
-                const lastDoc = orchestrator?.lastDocument;
-                if (!lastDoc) {
-                    return;
-                }
-                try {
-                    const result = await propertyEditor.applyEdit(lastDoc, sourceLine, propName, value);
-                    if (!result.success) {
-                        outputChannel.appendLine(`[PropertyEditor] ${result.reason}`);
-                        vscode.window.showWarningMessage(`Property edit failed: ${result.reason}`);
-                    }
-                } catch (err) {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    outputChannel.appendLine(`[PropertyEditor] Unexpected error: ${msg}`);
-                    vscode.window.showWarningMessage(`Error during property edit: ${msg}`);
-                }
-            })
-        );
 
         // VNC: webview requests start/stop
         context.subscriptions.push(

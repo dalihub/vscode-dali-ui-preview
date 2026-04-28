@@ -477,16 +477,15 @@
 
   /* ── Multi-preview grid ── */
   .preview-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    padding: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px 12px;
+    padding: 12px 12px 24px;
     width: 100%;
     height: 100%;
     overflow-y: auto;
-    align-items: center;
-    justify-content: center;
-    align-content: center;
+    align-content: start;
+    justify-items: center;
   }
 
   .preview-grid-item {
@@ -494,6 +493,8 @@
     flex-direction: column;
     align-items: center;
     gap: 6px;
+    /* Reserve room below for the dimensions label */
+    padding-bottom: 18px;
   }
 
   .preview-grid-header {
@@ -511,7 +512,8 @@
   .preview-grid-canvas img {
     display: block;
     max-width: 100%;
-    max-height: calc(100vh - 90px);
+    /* Cap each thumbnail to roughly half the viewport so a 3-up grid still fits */
+    max-height: calc(60vh);
     object-fit: contain;
     border: 1px solid #333;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -740,14 +742,14 @@
 
   .property-key {
     color: #9cdcfe;
-    font-size: 11px;
+    font-size: 12px;
     min-width: 68px;
     flex-shrink: 0;
   }
 
   .property-value {
     color: #ce9178;
-    font-size: 11px;
+    font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -757,105 +759,14 @@
   .property-value.bool-true { color: #4ec9b0; }
   .property-value.bool-false { color: #f48771; }
 
-  .property-value.readonly {
-    color: #666;
-    font-style: italic;
-  }
-
-  .prop-input {
-    background: #3c3c3c;
-    color: #ce9178;
+  .property-color-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
     border: 1px solid #555;
-    border-radius: 3px;
-    padding: 1px 4px;
-    font-size: 11px;
-    font-family: inherit;
-    outline: none;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .prop-input:focus {
-    border-color: #007acc;
-    color: #ffffff;
-  }
-
-  .prop-input[type="number"] {
-    width: 60px;
-    flex: none;
-  }
-
-  .prop-input[type="range"] {
-    flex: 1;
-    height: 14px;
-    accent-color: #007acc;
-    padding: 0;
-  }
-
-  .prop-input[type="color"] {
-    width: 28px;
-    height: 18px;
-    padding: 0 2px;
     border-radius: 2px;
-    cursor: pointer;
-    flex: none;
-  }
-
-  .prop-input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: #007acc;
-    cursor: pointer;
-    flex: none;
-  }
-
-  .prop-opacity-wrap {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .prop-opacity-label {
-    font-size: 11px;
-    color: #ce9178;
-    width: 28px;
-    flex-shrink: 0;
-    text-align: right;
-  }
-
-  .prop-input[type="select"],
-  select.prop-input {
-    background: #3c3c3c;
-    color: #ce9178;
-    border: 1px solid #555;
-    border-radius: 3px;
-    padding: 1px 4px;
-    font-size: 11px;
-    font-family: inherit;
-    outline: none;
-    flex: 1;
-    min-width: 0;
-    cursor: pointer;
-  }
-
-  select.prop-input:focus {
-    border-color: #007acc;
-    color: #ffffff;
-  }
-
-  .prop-dim-wrap {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .prop-dim-pixel {
-    width: 60px;
-    flex: none;
+    vertical-align: middle;
+    margin-right: 6px;
   }
 
   .btn-inspector {
@@ -866,6 +777,11 @@
   .btn-inspector.active {
     background: #0e639c;
     border-color: #007acc;
+  }
+
+  .btn-inspector:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .btn-flex-explorer {
@@ -1955,14 +1871,47 @@
     }
   }
 
+  // Reflects the currently selected tree node's data (set by selectInspectorNode).
+  // Used so the button can populate the panel with the right content when toggled.
+  var selectedTreeNodeData = null;
+
+  function getCurrentlySelectedTreeNodeData() {
+    return selectedTreeNodeData;
+  }
+
+  // Sync the button's active class to the panel's open/closed state. Called any
+  // time the panel visibility changes (button click or auto-open via tree click)
+  // so the toolbar button reliably reflects what the user sees.
+  function syncFlexButtonState() {
+    if (flexExplorerPanel.classList.contains('hidden')) {
+      btnFlexExplorer.classList.remove('active');
+    } else {
+      btnFlexExplorer.classList.add('active');
+    }
+  }
+
   if (btnFlexExplorer) {
     btnFlexExplorer.addEventListener('click', function () {
-      flexOverlayVisible = !flexOverlayVisible;
-      if (flexOverlayVisible) {
-        btnFlexExplorer.classList.add('active');
+      // Toggle the panel + overlay together so the click has an obvious visual
+      // effect. Previously the button toggled only the small direction-arrow
+      // overlay on the preview, which was easy to miss.
+      var willShow = flexExplorerPanel.classList.contains('hidden');
+      if (willShow) {
+        flexExplorerPanel.classList.remove('hidden');
+        // Populate with the currently selected node's flex props if applicable;
+        // otherwise show a placeholder so the panel still opens visibly.
+        var data = getCurrentlySelectedTreeNodeData();
+        if (flexHasData(data)) {
+          renderFlexExplorer(data);
+        } else {
+          flexExplorerBody.innerHTML = '<p class="flex-explorer-placeholder">Select a FlexLayout node</p>';
+        }
+        flexOverlayVisible = true;
       } else {
-        btnFlexExplorer.classList.remove('active');
+        flexExplorerPanel.classList.add('hidden');
+        flexOverlayVisible = false;
       }
+      syncFlexButtonState();
       updateFlexOverlay();
     });
   }
@@ -1995,30 +1944,39 @@
     updateFlexButtonVisibility();
   }
 
+  // The inspector relies on per-actor metadata that only single-preview modes
+  // produce. Multi-config and welcome modes have no inspect target, so the
+  // button is disabled there. setInspectorAvailable also force-closes the
+  // panel if the active mode no longer supports it.
+  var INSPECTOR_TITLE_ON  = 'Toggle Widget Inspector';
+  var INSPECTOR_TITLE_OFF = 'Widget Inspector — not available in multi-config preview';
+  function setInspectorAvailable(available) {
+    btnInspector.disabled = !available;
+    btnInspector.title = available ? INSPECTOR_TITLE_ON : INSPECTOR_TITLE_OFF;
+    if (!available && inspectorVisible) {
+      setInspectorVisible(false);
+      vscode.postMessage({ command: 'inspectorToggle', visible: false });
+    }
+  }
+
+
   btnInspector.addEventListener('click', function () {
+    if (btnInspector.disabled) return;
     var next = !inspectorVisible;
     setInspectorVisible(next);
     vscode.postMessage({ command: 'inspectorToggle', visible: next });
   });
 
-  // Convert [r, g, b, a] (0-1 floats) to '#rrggbb' for color input
+  // Start disabled until a single-preview / animation message arrives.
+  setInspectorAvailable(false);
+
+  // Convert [r, g, b, a] (0-1 floats) to '#RRGGBB' for the color swatch + label.
   function rgbaArrayToHex(arr) {
-    if (!Array.isArray(arr) || arr.length < 3) return '#000000';
+    if (!Array.isArray(arr) || arr.length < 3) { return '#000000'; }
     var r = Math.round(Math.max(0, Math.min(1, arr[0])) * 255);
     var g = Math.round(Math.max(0, Math.min(1, arr[1])) * 255);
     var b = Math.round(Math.max(0, Math.min(1, arr[2])) * 255);
-    return '#' + [r, g, b].map(function(c) { return c.toString(16).padStart(2, '0'); }).join('');
-  }
-
-  // Convert '#rrggbb' to 'UiColor(0xRRGGBB)' for DALi source.
-  // This matches the canonical style used in DALi sample files.
-  // alpha is ignored here — UiColor(0xRRGGBB) encodes only RGB;
-  // full-alpha variants use UiColor(0xRRGGBBAA) which is not yet needed.
-  function hexToUiColor(hex) {
-    var r = hex.slice(1, 3).toUpperCase();
-    var g = hex.slice(3, 5).toUpperCase();
-    var b = hex.slice(5, 7).toUpperCase();
-    return 'UiColor(0x' + r + g + b + ')';
+    return '#' + [r, g, b].map(function(c) { return c.toString(16).toUpperCase().padStart(2, '0'); }).join('');
   }
 
   function renderPropertyPanel(node) {
@@ -2028,21 +1986,14 @@
       return;
     }
 
-    // Determine source line for edit mapping (__L<line> convention)
-    var sourceLine = -1;
-    if (node.name && node.name.indexOf('__L') === 0) {
-      sourceLine = parseInt(node.name.substring(3), 10);
-    }
-    var canEdit = sourceLine >= 0;
-
-    function addReadOnlyRow(key, value, extraClass) {
+    function addRow(key, value, extraClass) {
       var row = document.createElement('div');
       row.className = 'property-row';
       var k = document.createElement('span');
       k.className = 'property-key';
       k.textContent = key;
       var v = document.createElement('span');
-      v.className = 'property-value readonly' + (extraClass ? ' ' + extraClass : '');
+      v.className = 'property-value' + (extraClass ? ' ' + extraClass : '');
       v.textContent = String(value);
       v.title = String(value);
       row.appendChild(k);
@@ -2050,205 +2001,50 @@
       propertyPanelEl.appendChild(row);
     }
 
-    function addNumberRow(key, value, propName) {
+    function addColorRow(key, colorArr) {
       var row = document.createElement('div');
       row.className = 'property-row';
       var k = document.createElement('span');
       k.className = 'property-key';
       k.textContent = key;
+      var v = document.createElement('span');
+      v.className = 'property-value';
+      var hex = rgbaArrayToHex(colorArr);
+      var swatch = document.createElement('span');
+      swatch.className = 'property-color-swatch';
+      swatch.style.backgroundColor = hex;
+      var label = document.createTextNode(hex);
+      v.appendChild(swatch);
+      v.appendChild(label);
+      v.title = hex + ' (' + colorArr.join(', ') + ')';
       row.appendChild(k);
-      var input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'prop-input';
-      input.value = String(value);
-      input.addEventListener('change', function() {
-        vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: input.value });
-      });
-      row.appendChild(input);
+      row.appendChild(v);
       propertyPanelEl.appendChild(row);
     }
 
-    var POLICY_OPTIONS = ['MATCH_PARENT', 'WRAP_CONTENT', 'FILL_TO_PARENT', 'FIT_TO_CHILDREN'];
-
-    /**
-     * Render a dimension (w/h) row.
-     * When `policy` is a layout policy constant, show a <select> dropdown.
-     * Choosing "Custom..." reveals a number input for a pixel value.
-     * When `policy` is undefined, fall back to a plain number input.
-     */
-    function addDimensionRow(key, pixelValue, propName, policy) {
-      var row = document.createElement('div');
-      row.className = 'property-row';
-      var k = document.createElement('span');
-      k.className = 'property-key';
-      k.textContent = key;
-      row.appendChild(k);
-
-      if (policy && POLICY_OPTIONS.indexOf(policy) !== -1) {
-        // Layout-managed: show a select dropdown
-        var wrap = document.createElement('div');
-        wrap.className = 'prop-dim-wrap';
-
-        var sel = document.createElement('select');
-        sel.className = 'prop-input';
-        POLICY_OPTIONS.forEach(function(opt) {
-          var o = document.createElement('option');
-          o.value = opt;
-          o.textContent = opt;
-          if (opt === policy) { o.selected = true; }
-          sel.appendChild(o);
-        });
-        var customOpt = document.createElement('option');
-        customOpt.value = '__custom__';
-        customOpt.textContent = 'Custom\u2026';
-        sel.appendChild(customOpt);
-
-        var pixelInput = document.createElement('input');
-        pixelInput.type = 'number';
-        pixelInput.className = 'prop-input prop-dim-pixel';
-        pixelInput.value = String(Math.round(pixelValue));
-        pixelInput.style.display = 'none';
-
-        sel.addEventListener('change', function() {
-          if (sel.value === '__custom__') {
-            pixelInput.style.display = '';
-            pixelInput.focus();
-          } else {
-            pixelInput.style.display = 'none';
-            vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: sel.value });
-          }
-        });
-        pixelInput.addEventListener('change', function() {
-          vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: pixelInput.value });
-        });
-
-        wrap.appendChild(sel);
-        wrap.appendChild(pixelInput);
-        row.appendChild(wrap);
-      } else {
-        // Explicit pixel value: plain number input
-        var input = document.createElement('input');
-        input.type = 'number';
-        input.className = 'prop-input';
-        input.value = String(Math.round(pixelValue));
-        input.addEventListener('change', function() {
-          vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: input.value });
-        });
-        row.appendChild(input);
-      }
-
-      propertyPanelEl.appendChild(row);
+    if (node.type) { addRow('type', node.type); }
+    // Hide synthetic __L<line> names (used internally for click-to-code mapping)
+    if (node.name && node.name.indexOf('__L') !== 0) { addRow('name', node.name); }
+    addRow('x', Math.round(node.x || 0));
+    addRow('y', Math.round(node.y || 0));
+    addRow('w', node.widthPolicy || Math.round(node.w || 0));
+    addRow('h', node.heightPolicy || Math.round(node.h || 0));
+    if (node.visible !== undefined) {
+      addRow('visible', node.visible, node.visible ? 'bool-true' : 'bool-false');
     }
-
-    function addBoolRow(key, value, propName) {
-      var row = document.createElement('div');
-      row.className = 'property-row';
-      var k = document.createElement('span');
-      k.className = 'property-key';
-      k.textContent = key;
-      row.appendChild(k);
-      var input = document.createElement('input');
-      input.type = 'checkbox';
-      input.className = 'prop-input';
-      input.checked = !!value;
-      input.addEventListener('change', function() {
-        vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: input.checked ? 'true' : 'false' });
-      });
-      row.appendChild(input);
-      propertyPanelEl.appendChild(row);
+    if (node.opacity !== undefined) {
+      addRow('opacity', node.opacity.toFixed ? node.opacity.toFixed(2) : node.opacity);
     }
-
-    function addOpacityRow(key, value, propName) {
-      var row = document.createElement('div');
-      row.className = 'property-row';
-      var k = document.createElement('span');
-      k.className = 'property-key';
-      k.textContent = key;
-      row.appendChild(k);
-      var wrap = document.createElement('div');
-      wrap.className = 'prop-opacity-wrap';
-      var slider = document.createElement('input');
-      slider.type = 'range';
-      slider.className = 'prop-input';
-      slider.min = '0';
-      slider.max = '1';
-      slider.step = '0.01';
-      var numVal = parseFloat(value);
-      slider.value = String(isNaN(numVal) ? 1 : numVal);
-      var label = document.createElement('span');
-      label.className = 'prop-opacity-label';
-      label.textContent = slider.value;
-      slider.addEventListener('input', function() {
-        label.textContent = parseFloat(slider.value).toFixed(2);
-      });
-      slider.addEventListener('change', function() {
-        var v = parseFloat(slider.value).toFixed(4) + 'f';
-        label.textContent = parseFloat(slider.value).toFixed(2);
-        vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: v });
-      });
-      wrap.appendChild(slider);
-      wrap.appendChild(label);
-      row.appendChild(wrap);
-      propertyPanelEl.appendChild(row);
-    }
-
-    function addColorRow(key, colorArr, propName) {
-      var row = document.createElement('div');
-      row.className = 'property-row';
-      var k = document.createElement('span');
-      k.className = 'property-key';
-      k.textContent = key;
-      row.appendChild(k);
-      var input = document.createElement('input');
-      input.type = 'color';
-      input.className = 'prop-input';
-      input.value = rgbaArrayToHex(colorArr);
-      var colorDebounceTimer = null;
-      input.addEventListener('change', function() {
-        clearTimeout(colorDebounceTimer);
-        colorDebounceTimer = setTimeout(function() {
-          var uiColor = hexToUiColor(input.value);
-          vscode.postMessage({ command: 'editProperty', sourceLine: sourceLine, propName: propName, value: uiColor });
-        }, 100);
-      });
-      row.appendChild(input);
-      propertyPanelEl.appendChild(row);
-    }
-
-    // type and name are always read-only (structural, not editable via setter)
-    if (node.type) { addReadOnlyRow('type', node.type); }
-    if (node.name && node.name.indexOf('__L') !== 0) { addReadOnlyRow('name', node.name); }
-
-    if (canEdit) {
-      // Use localX/localY (local position, not screen coordinates) for SetPosition() editing (H4)
-      addNumberRow('x', Math.round(node.localX !== undefined ? node.localX : (node.x || 0)), 'x');
-      addNumberRow('y', Math.round(node.localY !== undefined ? node.localY : (node.y || 0)), 'y');
-      addDimensionRow('w', node.w || 0, 'w', node.widthPolicy);
-      addDimensionRow('h', node.h || 0, 'h', node.heightPolicy);
-      if (node.visible !== undefined) {
-        addBoolRow('visible', node.visible, 'visible');
-      }
-      if (node.opacity !== undefined) {
-        addOpacityRow('opacity', node.opacity, 'opacity');
-      }
-      if (node.properties && node.properties.color) {
-        addColorRow('color', node.properties.color, 'color');
-      }
-    } else {
-      addReadOnlyRow('x', Math.round(node.x || 0));
-      addReadOnlyRow('y', Math.round(node.y || 0));
-      addReadOnlyRow('w', node.widthPolicy || Math.round(node.w || 0));
-      addReadOnlyRow('h', node.heightPolicy || Math.round(node.h || 0));
-      if (node.visible !== undefined) {
-        addReadOnlyRow('visible', node.visible, node.visible ? 'bool-true' : 'bool-false');
-      }
-      if (node.opacity !== undefined) {
-        addReadOnlyRow('opacity', node.opacity.toFixed ? node.opacity.toFixed(2) : node.opacity);
-      }
-      if (node.properties) {
-        var keys = Object.keys(node.properties);
-        for (var pi = 0; pi < keys.length; pi++) {
-          addReadOnlyRow(keys[pi], node.properties[keys[pi]]);
+    if (node.properties) {
+      var keys = Object.keys(node.properties);
+      for (var pi = 0; pi < keys.length; pi++) {
+        var pkey = keys[pi];
+        var pval = node.properties[pkey];
+        var isColorKey = pkey === 'color' || pkey === 'textColor' || pkey === 'backgroundColor';
+        if (isColorKey && Array.isArray(pval)) {
+          addColorRow(pkey, pval);
+        } else {
+          addRow(pkey, pval);
         }
       }
     }
@@ -2259,12 +2055,16 @@
       selectedTreeNodeEl.classList.remove('selected');
     }
     selectedTreeNodeEl = nodeEl;
+    selectedTreeNodeData = nodeData;
     if (nodeEl) {
       nodeEl.classList.add('selected');
       nodeEl.scrollIntoView({ block: 'nearest' });
     }
     renderPropertyPanel(nodeData);
     renderFlexExplorer(nodeData);
+    // Auto-open via flex tree click flips the panel state; keep the toolbar
+    // button's active class in sync so it always reflects panel visibility.
+    syncFlexButtonState();
 
     // Highlight corresponding bounding box in preview
     var bboxes = elementOverlay.querySelectorAll('.element-bbox');
@@ -2361,6 +2161,7 @@
     treeViewEl.innerHTML = '';
     lineToTreeNode = {};
     selectedTreeNodeEl = null;
+    selectedTreeNodeData = null;
     if (!metadata || !metadata.root) return;
 
     var rootNode = buildTreeNode(metadata.root, 0);
@@ -2372,15 +2173,37 @@
     } else {
       renderPropertyPanel(null);
       renderFlexExplorer(null);
+      syncFlexButtonState();
     }
     updateFlexButtonVisibility();
+  }
+
+  // Walk up from a tree-node element, expanding every collapsed .tree-children
+  // ancestor so the target node becomes visible. Also flips the toggle arrow
+  // (▶ → ▼) on the parent's tree-node so the UI state stays consistent.
+  function expandTreeAncestors(nodeEl) {
+    var el = nodeEl;
+    while (el && el !== treeViewEl) {
+      if (el.classList && el.classList.contains('tree-children') && el.classList.contains('collapsed')) {
+        el.classList.remove('collapsed');
+        var wrapper = el.parentElement;
+        var parentTreeNode = wrapper && wrapper.firstElementChild;
+        var toggle = parentTreeNode && parentTreeNode.querySelector('.tree-node-toggle');
+        if (toggle) toggle.textContent = '\u25BC';
+      }
+      el = el.parentElement;
+    }
   }
 
   function highlightTreeByLine(line) {
     if (!inspectorVisible) return;
     var entry = lineToTreeNode[line];
     if (entry) {
+      expandTreeAncestors(entry.el);
       selectInspectorNode(entry.el, entry.data);
+      // Scroll into view only if the node is off-screen ('nearest' avoids
+      // unnecessary scrolling when it is already visible).
+      entry.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }
 
@@ -2396,6 +2219,7 @@
         previewArea.classList.remove('hidden');
         previewImage.classList.add('hidden');
         animationContainer.classList.remove('hidden');
+        setInspectorAvailable(true);
         animMode = true;
         animPaused = false;
         animPlayPause.textContent = '\u23F8';
@@ -2426,6 +2250,7 @@
         overlayLoading.classList.add('hidden');
         previewGrid.classList.add('hidden');
         previewArea.classList.remove('hidden');
+        setInspectorAvailable(true);
         // Hide animation container when switching back to static mode
         animationContainer.classList.add('hidden');
         animMode = false;
@@ -2472,16 +2297,12 @@
         overlayLoading.classList.add('hidden');
         previewArea.classList.add('hidden');
         previewGrid.classList.remove('hidden');
-        // Inspector is for single-preview mode only
-        if (inspectorVisible) { setInspectorVisible(false); }
-        // Keep last successful grid if ALL configs failed (preserve previous render)
-        var allFailed = msg.images.every(function(im) { return !im.success; });
-        if (allFailed && previewGrid.children.length > 0) {
-          // Show error banner over existing grid
-          overlayError.classList.remove('hidden');
-          errorText.textContent = msg.images.map(function(im) { return im.error || 'Build failed'; }).join('\n');
-          break;
-        }
+        // Inspector is for single-preview only — disable button + force-close panel
+        setInspectorAvailable(false);
+        // Always re-render. Prior versions tried to preserve the last good grid
+        // when every config failed, but that hid build failures across file
+        // switches — the user saved a different file and the grid still showed
+        // the previous file's previews. Errors are now shown per-item below.
         overlayError.classList.add('hidden');
         previewGrid.innerHTML = '';
         var totalBuildTime = 0;
@@ -2492,8 +2313,7 @@
           item.className = 'preview-grid-item';
           var header = document.createElement('div');
           header.className = 'preview-grid-header';
-          var sizeLabel = (imgInfo.width && imgInfo.height) ? ' (' + imgInfo.width + '\u00d7' + imgInfo.height + ')' : '';
-          header.textContent = imgInfo.name + sizeLabel;
+          header.textContent = imgInfo.name;
           item.appendChild(header);
           if (!imgInfo.success) {
             var errDiv = document.createElement('div');
@@ -2509,15 +2329,22 @@
             img.draggable = false;
             var overlay = document.createElement('div');
             overlay.className = 'element-overlay interactive';
-            (function(imgEl, overlayEl, meta) {
+            // Dimensions label below the canvas \u2014 same style as the single-preview label
+            var dimLabel = document.createElement('div');
+            dimLabel.className = 'dimensions-label';
+            (function(imgEl, overlayEl, meta, label, fallbackW, fallbackH) {
               imgEl.onload = function() {
                 if (meta) {
                   renderMetadataOverlayInto(imgEl, overlayEl, meta);
                 }
+                var w = imgEl.naturalWidth || fallbackW;
+                var h = imgEl.naturalHeight || fallbackH;
+                if (w && h) { label.textContent = w + ' x ' + h; }
               };
-            })(img, overlay, imgInfo.metadata || null);
+            })(img, overlay, imgInfo.metadata || null, dimLabel, imgInfo.width, imgInfo.height);
             canvas.appendChild(img);
             canvas.appendChild(overlay);
+            canvas.appendChild(dimLabel);
             item.appendChild(canvas);
           }
           previewGrid.appendChild(item);
@@ -2537,6 +2364,7 @@
         overlayWelcome.classList.remove('hidden');
         previewArea.classList.remove('hidden');
         previewGrid.classList.add('hidden');
+        setInspectorAvailable(false);
         buildTimeText.textContent = '';
         timestampText.textContent = '';
         break;
