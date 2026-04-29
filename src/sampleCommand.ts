@@ -64,3 +64,62 @@ export async function useDockerRuntimeCommand(): Promise<void> {
         vscode.commands.executeCommand('workbench.action.reloadWindow');
     }
 }
+
+/**
+ * Command: `dali.useNativeRuntime`
+ *
+ * Switches to the native runtime (host DALi at /opt/dali or similar).
+ * For users who already have DALi installed and built natively. After
+ * the switch the legacy setupWizard fires (if no daliPrefix is set) so
+ * the user can point at their install directory.
+ */
+export async function useNativeRuntimeCommand(): Promise<void> {
+    const cfg = ConfigurationService.getInstance();
+    if (cfg.runtimeMode === 'native') {
+        vscode.window.showInformationMessage('DALi Preview is already in native mode.');
+        return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+        'Switch to native runtime? This requires DALi installed on the host (typically /opt/dali). ' +
+        'You will be asked to point at your DALi installation folder after reloading.',
+        { modal: true },
+        'Switch to Native',
+    );
+    if (choice !== 'Switch to Native') {
+        return;
+    }
+    await cfg.update('runtimeMode', 'native', vscode.ConfigurationTarget.Global);
+    const reload = await vscode.window.showInformationMessage(
+        'Switched to native runtime. Reload the window to apply (the setup wizard will appear).',
+        'Reload Window',
+    );
+    if (reload === 'Reload Window') {
+        vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }
+}
+
+/**
+ * Command: `dali.showReadme`
+ *
+ * Opens the bundled README.md in VS Code's built-in markdown preview.
+ * Wired to the walkthrough's "Welcome" step's "Open Documentation"
+ * button so the user gets actual project context, not the settings page.
+ */
+export async function showReadmeCommand(context: vscode.ExtensionContext): Promise<void> {
+    // VSIX vsce normalises README.md to lowercase `readme.md`.
+    const candidates = [
+        path.join(context.extensionPath, 'README.md'),
+        path.join(context.extensionPath, 'readme.md'),
+    ];
+    const found = candidates.find((p) => {
+        try { fs.accessSync(p); return true; } catch { return false; }
+    });
+    if (!found) {
+        vscode.window.showErrorMessage('README.md not found in extension directory.');
+        return;
+    }
+    const uri = vscode.Uri.file(found);
+    // `markdown.showPreview` opens VS Code's built-in markdown renderer
+    // — same one users see for any .md file. Keeps formatting/links.
+    await vscode.commands.executeCommand('markdown.showPreview', uri);
+}
