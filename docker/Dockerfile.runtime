@@ -1,0 +1,253 @@
+# DALi Preview Runtime Image
+# ────────────────────────────────────────────────────────────────────────
+# Multi-stage build:
+#   1. build-deps  — Ubuntu 22.04 + all DALi build/runtime dependencies
+#   2. build-dali  — Clone & install DALi (core/adaptor/toolkit/ui) → /opt/dali
+#   3. runtime     — Slim image: /opt/dali + entrypoint + runtime deps only
+#
+# Build args (all default to verified working SHAs from a developer's
+# working environment — change these together; cross-component API drift
+# means tagged releases of one component may not compile against another):
+#   DALI_CORE_REF     — dalihub/dali-core ref
+#   DALI_ADAPTOR_REF  — dalihub/dali-adaptor ref
+#   DALI_TOOLKIT_REF  — dalihub/dali-toolkit ref
+#   DALI_UI_REF       — dalihub/dali-ui ref (provides ui-foundation + ui-components)
+#   TIZENVG_REF       — Tizen-patched ThorVG ref. NOT upstream thorvg —
+#                       upstream lacks Tizen-specific SVG fixes required by DALi.
+#                       Source: git://review.tizen.org/git/platform/core/graphics/tizenvg
+#   JOBS              — parallel make jobs (default: $(nproc))
+#
+# All dalihub refs are downloaded as tarballs from GitHub's archive API
+# (no git clone, works for any ref including SHAs).
+#
+# Network requirements:
+#   - HTTPS to github.com/dalihub/* (always works)
+#   - git:// (port 9418) to review.tizen.org for tizenvg
+#     If your CI blocks port 9418, mirror tizenvg to a GitHub repo and override
+#     the tizenvg clone URL via build-arg.
+#
+# Build:
+#   docker build -f docker/Dockerfile.runtime \
+#     --build-arg DALI_TAG=tizen_10.0_release \
+#     --build-arg DALI_UI_TAG=v2.5.14.10210 \
+#     -t ghcr.io/dalihub/dali-preview-runtime:tizen_10.0_release .
+#
+# Run (extension will invoke this internally):
+#   docker run --rm -v /host/work:/work \
+#     ghcr.io/dalihub/dali-preview-runtime:latest \
+#     /work/source.cpp
+# ────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: build dependencies ─────────────────────────────────────────
+FROM ubuntu:22.04 AS build-deps
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # toolchain
+    build-essential cmake pkg-config \
+    autoconf automake libtool gettext \
+    # meson + ninja for ThorVG (vector graphics — SVG / Lottie)
+    meson ninja-build python3 \
+    git ca-certificates curl \
+    # graphics / display
+    libgles2-mesa-dev libegl1-mesa-dev libdrm-dev \
+    # image codecs
+    libgif-dev libjpeg-dev libpng-dev libturbojpeg0-dev libwebp-dev libtiff-dev libexif-dev \
+    # text / fonts
+    libfribidi-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev \
+    # 2D / xml / event
+    libcairo2-dev libxml2-dev libuv1-dev \
+    libxcb-xkb-dev libxkbcommon-dev \
+    # network / crypto
+    libcurl4-gnutls-dev libssl-dev libcrypto++-dev \
+    # media (gstreamer)
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    # glib (used by dali2-ui-foundation pkg-config) — provided via libglib2.0-dev
+    libglib2.0-dev \
+    # EFL (Enlightenment Foundation Libraries) — Ecore/Evas/Elementary
+    # required by dali-adaptor (clipboard, framework, input).
+    # Meta-package depends on libcurl4-gnutls-dev (matches our choice above).
+    libefl-all-dev \
+    # Text hyphenation (libhyphen) — linked by dali-adaptor's text rendering
+    libhyphen-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Stage 2: build DALi from source ─────────────────────────────────────
+FROM build-deps AS build-dali
+
+# Verified working SHAs (snapshot of devel/master from 2026-04-17):
+#   - dali_2.5.18 tag itself has a uint16_t/int16_t Extents API mismatch
+#     with the current dali-ui, so we pin to commits a few past that tag.
+ARG DALI_CORE_REF=f2b8857825a3c2365d3d5f621c3254b2e6d4577a
+ARG DALI_ADAPTOR_REF=e96d2f32792adddce2154a50a73cf24c3f40cd93
+ARG DALI_TOOLKIT_REF=1e9dd13f335a0aa7c55404f4c1494d673392ee74
+ARG DALI_UI_REF=bec04e39abde7cbb2a3f5bfab53becb76dbbc896
+ARG TIZENVG_REF=tizen
+ARG TIZENVG_REPO=git://review.tizen.org/git/platform/core/graphics/tizenvg
+ARG JOBS
+
+ENV DESKTOP_PREFIX=/opt/dali \
+    PKG_CONFIG_PATH=/opt/dali/lib/pkgconfig \
+    LD_LIBRARY_PATH=/opt/dali/lib
+
+WORKDIR /build
+
+# 1. dali-core
+RUN curl -fsSL "https://github.com/dalihub/dali-core/archive/${DALI_CORE_REF}.tar.gz" \
+      | tar xz && \
+    mv dali-core-* dali-core && \
+    cd dali-core/build/tizen && \
+    cmake -DCMAKE_INSTALL_PREFIX="${DESKTOP_PREFIX}" -DENABLE_PROFILE=UBUNTU . && \
+    make -j${JOBS:-$(nproc)} install && \
+    cd /build && rm -rf dali-core
+
+# 1b. tizenvg — Tizen-patched ThorVG (vector graphics renderer).
+# Provides SVG and Lottie animation rendering used by dali-adaptor / toolkit.
+# Tizen carries SVG-rendering fixes that upstream ThorVG does not have, so we
+# clone from review.tizen.org rather than github.com/thorvg/thorvg.
+#
+# This RUN uses git:// (port 9418) — if blocked in your environment, override
+# TIZENVG_REPO to point at a GitHub mirror of the same tree.
+RUN git clone --depth 1 -b "${TIZENVG_REF}" "${TIZENVG_REPO}" tizenvg && \
+    cd tizenvg && \
+    meson setup builddir \
+      --prefix="${DESKTOP_PREFIX}" \
+      --libdir=lib \
+      -Dloaders=svg,png,jpg,webp,lottie,ttf \
+      -Dengines=cpu \
+      -Dbindings=capi \
+      -Dlog=true && \
+    ninja -C builddir install && \
+    cd /build && rm -rf tizenvg
+
+# 2. dali-adaptor (depends on dali-core + thorvg)
+RUN curl -fsSL "https://github.com/dalihub/dali-adaptor/archive/${DALI_ADAPTOR_REF}.tar.gz" \
+      | tar xz && \
+    mv dali-adaptor-* dali-adaptor && \
+    cd dali-adaptor/build/tizen && \
+    cmake -DCMAKE_INSTALL_PREFIX="${DESKTOP_PREFIX}" -DENABLE_PROFILE=UBUNTU . && \
+    make -j${JOBS:-$(nproc)} install && \
+    cd /build && rm -rf dali-adaptor
+
+# 3. dali-toolkit (depends on dali-core + dali-adaptor)
+RUN curl -fsSL "https://github.com/dalihub/dali-toolkit/archive/${DALI_TOOLKIT_REF}.tar.gz" \
+      | tar xz && \
+    mv dali-toolkit-* dali-toolkit && \
+    cd dali-toolkit/build/tizen && \
+    cmake -DCMAKE_INSTALL_PREFIX="${DESKTOP_PREFIX}" -DENABLE_PROFILE=UBUNTU . && \
+    make -j${JOBS:-$(nproc)} install && \
+    cd /build && rm -rf dali-toolkit
+
+# 4. dali-ui (provides dali2-ui-foundation + dali2-ui-components).
+# DALI_UI_REF may be a branch, tag, or full SHA — we download a tarball from
+# GitHub's archive endpoint (no git infrastructure needed, works for any ref).
+RUN curl -fsSL "https://github.com/dalihub/dali-ui/archive/${DALI_UI_REF}.tar.gz" \
+      | tar xz && \
+    mv dali-ui-* dali-ui && \
+    cd dali-ui/build/tizen && \
+    cmake -DCMAKE_INSTALL_PREFIX="${DESKTOP_PREFIX}" . && \
+    make -j${JOBS:-$(nproc)} install && \
+    cd /build && rm -rf dali-ui
+
+# 5. preview_server — long-running renderer used by the extension's parser
+# and dlopen fast paths. Same source as on the host
+# (server/preview_server.cpp). Pre-compiled here so the extension never has
+# to compile it on the user's machine in docker mode.
+COPY preview_server.cpp /build/preview_server.cpp
+RUN g++ -std=c++17 -O2 \
+      $(pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0) \
+      /build/preview_server.cpp \
+      $(pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0) \
+      -L${DESKTOP_PREFIX}/lib -Wl,-rpath-link,${DESKTOP_PREFIX}/lib \
+      -ldl \
+      -o ${DESKTOP_PREFIX}/bin/preview_server && \
+    rm /build/preview_server.cpp
+
+# ── Stage 3: slim runtime image ─────────────────────────────────────────
+FROM ubuntu:22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Slim runtime: only what's needed to (a) compile user .cpp against /opt/dali
+# and (b) run the resulting binary under Xvfb. We aggressively avoid -dev
+# packages, mesa hardware-accel drivers (Xvfb uses software path), ffmpeg's
+# codec collection, and EFL meta-packages that pull in GTK3.
+#
+# The compile path needs:
+#   - g++ + libstdc++-dev (build-essential)
+#   - pkg-config + glib-2.0 .pc (libglib2.0-dev — DALi's compile cmd
+#     references glib-2.0; only this single -dev stays)
+# Everything else is runtime libs only.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # compiler + pkg-config (compile happens inside container at runtime)
+    g++ pkg-config ccache \
+    libglib2.0-dev \
+    # display
+    xvfb x11-utils \
+    # graphics runtime (GLES + EGL only — NOT libgl1, which drags in
+    # mesa-dri + LLVM-15 (~150MB) for desktop OpenGL we don't use).
+    libgles2 libegl1 \
+    # image codecs (runtime libs only)
+    libgif7 libjpeg-turbo8 libpng16-16 libturbojpeg libwebp7 libwebpdemux2 \
+    libtiff5 libexif12 \
+    # text / fonts (runtime libs only)
+    libfribidi0 libharfbuzz0b libfontconfig1 libfreetype6 \
+    # 2D / xml / event (runtime libs only)
+    libcairo2 libxml2 libuv1 \
+    libxcb-xkb1 libxkbcommon0 \
+    # network / crypto (gnutls flavour matches our build deps)
+    libcurl3-gnutls libssl3 \
+    # EFL runtime — libelementary1 transitively pulls in libecore*, libevas*,
+    # libedje, libeet, libefreet, libeio, libeldbus, libector etc. Avoids
+    # the libefl-all-dev meta which drags in GTK3 + dev headers (~100MB).
+    libelementary1 \
+    libecore-x1 libecore-evas1 libecore-imf1 libecore-input1 libecore-wl2-1 \
+    # libhyphen runtime (linked by dali-adaptor)
+    libhyphen0 \
+    # Strip unused payload IN THE SAME LAYER so the bytes never get baked in.
+    # Cannot use `apt-get purge`: those files belong to packages that are
+    # hard Depends of libelementary1 (verified — purge --auto-remove cascades
+    # and breaks DALi link). So we keep the package db intact and just
+    # delete the data files DALi never touches:
+    #   - Icon themes (~55 MB): humanity / ubuntu-mono / hicolor / Adwaita
+    #   - HEIF + x265 binary modules (~32 MB): libheif + libx265
+    # Verified safe: `ldd /opt/dali/lib/*.so | grep -E "heif|x265"` empty;
+    # `strings /opt/dali/lib/*.so | grep "/icons/"` empty.
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+              /usr/share/icons/Humanity* /usr/share/icons/ubuntu-mono* \
+              /usr/share/icons/hicolor /usr/share/icons/Adwaita \
+    && rm -f /usr/lib/x86_64-linux-gnu/libheif.so* \
+             /usr/lib/x86_64-linux-gnu/libx265.so*
+
+# Copy DALi install from build stage, then strip + cleanup to shave ~50MB
+COPY --from=build-dali /opt/dali /opt/dali
+RUN find /opt/dali/lib -maxdepth 1 -name '*.so*' -type f -exec strip --strip-unneeded {} + 2>/dev/null || true; \
+    find /usr/share/doc /usr/share/man -mindepth 1 -delete 2>/dev/null || true; \
+    find /usr/share/locale -mindepth 1 -maxdepth 1 -type d \
+        ! -name 'en*' ! -name 'ko*' ! -name 'C*' \
+        -exec rm -rf {} + 2>/dev/null || true; \
+    true
+
+ENV DESKTOP_PREFIX=/opt/dali \
+    PKG_CONFIG_PATH=/opt/dali/lib/pkgconfig \
+    LD_LIBRARY_PATH=/opt/dali/lib \
+    CCACHE_DIR=/cache/ccache \
+    PATH=/usr/lib/ccache:${PATH}
+
+# Entrypoint scripts:
+#   - dali-preview-entrypoint <source.cpp>  → one-shot full-harness compile + render
+#   - dali-preview-serve                    → long-running preview_server (fast paths)
+COPY entrypoint.sh /usr/local/bin/dali-preview-entrypoint
+COPY serve.sh /usr/local/bin/dali-preview-serve
+RUN chmod +x /usr/local/bin/dali-preview-entrypoint /usr/local/bin/dali-preview-serve
+
+# Default workdir is the bind-mount target (host extension mounts here)
+WORKDIR /work
+
+# Sanity check at build time — fails fast if DALi install is incomplete
+RUN pkg-config --exists dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0 && \
+    echo "DALi runtime image OK." && \
+    pkg-config --modversion dali2-core dali2-adaptor
+
+ENTRYPOINT ["/usr/local/bin/dali-preview-entrypoint"]

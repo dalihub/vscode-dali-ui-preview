@@ -16,3 +16,8 @@ test/e2e/diff/
 # Internal planning documents (not for public)
 Docs/
 7.CLICK_TO_CODE.md
+
+# Local docker runtime build / report artifacts
+dali_preview_report/
+test/samples/build/
+test/samples/assets/*.out

@@ -13,6 +13,12 @@ import { validateEnvironment, findDaliPrefix } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { initLogger, getLogger } from './logger';
 import { ConfigurationService } from './configurationService';
+import { DockerRuntime } from './dockerRuntime';
+import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from './dockerAccessCheck';
+import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
+import { installDockerCommand } from './installDocker';
+import { openSampleCommand, useDockerRuntimeCommand } from './sampleCommand';
+import { maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
 
 let previewManager: PreviewManager | undefined;
@@ -116,8 +122,11 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`[Environment validation] Error: ${err?.message ?? err}`);
     }
 
+    // Docker runtime (used when daliPreview.runtimeMode === 'docker')
+    const dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
+
     // Build runner
-    buildRunner = new BuildRunner(context, xvfbManager, outputChannel);
+    buildRunner = new BuildRunner(context, xvfbManager, outputChannel, dockerRuntime);
 
     // SDB manager
     sdbManager = new SdbManager(outputChannel);
@@ -164,15 +173,59 @@ export async function activate(context: vscode.ExtensionContext) {
             statusBar?.showMode('compile');
             return;
         }
-        const daliPrefix = await buildRunner!.getDaliPrefix();
-        if (!daliPrefix) {
-            return;
+
+        const cfg = ConfigurationService.getInstance();
+        const isDocker = cfg.runtimeMode === 'docker';
+        let daliPrefix = '';
+        if (isDocker) {
+            // Probe docker access before trying to spawn the server. The
+            // common failure mode is "permission denied" right after install,
+            // when the docker group hasn't propagated to this VS Code session
+            // — give the user actionable guidance instead of a cryptic
+            // PreviewServer timeout.
+            const access = await checkDockerAccess();
+            if (access.state !== 'ok') {
+                outputChannel.appendLine(
+                    `[PreviewServer] Skipped — docker access state: ${access.state}`,
+                );
+                statusBar?.showMode('compile');
+                await showDockerSetupGuidance(access, outputChannel);
+                return;
+            }
+        } else {
+            const found = await buildRunner!.getDaliPrefix();
+            if (!found) {
+                return;
+            }
+            daliPrefix = found;
         }
         const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
-        previewServer = new PreviewServer(context.extensionPath, daliPrefix, display, outputChannel, BuildRunner.getWorkspaceTmpDir());
+        // Bind-mount workspace folders (read-only) into the container so
+        // user code that references absolute asset paths (images, fonts)
+        // can resolve them. Also include configured fontDirectories.
+        const dockerExtraMounts: string[] = [];
+        if (isDocker) {
+            for (const folder of vscode.workspace.workspaceFolders ?? []) {
+                dockerExtraMounts.push(folder.uri.fsPath);
+            }
+            for (const fontDir of cfg.fontDirectories) {
+                if (fontDir) dockerExtraMounts.push(fontDir);
+            }
+        }
+        previewServer = new PreviewServer(
+            context.extensionPath,
+            daliPrefix,
+            display,
+            outputChannel,
+            BuildRunner.getWorkspaceTmpDir(),
+            isDocker ? dockerRuntime : undefined,
+            isDocker ? cfg.daliVersionTag : undefined,
+            dockerExtraMounts,
+        );
         const started = await previewServer.start();
         if (started) {
-            outputChannel.appendLine('[PreviewServer] dlopen server started (Phase 2 mode)');
+            const where = isDocker ? 'inside docker container' : '(Phase 2 mode)';
+            outputChannel.appendLine(`[PreviewServer] dlopen server started ${where}`);
             statusBar?.showMode('server');
             orchestrator?.updatePreviewServer(previewServer);
         } else {
@@ -231,6 +284,38 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('workbench.action.openSettings', 'daliPreview');
     });
     context.subscriptions.push(openSettingsCmd);
+
+    // Docker maintenance commands (no-op in native mode but always registered
+    // so the user can recover from a broken docker setup at any time).
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dali.verifyDocker', () =>
+            verifyDockerCommand(outputChannel),
+        ),
+        vscode.commands.registerCommand('dali.cleanRuntimeImages', () =>
+            cleanRuntimeImagesCommand(outputChannel),
+        ),
+        vscode.commands.registerCommand('dali.resetExtension', () =>
+            resetExtensionCommand(outputChannel),
+        ),
+        vscode.commands.registerCommand('dali.installDocker', () =>
+            installDockerCommand(),
+        ),
+        vscode.commands.registerCommand('dali.openSample', () =>
+            openSampleCommand(context),
+        ),
+        vscode.commands.registerCommand('dali.useDockerRuntime', () =>
+            useDockerRuntimeCommand(),
+        ),
+        vscode.commands.registerCommand('dali.rerunSetup', () =>
+            openWalkthrough(),
+        ),
+    );
+
+    // First-launch walkthrough — shown once per machine via globalState flag.
+    // Idempotent: rerun via "DALi Preview: Run Setup Walkthrough" command.
+    maybeOpenWalkthrough(context).catch((err) =>
+        outputChannel.appendLine(`[Walkthrough] init error: ${err?.message ?? err}`),
+    );
 
     // Command: DALi: Select Target Device
     const selectDeviceCmd = vscode.commands.registerCommand('dali.selectDevice', async () => {

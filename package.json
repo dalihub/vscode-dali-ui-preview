@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -68,6 +68,79 @@
       {
         "command": "dali.previewFunction",
         "title": "DALi: Preview Function"
+      },
+      {
+        "command": "dali.verifyDocker",
+        "title": "Verify Docker Access",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.cleanRuntimeImages",
+        "title": "Clean Runtime Images",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.resetExtension",
+        "title": "Reset Extension (remove containers, images, caches)",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.openSample",
+        "title": "Open Sample File",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.useDockerRuntime",
+        "title": "Use Docker Runtime",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.installDocker",
+        "title": "Install Docker via Terminal",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.rerunSetup",
+        "title": "Run Setup Walkthrough",
+        "category": "DALi Preview"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "dali-preview.setup",
+        "title": "Get started with DALi Preview",
+        "description": "Set up Docker mode and render your first DALi preview in 5 minutes.",
+        "when": "isLinux",
+        "steps": [
+          {
+            "id": "welcome",
+            "title": "Welcome",
+            "description": "Quick tour of how DALi Preview works.\n[Open Documentation](command:dali.openSettings)",
+            "media": { "markdown": "media/walkthrough/01-welcome.md" },
+            "completionEvents": ["onCommand:dali.openSettings"]
+          },
+          {
+            "id": "install-docker",
+            "title": "Install Docker",
+            "description": "One-time install. Pre-fills the install command in a terminal — you only enter your sudo password once. **Reboot afterwards** so the docker group is applied.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
+            "media": { "markdown": "media/walkthrough/02-install-docker.md" },
+            "completionEvents": ["onCommand:dali.verifyDocker"]
+          },
+          {
+            "id": "pick-runtime",
+            "title": "Switch to Docker Runtime",
+            "description": "Flip the `daliPreview.runtimeMode` setting from `native` to `docker`. The first preview pulls the runtime image (~290 MB).\n[Use Docker Runtime](command:dali.useDockerRuntime)",
+            "media": { "markdown": "media/walkthrough/03-pick-runtime.md" },
+            "completionEvents": ["onSettingChanged:daliPreview.runtimeMode"]
+          },
+          {
+            "id": "first-preview",
+            "title": "Open a Sample",
+            "description": "Drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render.\n[Open Sample](command:dali.openSample)",
+            "media": { "markdown": "media/walkthrough/04-first-preview.md" },
+            "completionEvents": ["onCommand:dali.openSample", "onCommand:dali.openPreview"]
+          }
+        ]
       }
     ],
     "configuration": {
@@ -77,6 +150,25 @@
           "type": "string",
           "default": "",
           "description": "Path to the DALi installation prefix directory (containing lib/ and include/). Leave empty to use the system default."
+        },
+        "daliPreview.runtimeMode": {
+          "type": "string",
+          "enum": [
+            "native",
+            "docker"
+          ],
+          "default": "native",
+          "description": "Where preview builds run. 'native' uses the host DALi install (requires manual setup). 'docker' uses a containerized DALi runtime (no host install needed; requires Docker)."
+        },
+        "daliPreview.dockerImage": {
+          "type": "string",
+          "default": "ghcr.io/lwc0917/dali-preview-runtime",
+          "description": "Container image used when runtimeMode is 'docker'. Tags are appended automatically (e.g. ':dali_2.5.18'). Default points to a developer-maintained image on GHCR; once dalihub org allows public packages, switch to ghcr.io/dalihub/dali-preview-runtime."
+        },
+        "daliPreview.daliVersionTag": {
+          "type": "string",
+          "default": "latest",
+          "description": "Image tag selecting the DALi version. Use 'latest' to follow the rolling tag, or pin a specific tag (e.g. 'tizen_10.0_release'). Only used when runtimeMode is 'docker'."
         },
         "daliPreview.previewWidth": {
           "type": "number",
