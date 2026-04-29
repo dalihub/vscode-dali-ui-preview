@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -157,8 +157,8 @@
             "native",
             "docker"
           ],
-          "default": "native",
-          "description": "Where preview builds run. 'native' uses the host DALi install (requires manual setup). 'docker' uses a containerized DALi runtime (no host install needed; requires Docker)."
+          "default": "docker",
+          "description": "Where preview builds run. 'docker' (default) uses a containerized DALi runtime — no host install needed, just Docker. 'native' uses the host DALi install (manual setup); only choose this if you already have DALi at /opt/dali or similar."
         },
         "daliPreview.dockerImage": {
           "type": "string",

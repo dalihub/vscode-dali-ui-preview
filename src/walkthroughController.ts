@@ -1,7 +1,15 @@
 import * as vscode from 'vscode';
 
-const FIRST_LAUNCH_KEY = 'daliPreview.firstLaunchShown.v1';
+/** Exported so extension.ts can suppress legacy first-run popups
+ *  (setupWizard, validateEnvironment toast) on the very first launch
+ *  — the walkthrough alone drives initial UX. */
+export const FIRST_LAUNCH_KEY = 'daliPreview.firstLaunchShown.v1';
 const WALKTHROUGH_ID = 'dalihub.dali-preview#dali-preview.setup';
+
+/** True iff this machine has never seen the walkthrough yet. */
+export function isFirstLaunch(context: vscode.ExtensionContext): boolean {
+    return !context.globalState.get<boolean>(FIRST_LAUNCH_KEY);
+}
 
 /**
  * Open the setup walkthrough automatically the first time the extension

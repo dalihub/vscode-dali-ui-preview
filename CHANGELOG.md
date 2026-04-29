@@ -5,6 +5,27 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2] - 2026-04-29 — Docker by default + suppress legacy first-run popups
+
+### Changed
+
+- **`daliPreview.runtimeMode` default flipped from `native` to `docker`.**
+  Existing users with the setting explicitly set are unaffected. New
+  installs now go through the walkthrough's docker setup path by
+  default, matching the rest of the first-run UX.
+
+### Fixed
+
+- The "Select your DALi installation folder" dialog and the "Required
+  dependencies missing" toast still appeared on first install in
+  v0.34.1 because the previous fix only skipped them when
+  `runtimeMode === 'docker'` — but the **default was still `native`**,
+  so a fresh install always tripped both popups before reaching the
+  walkthrough. v0.34.2 suppresses both whenever the walkthrough has
+  not yet been shown on this machine (`globalState` flag), regardless
+  of the resolved runtime mode. The walkthrough alone drives the
+  initial UX.
+
 ## [0.34.1] - 2026-04-29 — Skip native setup wizard in docker mode
 
 ### Fixed
