@@ -5,6 +5,19 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-04-29 — Skip native setup wizard in docker mode
+
+### Fixed
+
+- The legacy "Select your DALi installation folder" dialog from
+  `setupWizard.ts` was firing on first activation regardless of
+  `runtimeMode`, blocking the new walkthrough behind a modal that
+  asked docker-mode users to point at a host DALi prefix that
+  doesn't exist. The wizard now runs only when `runtimeMode ===
+  'native'`. The `validateEnvironment` host-deps check (g++ / Xvfb /
+  pkg-config / native DALi prefix) is also skipped in docker mode
+  since those live inside the runtime image.
+
 ## [0.34.0] - 2026-04-29 — Phase 5 — Docker Runtime + Walkthrough
 
 ### Highlights
