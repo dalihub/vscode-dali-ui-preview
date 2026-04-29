@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.34.2",
+  "version": "0.34.3",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -91,12 +91,22 @@
       },
       {
         "command": "dali.useDockerRuntime",
-        "title": "Use Docker Runtime",
+        "title": "Use Docker Runtime (Recommended)",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.useNativeRuntime",
+        "title": "Use Native DALi Runtime",
         "category": "DALi Preview"
       },
       {
         "command": "dali.installDocker",
         "title": "Install Docker via Terminal",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.showReadme",
+        "title": "Open README",
         "category": "DALi Preview"
       },
       {
@@ -109,35 +119,42 @@
       {
         "id": "dali-preview.setup",
         "title": "Get started with DALi Preview",
-        "description": "Set up Docker mode and render your first DALi preview in 5 minutes.",
+        "description": "Set up your runtime (Docker or Native) and render your first DALi preview in 5 minutes.",
         "when": "isLinux",
         "steps": [
           {
             "id": "welcome",
             "title": "Welcome",
-            "description": "Quick tour of how DALi Preview works.\n[Open Documentation](command:dali.openSettings)",
+            "description": "Quick tour of how DALi Preview works, plus the two runtime options (Docker vs Native).\n[Open Documentation](command:dali.showReadme)",
             "media": { "markdown": "media/walkthrough/01-welcome.md" },
-            "completionEvents": ["onCommand:dali.openSettings"]
-          },
-          {
-            "id": "install-docker",
-            "title": "Install Docker",
-            "description": "One-time install. Pre-fills the install command in a terminal — you only enter your sudo password once. **Reboot afterwards** so the docker group is applied.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
-            "media": { "markdown": "media/walkthrough/02-install-docker.md" },
-            "completionEvents": ["onCommand:dali.verifyDocker"]
+            "completionEvents": ["onCommand:dali.showReadme"]
           },
           {
             "id": "pick-runtime",
-            "title": "Switch to Docker Runtime",
-            "description": "Flip the `daliPreview.runtimeMode` setting from `native` to `docker`. The first preview pulls the runtime image (~290 MB).\n[Use Docker Runtime](command:dali.useDockerRuntime)",
-            "media": { "markdown": "media/walkthrough/03-pick-runtime.md" },
+            "title": "Choose Your Runtime",
+            "description": "Pick **Docker (Recommended)** if you don't have DALi installed — the runtime ships as a pre-built container image. Pick **Native** if you already have DALi at /opt/dali or similar.\n[Use Docker (Recommended)](command:dali.useDockerRuntime)\n[Use Native DALi](command:dali.useNativeRuntime)",
+            "media": { "markdown": "media/walkthrough/02-pick-runtime.md" },
             "completionEvents": ["onSettingChanged:daliPreview.runtimeMode"]
+          },
+          {
+            "id": "install-docker",
+            "title": "Install Docker (Recommended path)",
+            "description": "Skip if you picked Native in step 2. Pre-fills the install command in a terminal — sudo password once. **Reboot afterwards** so the docker group is applied.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
+            "media": { "markdown": "media/walkthrough/03-install-docker.md" },
+            "completionEvents": ["onCommand:dali.verifyDocker"]
+          },
+          {
+            "id": "configure-native",
+            "title": "Configure Native DALi (alternative path)",
+            "description": "Skip if you picked Docker in step 2. Point the extension at your DALi install prefix (the directory containing `lib/libdali2-core.so`).\n[Configure Native DALi](command:dali.useNativeRuntime)",
+            "media": { "markdown": "media/walkthrough/04-configure-native.md" },
+            "completionEvents": ["onSettingChanged:daliPreview.daliPrefix"]
           },
           {
             "id": "first-preview",
             "title": "Open a Sample",
-            "description": "Drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render.\n[Open Sample](command:dali.openSample)",
-            "media": { "markdown": "media/walkthrough/04-first-preview.md" },
+            "description": "After your runtime is ready, drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render.\n[Open Sample](command:dali.openSample)",
+            "media": { "markdown": "media/walkthrough/05-first-preview.md" },
             "completionEvents": ["onCommand:dali.openSample", "onCommand:dali.openPreview"]
           }
         ]

@@ -5,6 +5,35 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.3] - 2026-04-29 — Walkthrough UX polish
+
+### Changed
+
+- **Walkthrough now has 5 steps and presents both runtime options.**
+  Previously the flow assumed Docker; users with an existing native
+  DALi install had no in-walkthrough path. Reorganised:
+  1. **Welcome** — overview of how the extension works
+  2. **Choose Your Runtime** — Docker (Recommended) ⭐ vs Native
+     buttons
+  3. **Install Docker (Recommended path)** — pre-fills install
+     command in terminal
+  4. **Configure Native DALi (alternative path)** — runs the legacy
+     setup wizard against an existing host install
+  5. **Open a Sample** — moved to the **end**, after the runtime is
+     ready
+- "Open Documentation" link in the Welcome step now opens the bundled
+  README.md in VS Code's markdown preview (was incorrectly opening
+  the Settings page).
+- `dali.useDockerRuntime` command title gains "(Recommended)" badge.
+
+### Added
+
+- **`dali.useNativeRuntime`** command — confirms with the user, sets
+  `daliPreview.runtimeMode` to `'native'`, prompts reload. The setup
+  wizard then fires for prefix selection.
+- **`dali.showReadme`** command — opens the bundled README.md as a
+  markdown preview. Wired to the Welcome step.
+
 ## [0.34.2] - 2026-04-29 — Docker by default + suppress legacy first-run popups
 
 ### Changed

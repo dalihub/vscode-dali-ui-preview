@@ -12,10 +12,14 @@ text changes update in **under 200 ms**.
 
 ## Two ways to get DALi
 
-| Mode | Setup | Best for |
-|---|---|---|
-| **Docker (recommended)** | One-time install of Docker. The DALi runtime ships as a pre-built container image. | First-time users, anyone without DALi already installed. |
-| **Native** | You install DALi to `/opt/dali` yourself (manual build, ~30 min). | Power users who already have a DALi dev environment. |
+This walkthrough sets you up either way:
 
-This walkthrough sets up Docker mode in three steps. If you already have a
-native DALi install and prefer to use it, skip ahead to step 4.
+- **Docker (Recommended)** — one-time install of Docker, no DALi build
+  on your host. Works out of the box for everyone, even with no DALi
+  expertise.
+- **Native** — point the extension at an existing DALi build on your
+  host (typically `/opt/dali`). Faster (uses host GPU), but requires
+  you to build DALi yourself.
+
+Click **Open Documentation** below to read the full README, or jump
+straight to step 2 to pick your runtime.
