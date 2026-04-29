@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.34.4",
+  "version": "0.34.5",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -226,10 +226,10 @@
         },
         "daliPreview.livePreviewDebounce": {
           "type": "number",
-          "default": 300,
+          "default": 0,
           "minimum": 0,
           "maximum": 3000,
-          "description": "Debounce interval in milliseconds for live preview. Lower values update more frequently. (default: 300)"
+          "description": "Debounce interval in milliseconds for live preview. 0 = update on every keystroke (best with the parser fast path, ~100ms per update). Raise this if you're on the slow harness fallback path or want to coalesce multiple rapid edits."
         },
         "daliPreview.fontDirectories": {
           "type": "array",

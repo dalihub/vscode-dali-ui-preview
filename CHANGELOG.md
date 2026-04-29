@@ -5,6 +5,26 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.5] - 2026-04-29 — Default debounce 0ms (instant live preview)
+
+### Changed
+
+- `daliPreview.livePreviewDebounce` default flipped from `300` ms to
+  `0` ms. With the parser fast path running inside the long-running
+  docker container (~100 ms per update), the 300 ms wait was the
+  largest single contributor to perceived latency on every keystroke.
+  Users on the slow harness path can raise this back to 300+ to
+  coalesce edits.
+
+### Note on first-render slowness
+
+If your very first preview takes ~1.5–2 s and the Output channel
+shows `buildAndRun (full harness): ~1800ms`, the docker `preview_server`
+container hadn't finished starting yet when you hit save. Reload the
+window once after the extension finishes activating — the first
+`>>>READY` log line confirms the container is up. Subsequent renders
+hit the parser fast path (~100 ms).
+
 ## [0.34.4] - 2026-04-29 — Visible runtime download + walkthrough completion fix
 
 ### Fixed
