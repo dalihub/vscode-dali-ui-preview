@@ -5,6 +5,42 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.4] - 2026-04-29 — Visible runtime download + walkthrough completion fix
+
+### Fixed
+
+- **Walkthrough steps marked done at unintended times.** Step 2 (Pick
+  Runtime) used `onSettingChanged:daliPreview.runtimeMode` as its
+  completion event, which could fire as a side effect of other
+  settings changes. Tightened to button-driven events:
+  `onCommand:dali.useDockerRuntime` or
+  `onCommand:dali.useNativeRuntime`. Same approach applied across the
+  walkthrough — each step now completes only when its own button is
+  clicked, not when an unrelated setting changes.
+- After installing Docker via the walkthrough, no visible
+  download/install of the DALi runtime image happened — the image
+  pull was silently deferred to the first preview render, leaving the
+  user with no progress feedback during the ~290 MB download.
+
+### Added
+
+- **`dali.pullRuntimeImage`** command — pulls the DALi runtime image
+  from GHCR with a VS Code progress notification (percentage in the
+  bottom-right). Skips silently when the image is already cached.
+- **New walkthrough step "Download DALi Runtime Image"** between
+  Install Docker and Open Sample. After the user verifies Docker
+  access in step 3, an info message offers to download the image
+  immediately so step 6 (Open Sample) is instant.
+- **Auto-prompt after Verify Docker.** When `dali.verifyDocker`
+  succeeds, the user gets an info message offering to download the
+  runtime image right away. Opting in kicks off the pull with the
+  progress notification.
+
+### Changed
+
+- Walkthrough is now 6 steps (was 5) — the new "Download DALi Runtime
+  Image" step makes the previously invisible pull step visible.
+
 ## [0.34.3] - 2026-04-29 — Walkthrough UX polish
 
 ### Changed

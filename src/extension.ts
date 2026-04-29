@@ -17,6 +17,7 @@ import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from './dockerAccessCheck';
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
+import { pullRuntimeImageCommand } from './pullImageCommand';
 import { openSampleCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
@@ -313,6 +314,9 @@ export async function activate(context: vscode.ExtensionContext) {
         ),
         vscode.commands.registerCommand('dali.installDocker', () =>
             installDockerCommand(),
+        ),
+        vscode.commands.registerCommand('dali.pullRuntimeImage', () =>
+            pullRuntimeImageCommand(dockerRuntime, outputChannel),
         ),
         vscode.commands.registerCommand('dali.openSample', () =>
             openSampleCommand(context),
