@@ -192,16 +192,26 @@ function showInstallDocs(outputChannel: vscode.OutputChannel): void {
 
 /**
  * Re-run access check and show a one-shot status message.
- * Wired to the `dali.verifyDocker` command.
+ * Wired to the `dali.verifyDocker` command. On success, prompts the user
+ * to download the runtime image (the next walkthrough step) — with their
+ * consent we kick off `dali.pullRuntimeImage` automatically so they don't
+ * have to remember it.
  */
 export async function verifyDockerCommand(outputChannel: vscode.OutputChannel): Promise<void> {
     const result = await checkDockerAccess();
-    if (result.state === 'ok') {
-        await vscode.window.showInformationMessage(
-            `Docker is accessible (server ${result.serverVersion}). DALi Preview docker mode is ready.`,
-        );
-        outputChannel.appendLine(`[DockerAccess] verified ok: server ${result.serverVersion}`);
+    if (result.state !== 'ok') {
+        await showDockerSetupGuidance(result, outputChannel);
         return;
     }
-    await showDockerSetupGuidance(result, outputChannel);
+
+    outputChannel.appendLine(`[DockerAccess] verified ok: server ${result.serverVersion}`);
+    const choice = await vscode.window.showInformationMessage(
+        `Docker is accessible (server ${result.serverVersion}). ` +
+        `Next: download the DALi runtime image (~290 MB) so the first preview is instant.`,
+        'Download Runtime Image',
+        'Skip for now',
+    );
+    if (choice === 'Download Runtime Image') {
+        await vscode.commands.executeCommand('dali.pullRuntimeImage');
+    }
 }

@@ -155,6 +155,18 @@ export class DockerRuntime {
     }
 
     /**
+     * Convenience wrapper used by the user-facing "Download Runtime Image"
+     * command — calls pullImage with progress mapped to a vscode notification.
+     * Returns the same boolean as pullImage's promise resolution.
+     */
+    async pullImageWithProgress(
+        tag: string,
+        onProgress?: (p: PullProgress) => void,
+    ): Promise<void> {
+        return this.pullImage(tag, onProgress);
+    }
+
+    /**
      * Pull the given image tag, streaming best-effort progress via the
      * optional callback. Resolves on success, rejects with the docker stderr
      * tail on failure.

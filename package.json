@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.34.3",
+  "version": "0.34.4",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -105,6 +105,11 @@
         "category": "DALi Preview"
       },
       {
+        "command": "dali.pullRuntimeImage",
+        "title": "Download Runtime Image",
+        "category": "DALi Preview"
+      },
+      {
         "command": "dali.showReadme",
         "title": "Open README",
         "category": "DALi Preview"
@@ -125,7 +130,7 @@
           {
             "id": "welcome",
             "title": "Welcome",
-            "description": "Quick tour of how DALi Preview works, plus the two runtime options (Docker vs Native).\n[Open Documentation](command:dali.showReadme)",
+            "description": "Quick tour of how DALi Preview works, plus the two runtime options.\n[Open Documentation](command:dali.showReadme)",
             "media": { "markdown": "media/walkthrough/01-welcome.md" },
             "completionEvents": ["onCommand:dali.showReadme"]
           },
@@ -134,7 +139,7 @@
             "title": "Choose Your Runtime",
             "description": "Pick **Docker (Recommended)** if you don't have DALi installed — the runtime ships as a pre-built container image. Pick **Native** if you already have DALi at /opt/dali or similar.\n[Use Docker (Recommended)](command:dali.useDockerRuntime)\n[Use Native DALi](command:dali.useNativeRuntime)",
             "media": { "markdown": "media/walkthrough/02-pick-runtime.md" },
-            "completionEvents": ["onSettingChanged:daliPreview.runtimeMode"]
+            "completionEvents": ["onCommand:dali.useDockerRuntime", "onCommand:dali.useNativeRuntime"]
           },
           {
             "id": "install-docker",
@@ -144,18 +149,25 @@
             "completionEvents": ["onCommand:dali.verifyDocker"]
           },
           {
+            "id": "download-runtime",
+            "title": "Download DALi Runtime Image",
+            "description": "Pulls the ~290 MB runtime image from GHCR with a progress bar. Verify Docker (step 3) auto-prompts this — or run it directly here. Subsequent previews use the cached image, so this happens only once per version.\n[Download Runtime Image](command:dali.pullRuntimeImage)",
+            "media": { "markdown": "media/walkthrough/04-download-runtime.md" },
+            "completionEvents": ["onCommand:dali.pullRuntimeImage"]
+          },
+          {
             "id": "configure-native",
             "title": "Configure Native DALi (alternative path)",
             "description": "Skip if you picked Docker in step 2. Point the extension at your DALi install prefix (the directory containing `lib/libdali2-core.so`).\n[Configure Native DALi](command:dali.useNativeRuntime)",
-            "media": { "markdown": "media/walkthrough/04-configure-native.md" },
+            "media": { "markdown": "media/walkthrough/05-configure-native.md" },
             "completionEvents": ["onSettingChanged:daliPreview.daliPrefix"]
           },
           {
             "id": "first-preview",
             "title": "Open a Sample",
-            "description": "After your runtime is ready, drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render.\n[Open Sample](command:dali.openSample)",
-            "media": { "markdown": "media/walkthrough/05-first-preview.md" },
-            "completionEvents": ["onCommand:dali.openSample", "onCommand:dali.openPreview"]
+            "description": "Final step. Drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render — should appear in ~1 second since the image is already cached.\n[Open Sample](command:dali.openSample)",
+            "media": { "markdown": "media/walkthrough/06-first-preview.md" },
+            "completionEvents": ["onCommand:dali.openSample"]
           }
         ]
       }
