@@ -25,6 +25,19 @@ export class ConfigurationService {
         return this.getConfig().get<string>('daliPrefix', '');
     }
 
+    get runtimeMode(): 'native' | 'docker' {
+        const v = this.getConfig().get<string>('runtimeMode', 'native');
+        return v === 'docker' ? 'docker' : 'native';
+    }
+
+    get dockerImage(): string {
+        return this.getConfig().get<string>('dockerImage', 'ghcr.io/dalihub/dali-preview-runtime');
+    }
+
+    get daliVersionTag(): string {
+        return this.getConfig().get<string>('daliVersionTag', 'latest');
+    }
+
     get previewWidth(): number {
         return this.getConfig().get<number>('previewWidth', 1024);
     }

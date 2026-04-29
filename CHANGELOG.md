@@ -5,6 +5,137 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-04-29 — Phase 5 — Docker Runtime + Walkthrough
+
+### Highlights
+
+The extension now ships a fully-Dockerized DALi runtime, so users no
+longer have to install DALi on their host machine. All three preview
+paths (parser / dlopen / full harness) work inside a long-running
+container, with measured performance close to native mode on small
+canvases:
+
+- **parser path**: 45–150 ms per text-change (warm)
+- **dlopen path**: ~500 ms per change (uses `docker exec` against the
+  running preview server, avoids cold-container startup)
+- **full harness path**: ~1.5 s (fallback)
+
+A 4-step walkthrough opens automatically on first launch, guiding users
+through Docker install → switching to docker mode → opening a bundled
+sample. New maintenance commands let users free disk space and reset
+the docker state without touching the CLI directly.
+
+### Added
+
+- **`docker/Dockerfile.runtime`** — multi-stage build producing
+  `ghcr.io/lwc0917/dali-preview-runtime:dali_2.5.18` (290 MB pull).
+  Pins `dali-core/adaptor/toolkit` to specific SHAs (dali_2.5.18 + 4
+  commits, where the Extents API moved from uint16 → int16) and
+  `dali-ui` to commit `bec04e3` (devel branch HEAD that uses
+  integration-api/visual-renderer.h). Includes Tizen-patched `tizenvg`
+  built from `git://review.tizen.org/git/platform/core/graphics/tizenvg`
+  (upstream ThorVG lacks the SVG fixes DALi needs).
+- **`docker/entrypoint.sh`** — one-shot full-harness compile + render
+  for the slow-path docker run.
+- **`docker/serve.sh`** — long-running preview_server entry. The
+  preview_server binary is now pre-compiled in the image, so the
+  extension never compiles it on the user's machine in docker mode.
+- **`src/dockerRuntime.ts`** — `DockerRuntime` class wrapping `docker
+  info`, image hash check, image pull, and two compile/render entry
+  points (`buildAndCapture` for full harness, `compilePlugin` for
+  dlopen). `compilePlugin` uses `docker exec` against the running
+  preview_server container when available, saving ~300–500 ms of
+  container startup per compile.
+- **`src/dockerAccessCheck.ts`** — probes `docker info`, classifies the
+  failure (CLI missing / daemon down / permission denied / unknown),
+  and surfaces a contextual modal. Notably, the `permission-denied`
+  case explains why logout/login isn't always enough on Linux and
+  guides the user toward a reboot when their session has cached the
+  old group list.
+- **`src/dockerMaintenance.ts`** — three maintenance commands:
+  `dali.cleanRuntimeImages` (multi-select QuickPick of cached images,
+  stops dependent containers first), `dali.resetExtension` (containers
+  + images + cache volumes in one shot), and `dali.verifyDocker`
+  (re-check after the user reboots).
+- **`src/walkthroughController.ts`** — first-launch detection via
+  `globalState`, syncs across machines via `setKeysForSync`. The
+  walkthrough is registered under `contributes.walkthroughs` with 4
+  steps, each backed by a markdown file in `media/walkthrough/`.
+- **`src/installDocker.ts`** — pre-fills the install-and-add-to-group
+  command in an integrated terminal; user supplies sudo password once.
+- **`src/sampleCommand.ts`** — `dali.openSample` copies the bundled
+  `samples/hello-dali.preview.dali.cpp` into the workspace and opens
+  it. `dali.useDockerRuntime` flips the setting and prompts for reload.
+- **`samples/hello-dali.preview.dali.cpp`** — annotated starter sample
+  for the walkthrough's "Open Sample" step.
+- **`media/walkthrough/01-welcome.md`** through **`04-first-preview.md`** —
+  walkthrough step content.
+- **`scripts/build-runtime-local.sh`** — local Dockerfile build with
+  GHCR alias auto-tagging and a smoke test.
+- **`.github/workflows/docker-publish.yml`** — weekly cron + manual
+  trigger that resolves the latest dali-toolkit tag, builds the image,
+  pushes to GHCR, and prunes versions older than the last 12.
+- **Settings**: `daliPreview.runtimeMode` (`native` | `docker`),
+  `daliPreview.dockerImage` (defaults to
+  `ghcr.io/lwc0917/dali-preview-runtime`), `daliPreview.daliVersionTag`
+  (defaults to `latest`).
+- **Commands**: `dali.verifyDocker`, `dali.cleanRuntimeImages`,
+  `dali.resetExtension`, `dali.openSample`, `dali.useDockerRuntime`,
+  `dali.installDocker`, `dali.rerunSetup`.
+
+### Changed
+
+- **`src/previewServer.ts`** — when `runtimeMode === 'docker'`, spawns
+  `docker run -i --rm --name dali-preview-server-<hash> ...
+  --entrypoint /usr/local/bin/dali-preview-serve <image>` instead of a
+  native binary. The container name is registered with `DockerRuntime`
+  so dlopen plugin compiles can `docker exec` into the same container.
+  Stale containers are removed before spawn, the workspace folder is
+  bind-mounted (read-only) so absolute asset paths in user code resolve
+  inside the container, and stdout/stderr are line-buffered before
+  filtering so log lines split across docker chunks aren't echoed to
+  the Output channel as fragments. Adds `LP_NUM_THREADS=0` and
+  `GALLIUM_DRIVER=llvmpipe` env vars for portable mesa multi-threaded
+  software rendering.
+- **`src/buildRunner.ts`** — `buildAndRunDocker` (full harness) and a
+  docker branch in `compilePlugin` (dlopen). DockerRuntime is passed
+  in the constructor.
+- **`src/extension.ts`** — instantiates `DockerRuntime`; runs
+  `checkDockerAccess()` before initializing PreviewServer in docker
+  mode and shows guidance modal on failure; passes workspace folders +
+  `fontDirectories` as bind-mount paths; calls `maybeOpenWalkthrough`
+  on activation; registers all the new commands.
+- **`src/configurationService.ts`** — getters for the three new
+  settings.
+- **`src/logger.ts`** — adds the `'Docker'` log category.
+- **`.vscodeignore`** — excludes coverage / nyc / Docs / report
+  artifacts so the VSIX stays small (310 KB).
+
+### Known limitations
+
+- Large preview canvases (e.g., a 2520×4480 phone-style mock,
+  ~11 M pixels) take ~800 ms in docker mode because mesa software
+  rendering is the only portable backend. Most samples (small canvas)
+  hit the parser-path 100 ms target. See `Docs/Phase5.md` for the
+  resolution-cap experiment that was reverted (DALi absolute coords
+  don't scale).
+- The default `dockerImage` points to
+  `ghcr.io/lwc0917/dali-preview-runtime` rather than the dalihub org
+  namespace, because dalihub's package-visibility policy currently
+  blocks members from making container packages public. Once an org
+  admin grants public-package permission, the default will switch
+  back to `ghcr.io/dalihub/dali-preview-runtime`.
+
+### Performance (32-core dev machine)
+
+| Path | Cold first render | Warm subsequent |
+|---|---|---|
+| parser  | 200 ms (incl. shader compile) | 45–150 ms |
+| dlopen  | 600 ms                        | 460–594 ms |
+| harness | 1.5 s                         | ~1.5 s |
+
+---
+
 ## [0.33.0] - 2026-04-28 — Inspector Read-Only + Multi-Config UX Polish
 
 ### Highlights

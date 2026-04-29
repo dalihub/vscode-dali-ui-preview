@@ -1,10 +1,12 @@
 import { ChildProcess, spawn, exec } from 'child_process';
+import * as crypto from 'crypto';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildResult } from './buildRunner';
 import { SceneNode } from './cppParser';
+import { DockerRuntime } from './dockerRuntime';
 import { getLogger } from './logger';
 
 const execAsync = promisify(exec);
@@ -32,8 +34,23 @@ export class PreviewServer {
         private readonly display: string,
         private readonly outputChannel: vscode.OutputChannel,
         private readonly tmpDir: string = '/tmp/dali_preview',
+        // Docker mode: when both are set, the server runs inside a long-running
+        // container instead of as a native host process. The container ships
+        // /opt/dali/bin/preview_server pre-built, so ensureServerBinary becomes
+        // a no-op and spawnServer launches `docker run -i ...` instead.
+        private readonly dockerRuntime?: DockerRuntime,
+        private readonly dockerImageTag?: string,
+        // Extra host paths to bind-mount into the docker container at the
+        // same path. Use this to make user assets (images, fonts) referenced
+        // by absolute path in user code visible inside the container.
+        private readonly dockerExtraMounts: readonly string[] = [],
     ) {
         this.serverBin = path.join(this.tmpDir, 'preview_server');
+    }
+
+    /** True iff this server is configured to run inside a Docker container. */
+    get isDockerMode(): boolean {
+        return !!(this.dockerRuntime && this.dockerImageTag);
     }
 
     // -----------------------------------------------------------------------
@@ -51,6 +68,12 @@ export class PreviewServer {
      * that change the IPC protocol or scene builder.
      */
     async ensureServerBinary(): Promise<void> {
+        if (this.isDockerMode) {
+            // The preview_server binary is pre-built inside the docker image
+            // at /opt/dali/bin/preview_server. Nothing to compile on the host.
+            return;
+        }
+
         const srcPath = path.join(this.extensionPath, 'server', 'preview_server.cpp');
         const binExists = fs.existsSync(this.serverBin);
         const srcExists = fs.existsSync(srcPath);
@@ -203,6 +226,10 @@ export class PreviewServer {
             clearTimeout(this.restartTimer);
             this.restartTimer = undefined;
         }
+        // Deregister container so compilePlugin falls back to docker run.
+        if (this.isDockerMode && this.dockerRuntime) {
+            this.dockerRuntime.setActiveServerContainer(undefined);
+        }
         if (this.serverProcess) {
             try {
                 this.serverProcess.kill('SIGTERM');
@@ -222,17 +249,139 @@ export class PreviewServer {
         return spawn(cmd, args, opts as any);
     }
 
+    /**
+     * Returns the [command, args] pair for spawning the server process.
+     *
+     * Native mode: the locally-compiled preview_server binary, no args.
+     * Docker mode: `docker run -i --rm` against the runtime image, with
+     *   - the host tmpDir bind-mounted at the same path so all paths in
+     *     IPC commands (soPath, pngPath, jsonPath...) resolve identically
+     *     inside the container — no path translation needed.
+     *   - persistent named volumes for ccache and the DALi shader cache so
+     *     repeated previews avoid recompiling shaders/objects.
+     */
+    /**
+     * Deterministic container name derived from the workspace tmpDir hash.
+     * Same workspace → same container name across reloads, which lets us
+     * `docker rm -f` any stale container before starting a new one.
+     */
+    private dockerContainerName(): string {
+        const hash = crypto.createHash('md5').update(this.tmpDir).digest('hex').slice(0, 12);
+        return `dali-preview-server-${hash}`;
+    }
+
+    private buildSpawnCommand(): [string, string[]] {
+        if (this.isDockerMode) {
+            const imageRef = this.dockerRuntime!.imageRef(this.dockerImageTag!);
+            const containerName = this.dockerContainerName();
+            // Build the -v flags for the workspace and any extra mounts so
+            // absolute paths in user code (image assets, fonts) resolve
+            // identically inside the container.
+            const extraMountFlags: string[] = [];
+            for (const mountPath of this.dockerExtraMounts) {
+                if (mountPath && mountPath !== this.tmpDir) {
+                    extraMountFlags.push('-v', `${mountPath}:${mountPath}:ro`);
+                }
+            }
+            const args = [
+                'run', '-i', '--rm',
+                '--init',
+                '--name', containerName,
+                '-v', `${this.tmpDir}:${this.tmpDir}`,
+                '-v', 'dali-preview-shader-cache:/root/.cache/dali_common_caches',
+                '-v', 'dali-preview-ccache:/cache',
+                ...extraMountFlags,
+                '-e', 'DALI_WINDOW_WIDTH=1024',
+                '-e', 'DALI_WINDOW_HEIGHT=600',
+                // Silence the EFL/eldbus stderr deluge. Without these env vars,
+                // every failed D-Bus connect (which happens many times per
+                // render in headless containers) emits a 30-line eina_btlog
+                // backtrace and floods the Output channel.
+                '-e', 'EINA_LOG_BACKTRACE=disabled',
+                '-e', 'EINA_LOG_LEVELS=eldbus:0,eina_safety:0,eina_log:0',
+                // Force mesa software path multi-threaded — without this,
+                // llvmpipe defaults can leave most cores idle on big renders
+                // (e.g. 2520x4480 phone-style preview drops from ~500ms to
+                // ~100ms when all CPU cores are used).
+                '-e', 'LP_NUM_THREADS=0',
+                '-e', 'GALLIUM_DRIVER=llvmpipe',
+                '--entrypoint', '/usr/local/bin/dali-preview-serve',
+                imageRef,
+            ];
+            return ['docker', args];
+        }
+        return [this.serverBin, []];
+    }
+
+    /**
+     * Filter container stderr noise — eldbus / eina_safety backtraces are
+     * harmless in headless mode but enormous. Anything that looks like
+     * library backtrace garbage gets dropped silently. Real ERROR/WARN
+     * lines from DALi (which don't match these patterns) still pass.
+     */
+    private static isStderrNoise(line: string): boolean {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        // eldbus / eina backtrace markers
+        if (/^##\s*Copy & Paste/.test(trimmed)) return true;
+        if (/^eina_btlog\s*<<\s*EOF/.test(trimmed)) return true;
+        if (/^EOF$/.test(trimmed)) return true;
+        // Backtrace lines look like:  /path/to/lib.so<TAB>0xhex 0xhex
+        if (/^\/.*\.so[.\d]*\s+0x[0-9a-f]+\s+0x[0-9a-f]+$/.test(trimmed)) return true;
+        if (/^\/.*\/(preview_server|preview_bin|dali-preview)[^\s]*\s+0x[0-9a-f]+\s+0x[0-9a-f]+$/.test(trimmed)) return true;
+        // EFL safety / log domain spam (we silenced via env, this is belt-and-suspenders)
+        if (/^(ERR|CRI|WRN|DBG)<\d+>:(eldbus|eina_safety|eina_log|ecore_system_upower|ecore_system_systemd)\s/.test(trimmed)) return true;
+        // Xlib stub messages we can't fix in headless
+        if (/^Xlib:\s+extension/.test(trimmed)) return true;
+        return false;
+    }
+
+    /**
+     * Filter container stdout — DALi prints verbose INFO logs on every
+     * render that drown the Output channel. Keep IPC lines (>>>...),
+     * [ServerPerf] markers, and genuine errors; drop the rest.
+     */
+    private static isStdoutNoise(line: string): boolean {
+        const stripped = PreviewServer.stripAnsi(line).trim();
+        if (!stripped) return true;
+        // Always show IPC and perf markers
+        if (stripped.startsWith('>>>')) return false;
+        if (stripped.startsWith('[ServerPerf]')) return false;
+        // DALi INFO/DEBUG lines (most of the noise)
+        if (/^INFO:\s*DALI:/.test(stripped)) return true;
+        if (/^DEBUG:\s*DALI:/.test(stripped)) return true;
+        // Recurring D-Bus / accessibility complaints — harmless in headless
+        if (/^ERROR:\s*DALI:.*(dbus|Accessibility|DBusClient)/i.test(stripped)) return true;
+        // Plain DALi continuation lines (no level prefix, comes from file:line: pattern)
+        if (/^[a-z0-9_-]+\.cpp:\s+\w+\(\d+\)\s+>/.test(stripped)) return true;
+        // ANSI reset-only lines
+        if (/^\[\d+m$/.test(stripped)) return true;
+        return false;
+    }
+
     private spawnServer(): Promise<boolean> {
         return new Promise((resolve) => {
-            const env: NodeJS.ProcessEnv = {
-                ...process.env,
-                DISPLAY: this.display,
-                LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
-                DALI_WINDOW_WIDTH: '1024',
-                DALI_WINDOW_HEIGHT: '600',
-            };
+            const env: NodeJS.ProcessEnv = this.isDockerMode
+                ? { ...process.env }  // docker run carries its own env via -e flags
+                : {
+                    ...process.env,
+                    DISPLAY: this.display,
+                    LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
+                    DALI_WINDOW_WIDTH: '1024',
+                    DALI_WINDOW_HEIGHT: '600',
+                };
 
-            const proc = this._spawn(this.serverBin, [], {
+            // Kill any stale container with the same name (e.g. from a
+            // previous extension session that crashed before --rm could clean up).
+            if (this.isDockerMode) {
+                const containerName = this.dockerContainerName();
+                try {
+                    require('child_process').execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
+                } catch { /* container may not exist; ignore */ }
+            }
+
+            const [cmd, args] = this.buildSpawnCommand();
+            const proc = this._spawn(cmd, args, {
                 env,
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
@@ -241,7 +390,8 @@ export class PreviewServer {
             this.stdoutBuffer  = '';
 
             const spawnTime = Date.now();
-            this.outputChannel.appendLine(`[PreviewServer] Spawned PID=${proc.pid}, DISPLAY=${env.DISPLAY}, timeout=${READY_TIMEOUT_MS}ms`);
+            const modeLabel = this.isDockerMode ? `docker (${this.dockerRuntime!.imageRef(this.dockerImageTag!)})` : `native (DISPLAY=${env.DISPLAY})`;
+            this.outputChannel.appendLine(`[PreviewServer] Spawned PID=${proc.pid}, mode=${modeLabel}, timeout=${READY_TIMEOUT_MS}ms`);
 
             const readyTimer = setTimeout(() => {
                 if (!this.ready) {
@@ -252,21 +402,56 @@ export class PreviewServer {
                 }
             }, READY_TIMEOUT_MS);
 
+            // Display buffers — accumulate fragments until we have complete
+            // lines, then filter and echo. Without this, a single line split
+            // across two `data` events (e.g. when DALi prints a long ANSI-
+            // colored ERROR line that docker happens to chunk in the middle)
+            // bypasses isStdoutNoise / isStderrNoise because each fragment
+            // looks like its own "line" to the filter.
+            //
+            // The full raw text still feeds this.stdoutBuffer for IPC parsing
+            // — only the user-visible echo is line-buffered.
+            const displayBuf = { stdout: '', stderr: '' };
+
+            const flushDisplayBuffer = (which: 'stdout' | 'stderr',
+                                        noiseFilter: (line: string) => boolean) => {
+                const buf = displayBuf[which];
+                const lastNewline = buf.lastIndexOf('\n');
+                if (lastNewline < 0) {
+                    return; // no complete line yet, keep buffering
+                }
+                const complete = buf.slice(0, lastNewline);
+                displayBuf[which] = buf.slice(lastNewline + 1);
+                const meaningful = complete.split('\n')
+                    .filter((line) => !noiseFilter(line))
+                    .join('\n')
+                    .trimEnd();
+                if (meaningful) {
+                    this.outputChannel.appendLine(`[Server ${which}] ${meaningful}`);
+                }
+            };
+
             proc.stdout!.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
-                this.outputChannel.appendLine(`[Server stdout] ${text.trimEnd()}`);
+                displayBuf.stdout += text;
+                flushDisplayBuffer('stdout', PreviewServer.isStdoutNoise);
+                // Full text always feeds IPC parser regardless of display buffering.
                 this.stdoutBuffer += text;
                 this.processStdoutBuffer(readyTimer, resolve);
             });
 
             proc.stderr!.on('data', (chunk: Buffer) => {
-                this.outputChannel.appendLine(`[Server stderr] ${chunk.toString().trimEnd()}`);
+                displayBuf.stderr += chunk.toString();
+                flushDisplayBuffer('stderr', PreviewServer.isStderrNoise);
             });
 
             proc.on('exit', (code) => {
                 this.outputChannel.appendLine(`[PreviewServer] Process exited (code=${code})`);
                 this.ready = false;
                 this.serverProcess = undefined;
+                if (this.isDockerMode && this.dockerRuntime) {
+                    this.dockerRuntime.setActiveServerContainer(undefined);
+                }
 
                 // Reject any in-flight request
                 if (this.pendingRequest) {
@@ -318,6 +503,12 @@ export class PreviewServer {
                 this.ready        = true;
                 this.restartCount = 0;
                 clearTimeout(readyTimer);
+                // Register container with DockerRuntime so compilePlugin can
+                // use `docker exec` against the running container instead of
+                // spawning a fresh one (saves ~300-500ms per compile).
+                if (this.isDockerMode && this.dockerRuntime) {
+                    this.dockerRuntime.setActiveServerContainer(this.dockerContainerName());
+                }
                 this.outputChannel.appendLine('[PreviewServer] Ready.');
                 readyResolve?.(true);
 

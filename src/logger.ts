@@ -26,7 +26,8 @@ export type LogCategory =
     | 'Setup'
     | 'CodeLens'
     | 'Property'
-    | 'Cleanup';
+    | 'Cleanup'
+    | 'Docker';
 
 export interface Logger {
     error(cat: LogCategory, msg: string, data?: Record<string, unknown>): void;

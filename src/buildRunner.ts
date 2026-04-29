@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { XvfbManager } from './xvfbManager';
+import { DockerRuntime } from './dockerRuntime';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 import { SdbManager } from './sdbManager';
 import { ConfigurationService } from './configurationService';
@@ -58,7 +59,8 @@ export class BuildRunner {
     constructor(
         private context: vscode.ExtensionContext,
         private xvfbManager: XvfbManager | undefined,
-        private outputChannel: vscode.OutputChannel
+        private outputChannel: vscode.OutputChannel,
+        private dockerRuntime?: DockerRuntime
     ) {
         this.extensionPath = context.extensionPath;
         const templatePath = path.join(context.extensionPath, 'server', 'preview_harness.cpp.template');
@@ -154,12 +156,6 @@ export class BuildRunner {
     async compilePlugin(userCode: string, configName?: string): Promise<BuildResult & { soPath?: string }> {
         const log = getLogger();
         log.debug('Build', 'compilePlugin', { configName: configName || 'default' });
-        if (!(await this.ensureDaliPrefix())) {
-            return {
-                success: false,
-                error: 'DALi installation not found.\nUse "DALi: Open Preview" command and configure the DALi path in settings.'
-            };
-        }
 
         const suffix = configName ? `_${BuildRunner.sanitizeConfigName(configName)}` : '';
         const pluginSrc = path.join(this.tmpDir, `preview_plugin${suffix}.cpp`);
@@ -167,6 +163,39 @@ export class BuildRunner {
 
         const pluginCode = this.pluginTemplateContent
             .replace(/\{\{USER_CODE\}\}/g, userCode);
+
+        // Docker mode: compile inside the container so the host doesn't need DALi.
+        if (ConfigurationService.getInstance().runtimeMode === 'docker') {
+            if (!this.dockerRuntime) {
+                return { success: false, error: 'Docker runtime mode but DockerRuntime not provided.' };
+            }
+            if (!(await this.dockerRuntime.isAvailable())) {
+                return { success: false, error: 'Docker is not available.' };
+            }
+            const cfg = ConfigurationService.getInstance();
+            const result = await this.dockerRuntime.compilePlugin({
+                source: pluginCode,
+                workDir: this.tmpDir,
+                srcPath: pluginSrc,
+                soPath,
+                imageTag: cfg.daliVersionTag,
+                timeoutMs: 30_000,
+            });
+            if (!result.success) {
+                log.debug('Build', 'docker compilePlugin failed', { elapsedMs: result.elapsedMs });
+                return { success: false, error: `Plugin compile failed (docker, ${result.elapsedMs}ms):\n${result.output}` };
+            }
+            log.debug('Build', 'docker compilePlugin done', { soPath, elapsedMs: result.elapsedMs });
+            return { success: true, soPath };
+        }
+
+        // Native mode: existing behavior
+        if (!(await this.ensureDaliPrefix())) {
+            return {
+                success: false,
+                error: 'DALi installation not found.\nUse "DALi: Open Preview" command and configure the DALi path in settings.'
+            };
+        }
 
         fs.writeFileSync(pluginSrc, pluginCode);
 
@@ -210,6 +239,12 @@ export class BuildRunner {
     ): Promise<BuildResult> {
         const log = getLogger();
         log.debug('Build', 'buildAndRun start', { width, height, theme });
+
+        // Docker runtime: skip native DALi prefix check, dispatch to docker path.
+        if (ConfigurationService.getInstance().runtimeMode === 'docker') {
+            return this.buildAndRunDocker(userCode, width, height, theme, bgColor, font);
+        }
+
         // Ensure DALi prefix is available
         if (!(await this.ensureDaliPrefix())) {
             return {
@@ -270,6 +305,112 @@ export class BuildRunner {
 
         // 3. Execute
         return this.execute(binPath, pngPath, metadataPath, width, height, locale, fontScale);
+    }
+
+    /**
+     * Docker runtime variant of buildAndRun.
+     * The container holds DALi + g++ + Xvfb; the host owns templating only.
+     * Bind-mount maps the host tmpDir to /work in the container, so the
+     * harness writes its PNG/metadata where the host can read them back.
+     */
+    private async buildAndRunDocker(
+        userCode: string,
+        width: number | undefined,
+        height: number | undefined,
+        theme: 'light' | 'dark',
+        bgColor: string | undefined,
+        font: string | undefined,
+    ): Promise<BuildResult> {
+        const log = getLogger();
+
+        if (!this.dockerRuntime) {
+            return { success: false, error: 'Docker runtime mode is enabled but no DockerRuntime was provided to BuildRunner.' };
+        }
+
+        if (!(await this.dockerRuntime.isAvailable())) {
+            return {
+                success: false,
+                error: 'Docker is not available. Install Docker, add your user to the docker group, and re-launch VS Code.'
+            };
+        }
+
+        const cfg = ConfigurationService.getInstance();
+        const imageTag = cfg.daliVersionTag;
+        const imageRef = this.dockerRuntime.imageRef(imageTag);
+
+        if (!(await this.dockerRuntime.hasImage(imageTag))) {
+            return {
+                success: false,
+                error: `DALi runtime image not found locally: ${imageRef}\nPull it with:  docker pull ${imageRef}`
+            };
+        }
+
+        if (!width || !height) {
+            width = cfg.previewWidth;
+            height = cfg.previewHeight;
+        }
+
+        // Custom fonts inside the container would need their dirs bind-mounted
+        // separately. Out of scope for Phase 5-A — warn and continue without.
+        if (font) {
+            log.warn('Build', 'docker mode: custom font ignored (not yet supported in container runtime)', { font });
+        }
+
+        // Container-side paths (bind-mount: tmpDir → /work)
+        const pngPathContainer = '/work/preview.png';
+        const metadataPathContainer = '/work/preview_metadata.json';
+        // Host-side paths (where the bind-mounted files actually live)
+        const pngPathHost = path.join(this.tmpDir, 'preview.png');
+        const metadataPathHost = path.join(this.tmpDir, 'preview_metadata.json');
+
+        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
+            ? BuildRunner.hexToVector4(bgColor)
+            : BuildRunner.themeToBackgroundColor(theme);
+
+        const harness = this.templateContent
+            .replace(/\{\{USER_CODE\}\}/g, userCode)
+            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
+            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
+            .replace(/\{\{OUTPUT_PATH\}\}/g, pngPathContainer)
+            .replace(/\{\{METADATA_PATH\}\}/g, metadataPathContainer)
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
+            .replace(/\{\{FONT_SETUP\}\}/g, '');
+
+        // Remove stale outputs so we never report a previous run's PNG.
+        for (const p of [pngPathHost, metadataPathHost]) {
+            try { fs.unlinkSync(p); } catch { /* not present */ }
+        }
+
+        log.debug('Build', 'docker buildAndCapture start', { imageRef, width, height });
+        const result = await this.dockerRuntime.buildAndCapture({
+            source: harness,
+            workDir: this.tmpDir,
+            imageTag,
+            width,
+            height,
+            timeoutMs: 60_000,
+        });
+
+        if (!result.success) {
+            return {
+                success: false,
+                error: `Docker render failed (exit ${result.exitCode}):\n${result.output}`,
+            };
+        }
+
+        if (!fs.existsSync(pngPathHost)) {
+            return {
+                success: false,
+                error: `Container exited 0 but PNG not found at ${pngPathHost}.\nContainer output:\n${result.output}`,
+            };
+        }
+
+        log.debug('Build', 'docker buildAndCapture done', { pngPathHost, elapsedMs: result.elapsedMs });
+        return {
+            success: true,
+            pngPath: pngPathHost,
+            metadataPath: fs.existsSync(metadataPathHost) ? metadataPathHost : undefined,
+        };
     }
 
     private compileShared(source: string, output: string): Promise<BuildResult> {
