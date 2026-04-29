@@ -18,7 +18,7 @@ import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from 
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
 import { openSampleCommand, useDockerRuntimeCommand } from './sampleCommand';
-import { maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
+import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
 
 let previewManager: PreviewManager | undefined;
@@ -86,13 +86,18 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
     }
 
-    // Check DALi configuration on first run — only meaningful in native
-    // mode. In docker mode the runtime is fetched as a container image, so
-    // a host DALi install isn't required and the setup wizard would just
-    // confuse the user (asking them to point at a nonexistent /opt/dali).
+    // Suppress all legacy first-run popups when:
+    //   - this machine has never seen the walkthrough (firstLaunch) — the
+    //     walkthrough alone drives the initial UX, no competing modals; OR
+    //   - runtimeMode is docker — the runtime lives in the container image,
+    //     host DALi prefix and host g++/Xvfb don't apply.
+    // Only an existing-user-on-native-mode-without-prefix combination still
+    // surfaces the legacy setup wizard / env validation toasts.
     const isDockerMode = ConfigurationService.getInstance().runtimeMode === 'docker';
+    const suppressLegacyFirstRun = isDockerMode || isFirstLaunch(context);
+
     try {
-        if (!isDockerMode && !isDaliConfigured(context)) {
+        if (!suppressLegacyFirstRun && !isDaliConfigured(context)) {
             const daliPath = await runSetupWizard(context);
             if (!daliPath) {
                 outputChannel.appendLine('DALi not configured. Preview will not work until configured.');
@@ -104,9 +109,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Validate runtime environment and show actionable messages for missing
     // deps. Skipped in docker mode (the docker image carries its own
-    // toolchain — host doesn't need g++/Xvfb/etc.).
-    if (isDockerMode) {
-        outputChannel.appendLine('[Environment] Validation skipped (runtimeMode=docker — deps live in the image)');
+    // toolchain — host doesn't need g++/Xvfb/etc.) and on first launch
+    // (walkthrough handles guidance; no competing toasts).
+    if (suppressLegacyFirstRun) {
+        outputChannel.appendLine(`[Environment] Validation skipped (${isDockerMode ? 'runtimeMode=docker' : 'first-launch — walkthrough drives'})`);
     } else try {
         const daliPrefixForCheck = await findDaliPrefix();
         const envIssues = await validateEnvironment(daliPrefixForCheck);
