@@ -86,9 +86,13 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
     }
 
-    // Check DALi configuration on first run
+    // Check DALi configuration on first run — only meaningful in native
+    // mode. In docker mode the runtime is fetched as a container image, so
+    // a host DALi install isn't required and the setup wizard would just
+    // confuse the user (asking them to point at a nonexistent /opt/dali).
+    const isDockerMode = ConfigurationService.getInstance().runtimeMode === 'docker';
     try {
-        if (!isDaliConfigured(context)) {
+        if (!isDockerMode && !isDaliConfigured(context)) {
             const daliPath = await runSetupWizard(context);
             if (!daliPath) {
                 outputChannel.appendLine('DALi not configured. Preview will not work until configured.');
@@ -98,8 +102,12 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`Setup wizard error: ${err.message || err}`);
     }
 
-    // Validate runtime environment and show actionable messages for missing deps
-    try {
+    // Validate runtime environment and show actionable messages for missing
+    // deps. Skipped in docker mode (the docker image carries its own
+    // toolchain — host doesn't need g++/Xvfb/etc.).
+    if (isDockerMode) {
+        outputChannel.appendLine('[Environment] Validation skipped (runtimeMode=docker — deps live in the image)');
+    } else try {
         const daliPrefixForCheck = await findDaliPrefix();
         const envIssues = await validateEnvironment(daliPrefixForCheck);
         if (envIssues.length > 0) {
