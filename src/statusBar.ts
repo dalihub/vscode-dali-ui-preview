@@ -70,6 +70,19 @@ export class StatusBarManager {
         this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
     }
 
+    /**
+     * Persistent "a newer runtime image is available" affordance. Unlike the
+     * transient modes, this stays until the user clicks it (which runs the
+     * update check); after a successful update the caller restores the mode.
+     */
+    showUpdateAvailable(): void {
+        this.clearRevertTimer();
+        this.statusBarItem.text = '$(cloud-download) DALi: Update available';
+        this.statusBarItem.tooltip = 'A newer DALi runtime image is available — click to update';
+        this.statusBarItem.command = 'dali.checkRuntimeUpdate';
+        this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+    }
+
     dispose(): void {
         this.clearRevertTimer();
         this.statusBarItem.dispose();

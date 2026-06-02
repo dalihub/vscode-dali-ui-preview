@@ -5,6 +5,32 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-06-02 — Runtime image update management
+
+### Added
+
+- **Update detection via digest comparison.** `DockerRuntime` gained
+  `getLocalDigest` / `getRemoteDigest` / `isUpdateAvailable`, comparing the
+  locally-cached image's `RepoDigest` against the registry manifest digest
+  (`docker buildx imagetools inspect`, falling back to `docker manifest
+  inspect`). Works for any tag (rolling `latest` or pinned) with no auth/HTTP
+  handling, and never throws — offline/unknown is treated as "no update".
+- **`dali.checkRuntimeUpdate`** command — manual "check for updates"; on a
+  newer image, offers "Update now" → force re-pull → restarts the preview
+  server on the new image.
+- **Daily background auto-check** on activation (docker mode only), throttled
+  to once per day via `globalState`, gated by the new
+  `daliPreview.autoCheckRuntimeUpdate` setting (default `true`). Non-blocking
+  and silent when offline or up to date.
+- **Status-bar "Update available"** affordance — click it to run the update
+  check.
+
+### Note
+
+Digest comparison detects a changed image for the *configured* tag; it does
+not enumerate new version tags in the registry. To move to a new DALi version
+tag, set `daliPreview.daliVersionTag`.
+
 ## [0.35.0] - 2026-06-02 — Seamless no-reboot Docker setup
 
 ### Added

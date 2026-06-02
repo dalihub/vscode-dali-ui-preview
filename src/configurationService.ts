@@ -38,6 +38,10 @@ export class ConfigurationService {
         return this.getConfig().get<string>('daliVersionTag', 'latest');
     }
 
+    get autoCheckRuntimeUpdate(): boolean {
+        return this.getConfig().get<boolean>('autoCheckRuntimeUpdate', true);
+    }
+
     get previewWidth(): number {
         return this.getConfig().get<number>('previewWidth', 1024);
     }

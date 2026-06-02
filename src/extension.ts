@@ -22,6 +22,7 @@ import { openSampleCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, sh
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
+import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate } from './checkUpdateCommand';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -298,6 +299,14 @@ export async function activate(context: vscode.ExtensionContext) {
         },
     });
 
+    // Once-a-day background check for a newer runtime image (docker mode only,
+    // gated by the autoCheckRuntimeUpdate setting; silent on no-update/offline).
+    if (dockerRuntime) {
+        void maybeAutoCheckRuntimeUpdate(context, dockerRuntime, outputChannel, () => {
+            statusBar?.showUpdateAvailable();
+        });
+    }
+
     // Command: DALi Preview: Toggle Theme
     const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
         if (!orchestrator) { return; }
@@ -365,6 +374,11 @@ export async function activate(context: vscode.ExtensionContext) {
             dockerRuntime
                 ? pullRuntimeImageCommand(dockerRuntime, outputChannel)
                 : Promise.resolve(false),
+        ),
+        vscode.commands.registerCommand('dali.checkRuntimeUpdate', () =>
+            dockerRuntime
+                ? checkRuntimeUpdateCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); })
+                : Promise.resolve(),
         ),
         vscode.commands.registerCommand('dali.openSample', () =>
             openSampleCommand(context),

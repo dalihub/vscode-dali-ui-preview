@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -110,6 +110,11 @@
         "category": "DALi Preview"
       },
       {
+        "command": "dali.checkRuntimeUpdate",
+        "title": "Check for Runtime Image Update",
+        "category": "DALi Preview"
+      },
+      {
         "command": "dali.showReadme",
         "title": "Open README",
         "category": "DALi Preview"
@@ -198,6 +203,11 @@
           "type": "string",
           "default": "latest",
           "description": "Image tag selecting the DALi version. Use 'latest' to follow the rolling tag, or pin a specific tag (e.g. 'tizen_10.0_release'). Only used when runtimeMode is 'docker'."
+        },
+        "daliPreview.autoCheckRuntimeUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check once per day whether a newer DALi runtime image is available (digest comparison against the registry). Non-blocking; fails silently when offline. Disable to never auto-check."
         },
         "daliPreview.previewWidth": {
           "type": "number",

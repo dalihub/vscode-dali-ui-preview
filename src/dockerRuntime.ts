@@ -9,6 +9,33 @@ const execFileAsync = promisify(execFile);
 export const DEFAULT_DOCKER_IMAGE = 'ghcr.io/dalihub/dali-preview-runtime';
 export const DEFAULT_IMAGE_TAG = 'latest';
 
+/** Extract the `sha256:...` from a `repo@sha256:...` RepoDigest string. */
+export function parseRepoDigest(repoDigest: string): string | undefined {
+    const at = repoDigest.indexOf('@');
+    if (at === -1) return undefined; // '<no value>' / empty / no RepoDigest
+    const digest = repoDigest.slice(at + 1);
+    return /^sha256:[0-9a-f]{64}$/i.test(digest) ? digest : undefined;
+}
+
+/**
+ * Pull a sha256 digest out of `docker manifest inspect -v` JSON. The output is
+ * either a single object or an array (multi-arch); we read the top-level
+ * `.Descriptor.digest`. On any unexpected shape, return undefined so the caller
+ * falls back to buildx.
+ */
+export function extractManifestDigest(stdout: string): string | undefined {
+    try {
+        const parsed = JSON.parse(stdout);
+        const entry = Array.isArray(parsed) ? parsed[0] : parsed;
+        const digest = entry?.Descriptor?.digest;
+        return typeof digest === 'string' && /^sha256:[0-9a-f]{64}$/i.test(digest)
+            ? digest
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 export interface BuildAndCaptureRequest {
     /**
      * Templated, ready-to-compile C++ source. Must already include `main()`
@@ -152,6 +179,69 @@ export class DockerRuntime {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * Local image digest (the RepoDigest) for a tag, or undefined if the image
+     * isn't cached locally or has no RepoDigest (e.g. a locally-built image that
+     * was never pushed/pulled). Returns the bare `sha256:...` portion.
+     */
+    async getLocalDigest(tag: string): Promise<string | undefined> {
+        try {
+            const { stdout } = await execFileAsync('docker', [
+                'image', 'inspect', '--format', '{{index .RepoDigests 0}}', this.imageRef(tag),
+            ], { timeout: 10_000 });
+            return parseRepoDigest(stdout.trim());
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Remote manifest digest for a tag from the registry, or undefined when
+     * offline / unauthorized / not found. Never throws.
+     *
+     * Prefers `docker buildx imagetools inspect` (prints the canonical,
+     * multi-arch list digest), falling back to `docker manifest inspect -v`.
+     */
+    async getRemoteDigest(tag: string): Promise<string | undefined> {
+        const ref = this.imageRef(tag);
+        // buildx imagetools prints the canonical (multi-arch list) digest.
+        try {
+            const { stdout } = await execFileAsync(
+                'docker', ['buildx', 'imagetools', 'inspect', ref],
+                { timeout: 15_000 },
+            );
+            const m = stdout.match(/Digest:\s*(sha256:[0-9a-f]{64})/i);
+            if (m) return m[1];
+        } catch (err) {
+            getLogger().trace('Docker', 'buildx imagetools failed, trying manifest inspect', { ref, error: String(err) });
+        }
+        // Fallback: manifest inspect -v (best-effort; may be a per-arch digest).
+        try {
+            const { stdout } = await execFileAsync(
+                'docker', ['manifest', 'inspect', '-v', ref],
+                { timeout: 15_000, env: { ...process.env, DOCKER_CLI_EXPERIMENTAL: 'enabled' } },
+            );
+            return extractManifestDigest(stdout);
+        } catch (err) {
+            getLogger().trace('Docker', 'remote digest unavailable', { ref, error: String(err) });
+            return undefined;
+        }
+    }
+
+    /**
+     * True iff a remote digest exists AND differs from the local digest.
+     * Returns false (not "unknown") when offline or when either digest is
+     * unavailable — callers must treat false as "don't prompt the user".
+     */
+    async isUpdateAvailable(tag: string): Promise<boolean> {
+        const [local, remote] = await Promise.all([
+            this.getLocalDigest(tag),
+            this.getRemoteDigest(tag),
+        ]);
+        if (!local || !remote) return false;
+        return local !== remote;
     }
 
     /**

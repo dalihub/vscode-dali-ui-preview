@@ -68,6 +68,35 @@ describe('StatusBarManager — showMode()', () => {
     });
 });
 
+describe('StatusBarManager — showUpdateAvailable()', () => {
+    function makeManagerWithSpy() {
+        const item = {
+            text: '',
+            tooltip: undefined as string | undefined,
+            command: undefined as string | undefined,
+            color: undefined as any,
+            show: () => {},
+            hide: () => {},
+            dispose: () => {},
+        };
+        const vscode = require('vscode');
+        const saved = vscode.window.createStatusBarItem;
+        vscode.window.createStatusBarItem = () => item;
+        const ctx = { subscriptions: [] } as any;
+        const mgr = new StatusBarManager(ctx);
+        vscode.window.createStatusBarItem = saved;
+        return { mgr, item };
+    }
+
+    it('sets the update text, tooltip, and check-update command', () => {
+        const { mgr, item } = makeManagerWithSpy();
+        mgr.showUpdateAvailable();
+        expect(item.text).to.include('Update available');
+        expect(item.command).to.equal('dali.checkRuntimeUpdate');
+        expect(String(item.tooltip)).to.include('newer');
+    });
+});
+
 describe('ThemeStatusBarItem', () => {
     function makeThemeItemWithSpy() {
         const item = {
