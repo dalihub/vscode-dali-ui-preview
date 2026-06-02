@@ -94,6 +94,19 @@ const vscodeMock = {
             dispose: () => {},
             visible: true,
         }),
+        withProgress: async (_opts: any, task: any) =>
+            task(
+                { report: () => {} },
+                { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) },
+            ),
+        createTerminal: (_opts?: any) => ({
+            name: (_opts && _opts.name) || 'mock-terminal',
+            show: () => {},
+            sendText: () => {},
+            dispose: () => {},
+            exitStatus: undefined,
+        }),
+        onDidCloseTerminal: (_listener: any) => ({ dispose: () => {} }),
     },
     ViewColumn: {
         One: 1,
@@ -125,6 +138,19 @@ const vscodeMock = {
             public range: any,
             public command?: any,
         ) {}
+    },
+    ProgressLocation: {
+        SourceControl: 1,
+        Window: 10,
+        Notification: 15,
+    },
+    ConfigurationTarget: {
+        Global: 1,
+        Workspace: 2,
+        WorkspaceFolder: 3,
+    },
+    ThemeColor: class ThemeColor {
+        constructor(public id: string) {}
     },
 };
 

@@ -5,6 +5,41 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-06-02 — Seamless no-reboot Docker setup
+
+### Added
+
+- **No-reboot Docker setup.** The install flow now grants the current
+  VS Code session docker socket access immediately via `setfacl` (file
+  ACLs are evaluated at connect-time, so the already-running editor picks
+  them up) — no logout or reboot. A new background poller
+  (`DockerAccessPoller`) watches for access to become available after the
+  install and continues setup automatically.
+- **`ensureRuntimeImage`** — the runtime image is auto-pulled with a
+  progress notification before the preview server launches (and on the
+  harness fallback path), instead of letting `docker run` cold-pull
+  ~290 MB past the 15 s startup timeout and silently fail.
+- **"Fix for this session"** action on the docker permission-denied
+  guidance — applies the same immediate `setfacl` fix for users who
+  already installed Docker but whose session never picked up the group.
+
+### Changed
+
+- **Pre-install modal** before the install terminal opens: "enter your
+  password once; the rest is automatic; no reboot or reload."
+- **`dali.useDockerRuntime`** now ensures the image and (re)starts the
+  preview server in place instead of asking the user to reload the window.
+- `installDockerCommand` / `showInstallDocs` / walkthrough step 3 no longer
+  tell the user to reboot.
+
+### Note on ACL persistence
+
+The `setfacl` socket ACL bridges the current session only; it is lost if
+the docker daemon recreates the socket (e.g. `systemctl restart docker`).
+The permanent path is the `usermod -aG docker` group membership, which
+applies to every future session — re-run "Verify Docker Access" →
+"Fix for this session" if access ever drops mid-session.
+
 ## [0.34.5] - 2026-04-29 — Default debounce 0ms (instant live preview)
 
 ### Changed

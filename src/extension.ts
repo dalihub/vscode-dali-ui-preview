@@ -17,10 +17,11 @@ import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from './dockerAccessCheck';
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
-import { pullRuntimeImageCommand } from './pullImageCommand';
+import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
 import { openSampleCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
+import { DockerAccessPoller } from './dockerAccessPoller';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -41,6 +42,17 @@ let cursorHighlightTimer: ReturnType<typeof setTimeout> | undefined;
 
 // The orchestrator owns all preview pipeline state and logic
 let orchestrator: PreviewOrchestrator | undefined;
+
+// Docker runtime + preview-server init, hoisted to module scope so the
+// docker-access poller and setup commands can re-init the preview after
+// docker becomes available — without a VS Code reload.
+let dockerRuntime: DockerRuntime | undefined;
+// Polls docker access after the install/setfacl flow so the preview can come
+// up without a reload; started by the install / runtime-switch commands.
+let dockerAccessPoller: DockerAccessPoller | undefined;
+// Reassigned in activate(); the no-op default lets callers invoke it
+// unconditionally (e.g. from the access poller before the first real init).
+let initPreviewServer: () => Promise<void> = async () => {};
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
@@ -138,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Docker runtime (used when daliPreview.runtimeMode === 'docker')
-    const dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
+    dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
 
     // Build runner
     buildRunner = new BuildRunner(context, xvfbManager, outputChannel, dockerRuntime);
@@ -182,7 +194,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable.
     // Honored at startup: when daliPreview.disablePreviewServer is true the server
     // is never spawned, so every preview goes through the full g++ harness path.
-    const initPreviewServer = async () => {
+    initPreviewServer = async () => {
+        // Re-callable after docker becomes available (or a runtime switch):
+        // tear down any prior instance first so we don't leak a process or
+        // leave a stale orchestrator reference.
+        if (previewServer) {
+            previewServer.stop();
+            previewServer = undefined;
+            orchestrator?.updatePreviewServer(undefined);
+        }
         if (ConfigurationService.getInstance().disablePreviewServer) {
             outputChannel.appendLine('[PreviewServer] Skipped (daliPreview.disablePreviewServer is true) — using Phase 1 full harness path');
             statusBar?.showMode('compile');
@@ -204,8 +224,19 @@ export async function activate(context: vscode.ExtensionContext) {
                     `[PreviewServer] Skipped — docker access state: ${access.state}`,
                 );
                 statusBar?.showMode('compile');
-                await showDockerSetupGuidance(access, outputChannel);
+                await showDockerSetupGuidance(access, outputChannel, () => dockerAccessPoller?.start());
                 return;
+            }
+            // Ensure the runtime image is present BEFORE launching the
+            // container. Otherwise `docker run` cold-pulls ~290 MB, blows past
+            // the 15s READY timeout, and silently fails (then retries).
+            if (dockerRuntime) {
+                const imageReady = await ensureRuntimeImage(dockerRuntime, outputChannel);
+                if (!imageReady) {
+                    outputChannel.appendLine('[PreviewServer] Skipped — runtime image unavailable.');
+                    statusBar?.showMode('compile');
+                    return;
+                }
             }
         } else {
             const found = await buildRunner!.getDaliPrefix();
@@ -251,6 +282,21 @@ export async function activate(context: vscode.ExtensionContext) {
     initPreviewServer().catch(err =>
         outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
     );
+
+    // Poller that auto-continues setup the moment docker access becomes
+    // available (after the install / setfacl flow) — no VS Code reload.
+    dockerAccessPoller = new DockerAccessPoller({
+        onOk: async () => {
+            outputChannel.appendLine('[DockerAccess] Access became available — continuing setup automatically.');
+            if (dockerRuntime) {
+                await ensureRuntimeImage(dockerRuntime, outputChannel);
+            }
+            await initPreviewServer();
+            void vscode.window.showInformationMessage(
+                'DALi Preview: Docker is ready — preview server starting. No reload needed.',
+            );
+        },
+    });
 
     // Command: DALi Preview: Toggle Theme
     const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
@@ -304,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // so the user can recover from a broken docker setup at any time).
     context.subscriptions.push(
         vscode.commands.registerCommand('dali.verifyDocker', () =>
-            verifyDockerCommand(outputChannel),
+            verifyDockerCommand(outputChannel, () => dockerAccessPoller?.start()),
         ),
         vscode.commands.registerCommand('dali.cleanRuntimeImages', () =>
             cleanRuntimeImagesCommand(outputChannel),
@@ -313,16 +359,28 @@ export async function activate(context: vscode.ExtensionContext) {
             resetExtensionCommand(outputChannel),
         ),
         vscode.commands.registerCommand('dali.installDocker', () =>
-            installDockerCommand(),
+            installDockerCommand(() => dockerAccessPoller?.start()),
         ),
         vscode.commands.registerCommand('dali.pullRuntimeImage', () =>
-            pullRuntimeImageCommand(dockerRuntime, outputChannel),
+            dockerRuntime
+                ? pullRuntimeImageCommand(dockerRuntime, outputChannel)
+                : Promise.resolve(false),
         ),
         vscode.commands.registerCommand('dali.openSample', () =>
             openSampleCommand(context),
         ),
         vscode.commands.registerCommand('dali.useDockerRuntime', () =>
-            useDockerRuntimeCommand(),
+            useDockerRuntimeCommand(async () => {
+                const access = await checkDockerAccess();
+                if (access.state !== 'ok') {
+                    await showDockerSetupGuidance(access, outputChannel, () => dockerAccessPoller?.start());
+                    return;
+                }
+                if (dockerRuntime) {
+                    await ensureRuntimeImage(dockerRuntime, outputChannel);
+                }
+                await initPreviewServer();
+            }),
         ),
         vscode.commands.registerCommand('dali.useNativeRuntime', () =>
             useNativeRuntimeCommand(),
@@ -711,6 +769,7 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+    dockerAccessPoller?.stop();
     liveDebouncer?.dispose();
     orchestrator?.dispose();
     previewServer?.stop();

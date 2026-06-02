@@ -1,31 +1,57 @@
 import * as vscode from 'vscode';
 
 /**
- * Open an integrated terminal and pre-fill the Docker install command
- * chain. The user only needs to press Enter and supply their sudo
- * password once — the three steps (install, group-add, daemon-enable)
- * are chained with `&&` so any step's failure aborts the rest.
+ * Install Docker via an integrated terminal, then grant the CURRENT VS Code
+ * session socket access immediately — no reboot, no reload.
  *
- * We deliberately do NOT execute the command automatically. The terminal
- * stays open so the user can read the output, see prompts (sudo
- * password), and intervene if something needs adjusting.
+ * The chain (any step's failure aborts the rest via `&&`):
+ *   1. install docker (get.docker.com)
+ *   2. usermod -aG docker  — permanent group membership (future sessions)
+ *   3. systemctl enable --now docker  — start the daemon, which CREATES the
+ *      socket (must run before setfacl)
+ *   4. ensure the `acl` package is present (no-op if already there)
+ *   5. setfacl -m u:$USER:rw on the socket  — immediate access for THIS session.
+ *      File ACLs are evaluated at connect() time, unlike group membership which
+ *      is baked into a process when it starts, so the already-running VS Code
+ *      can connect right away — no logout/reboot.
+ *
+ * `onStarted` is invoked after the terminal opens so the caller can begin
+ * polling docker access and auto-continue once it becomes reachable.
+ *
+ * We deliberately do NOT auto-run the command — the user reviews it and presses
+ * Enter, supplying their sudo password once.
  */
-export async function installDockerCommand(): Promise<void> {
+export async function installDockerCommand(onStarted?: () => void): Promise<void> {
     const cmd =
         'curl -fsSL https://get.docker.com | sudo sh' +
-        ' && sudo usermod -aG docker $USER' +
+        ' && sudo usermod -aG docker "$USER"' +
         ' && sudo systemctl enable --now docker' +
-        ' && echo "" && echo "✅ Docker installed. After this command, REBOOT your system" ' +
-        '&& echo "(sudo reboot) so the docker group is picked up by every session."';
+        ' && ( command -v setfacl >/dev/null 2>&1 || sudo apt-get install -y acl || true )' +
+        ' && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock' +
+        ' && echo "" && echo "Docker is ready for this session — VS Code will continue automatically."';
+
+    // Pre-install modal so the user knows exactly what to expect: one password,
+    // then hands-off. Keeps the sudo-password prompt (which appears INSIDE the
+    // terminal) from surprising them.
+    const choice = await vscode.window.showInformationMessage(
+        'Docker will be installed in the terminal below. Enter your password once when ' +
+        'prompted — installation, permissions, and the runtime download then proceed ' +
+        'automatically. You do NOT need to reboot or reload VS Code.',
+        { modal: true },
+        'Open Terminal',
+    );
+    if (choice !== 'Open Terminal') {
+        return;
+    }
 
     const terminal = vscode.window.createTerminal({
         name: 'DALi Preview · Install Docker',
         message:
-            'Pre-filled the Docker install command. Press Enter to start ' +
-            '(sudo password will be requested once). After it finishes, ' +
-            'reboot your system before reopening this folder.',
+            'Press Enter to start. Your sudo password will be requested once. ' +
+            'When it finishes, VS Code continues automatically — no reboot.',
     });
     terminal.show(false);
     // sendText with addNewLine=false — user reviews and presses Enter.
     terminal.sendText(cmd, false);
+    onStarted?.();
 }

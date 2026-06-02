@@ -9,6 +9,7 @@ import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 import { SdbManager } from './sdbManager';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
+import { ensureRuntimeImage } from './pullImageCommand';
 
 export interface BuildResult {
     success: boolean;
@@ -338,10 +339,13 @@ export class BuildRunner {
         const imageTag = cfg.daliVersionTag;
         const imageRef = this.dockerRuntime.imageRef(imageTag);
 
-        if (!(await this.dockerRuntime.hasImage(imageTag))) {
+        // Auto-pull (with progress) instead of telling the user to do it
+        // manually — consistent with the preview-server path.
+        if (!(await ensureRuntimeImage(this.dockerRuntime, this.outputChannel))) {
             return {
                 success: false,
-                error: `DALi runtime image not found locally: ${imageRef}\nPull it with:  docker pull ${imageRef}`
+                error: `DALi runtime image not available: ${imageRef}. ` +
+                    `Download it with "DALi Preview: Download Runtime Image".`
             };
         }
 

@@ -43,26 +43,24 @@ export async function openSampleCommand(context: vscode.ExtensionContext): Promi
 /**
  * Command: `dali.useDockerRuntime`
  *
- * Sets `daliPreview.runtimeMode` to `docker` at the user (global) level
- * and prompts the user to reload so the change takes effect.
+ * Sets `daliPreview.runtimeMode` to `docker` at the user (global) level, then
+ * runs `onApplied` (ensure the runtime image + (re)start the preview server)
+ * so the switch takes effect WITHOUT a window reload.
  *
- * If docker isn't accessible, the next preview attempt will trigger the
- * dockerAccessCheck guidance modal.
+ * If docker isn't accessible, `onApplied` surfaces the dockerAccessCheck
+ * guidance modal.
  */
-export async function useDockerRuntimeCommand(): Promise<void> {
+export async function useDockerRuntimeCommand(onApplied?: () => Promise<void>): Promise<void> {
     const cfg = ConfigurationService.getInstance();
     if (cfg.runtimeMode === 'docker') {
         vscode.window.showInformationMessage('DALi Preview is already in docker mode.');
         return;
     }
     await cfg.update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
-    const choice = await vscode.window.showInformationMessage(
-        'Switched to docker runtime. Reload the window to apply.',
-        'Reload Window',
+    vscode.window.showInformationMessage(
+        'Switched to docker runtime — preparing the runtime container (no reload needed).',
     );
-    if (choice === 'Reload Window') {
-        vscode.commands.executeCommand('workbench.action.reloadWindow');
-    }
+    await onApplied?.();
 }
 
 /**

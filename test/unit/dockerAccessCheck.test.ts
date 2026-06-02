@@ -1,0 +1,44 @@
+import { expect } from 'chai';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import { showDockerSetupGuidance } from '../../src/dockerAccessCheck';
+
+const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
+
+describe('showDockerSetupGuidance — permission-denied', () => {
+    afterEach(() => sinon.restore());
+
+    it('offers an immediate setfacl fix (no install, no reboot) and triggers the callback', async () => {
+        sinon.stub(vscode.window, 'showWarningMessage').resolves('Fix for this session' as any);
+        let sentText = '';
+        const fakeTerminal = { name: '', show() {}, sendText(t: string) { sentText = t; }, dispose() {} };
+        sinon.stub(vscode.window, 'createTerminal').returns(fakeTerminal as any);
+        const onChanged = sinon.stub();
+
+        await showDockerSetupGuidance({ state: 'permission-denied' } as any, fakeOut, onChanged);
+
+        expect(sentText).to.contain('setfacl');
+        // The fix-only chain must NOT reinstall docker or tell the user to reboot.
+        expect(sentText).to.not.contain('get.docker.com');
+        expect(sentText.toLowerCase()).to.not.contain('reboot');
+        expect(onChanged.calledOnce).to.equal(true);
+    });
+
+    it('does not trigger the callback when the user picks "Reboot guide"', async () => {
+        sinon.stub(vscode.window, 'showWarningMessage').resolves('Reboot guide' as any);
+        sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
+        const createTerminal = sinon.stub(vscode.window, 'createTerminal');
+        const onChanged = sinon.stub();
+
+        await showDockerSetupGuidance({ state: 'permission-denied' } as any, fakeOut, onChanged);
+
+        expect(onChanged.called).to.equal(false);
+        expect(createTerminal.called).to.equal(false);
+    });
+
+    it('returns immediately for state ok without showing any warning', async () => {
+        const warn = sinon.stub(vscode.window, 'showWarningMessage');
+        await showDockerSetupGuidance({ state: 'ok' } as any, fakeOut);
+        expect(warn.called).to.equal(false);
+    });
+});

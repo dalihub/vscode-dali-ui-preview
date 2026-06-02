@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.34.5",
+  "version": "0.35.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -144,7 +144,7 @@
           {
             "id": "install-docker",
             "title": "Install Docker (Recommended path)",
-            "description": "Skip if you picked Native in step 2. Pre-fills the install command in a terminal — sudo password once. **Reboot afterwards** so the docker group is applied.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
+            "description": "Skip if you picked Native in step 2. Pre-fills the install command in a terminal — sudo password once. Grants this session access immediately (setfacl) — **no reboot or reload needed**.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
             "media": { "markdown": "media/walkthrough/03-install-docker.md" },
             "completionEvents": ["onCommand:dali.verifyDocker"]
           },

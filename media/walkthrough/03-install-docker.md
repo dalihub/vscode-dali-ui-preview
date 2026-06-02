@@ -10,25 +10,30 @@ step 5.
 
 Click **"Install via Terminal"** below. The extension opens an
 integrated terminal and pre-fills the install command — you only need
-to enter your sudo password once.
+to enter your sudo password **once**. After that, installation,
+permissions, and the runtime download proceed automatically.
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh \
-  && sudo usermod -aG docker $USER \
-  && sudo systemctl enable --now docker
+  && sudo usermod -aG docker "$USER" \
+  && sudo systemctl enable --now docker \
+  && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock
 ```
 
-## After install: reboot is recommended
+## No reboot needed
 
-Linux applies the new `docker` group only at the start of a fresh
-session. Some Ubuntu setups (gdm autologin, snap-installed Docker)
-keep the old group list across logout/login — only a **reboot**
-reliably refreshes it.
+Normally Linux applies the new `docker` group only at the start of a
+fresh session — which would force a logout or reboot. The final
+`setfacl` line sidesteps that: it grants **this** session access to the
+docker socket immediately (file ACLs are evaluated when a connection is
+made, not cached when a process starts), so the already-running VS Code
+can use Docker right away.
 
-```bash
-sudo reboot
-```
+The extension detects this automatically and continues setup — you do
+**not** need to reboot or reload VS Code. Run **"Verify Docker Access"**
+to confirm; you should see a green confirmation message.
 
-After the system comes back, reopen this folder. Run
-**"Verify Docker Access"** to confirm — you should see a green
-confirmation message. If you get a permission error, reboot again.
+> The `usermod -aG docker` line makes the membership permanent for
+> future sessions, so the ACL only has to bridge the current one. If the
+> docker daemon is later restarted and access drops, re-run
+> **"Verify Docker Access"** → **"Fix for this session"**.

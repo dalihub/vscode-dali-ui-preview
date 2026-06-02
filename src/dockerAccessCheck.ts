@@ -78,6 +78,7 @@ export async function checkDockerAccess(): Promise<DockerAccessResult> {
 export async function showDockerSetupGuidance(
     result: DockerAccessResult,
     outputChannel: vscode.OutputChannel,
+    onAccessLikelyChanged?: () => void,
 ): Promise<void> {
     if (result.state === 'ok') {
         return;
@@ -118,32 +119,24 @@ export async function showDockerSetupGuidance(
 
         case 'permission-denied': {
             const choice = await vscode.window.showWarningMessage(
-                'DALi Preview (docker mode): Docker is installed but VS Code cannot access it. ' +
+                'DALi Preview (docker mode): Docker is installed but VS Code cannot access it yet. ' +
                 'Your user is in the docker group, but the new group has not been applied to this session.',
+                'Fix for this session',
                 'Why?',
-                'Try logout/login first',
                 'Reboot guide',
             );
-            if (choice === 'Why?') {
+            if (choice === 'Fix for this session') {
+                applySocketAclFix(outputChannel);
+                onAccessLikelyChanged?.();
+            } else if (choice === 'Why?') {
                 await vscode.window.showInformationMessage(
                     'Linux applies group memberships only at the start of a new session. ' +
                     'After `usermod -aG docker $USER`, the change is in /etc/group, but ' +
                     'every running process (including VS Code and your shell) still has ' +
                     'the OLD group list cached.\n\n' +
-                    'Logging out and back in usually starts a fresh session that picks ' +
-                    'up the new group. But on some Ubuntu desktops (gdm with autologin, ' +
-                    'snap-installed Docker, certain PAM configs) even logout/login does ' +
-                    'not refresh the group list — only a full reboot does.',
-                    { modal: true },
-                );
-            } else if (choice === 'Try logout/login first') {
-                await vscode.window.showInformationMessage(
-                    'Save your work, then:\n\n' +
-                    '  1. Log out of your desktop session\n' +
-                    '  2. Log back in\n' +
-                    '  3. Reopen VS Code (open from a fresh terminal: `code .`)\n' +
-                    '  4. Run "DALi: Verify Docker" to confirm\n\n' +
-                    'If the error persists after logout/login, a reboot is required.',
+                    '"Fix for this session" grants access immediately by adding a socket ' +
+                    'ACL with setfacl (evaluated at connect-time, so already-running VS Code ' +
+                    'picks it up) — no logout or reboot. A reboot also works and is permanent.',
                     { modal: true },
                 );
             } else if (choice === 'Reboot guide') {
@@ -174,20 +167,37 @@ export async function showDockerSetupGuidance(
 
 function showInstallDocs(outputChannel: vscode.OutputChannel): void {
     outputChannel.appendLine('');
-    outputChannel.appendLine('=== Docker install (Ubuntu 22.04) ===');
-    outputChannel.appendLine('Run these in a terminal (sudo password required):');
+    outputChannel.appendLine('=== Docker install (Ubuntu) ===');
+    outputChannel.appendLine('Run these in a terminal (sudo password requested once):');
     outputChannel.appendLine('');
     outputChannel.appendLine('  curl -fsSL https://get.docker.com | sudo sh');
-    outputChannel.appendLine('  sudo usermod -aG docker $USER');
+    outputChannel.appendLine('  sudo usermod -aG docker "$USER"');
     outputChannel.appendLine('  sudo systemctl enable --now docker');
+    outputChannel.appendLine('  sudo setfacl -m "u:$USER:rw" /var/run/docker.sock');
     outputChannel.appendLine('');
-    outputChannel.appendLine('Then either:');
-    outputChannel.appendLine('  - Log out and log back in (try first); OR');
-    outputChannel.appendLine('  - Reboot if logout/login doesn\'t refresh the docker group');
-    outputChannel.appendLine('');
-    outputChannel.appendLine('After that, reopen this folder and run "DALi: Verify Docker".');
+    outputChannel.appendLine('The setfacl line grants THIS session access immediately —');
+    outputChannel.appendLine('no logout or reboot. Then run "DALi: Verify Docker" to confirm.');
     outputChannel.appendLine('');
     outputChannel.show(true);
+}
+
+/**
+ * Open a terminal that grants the current session docker socket access
+ * immediately — for users who already installed docker but whose session never
+ * picked up the group. No install, no reboot: start the daemon, add the socket
+ * ACL (immediate, connect-time), and persist group membership for the future.
+ */
+function applySocketAclFix(outputChannel: vscode.OutputChannel): void {
+    const cmd =
+        'sudo systemctl enable --now docker' +
+        ' && ( command -v setfacl >/dev/null 2>&1 || sudo apt-get install -y acl || true )' +
+        ' && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock' +
+        ' && sudo usermod -aG docker "$USER"' +
+        ' && echo "" && echo "Docker access granted for this session — VS Code will continue automatically."';
+    const terminal = vscode.window.createTerminal({ name: 'DALi Preview · Fix Docker Access' });
+    terminal.show(false);
+    terminal.sendText(cmd, false);
+    outputChannel.appendLine('[DockerAccess] Offered immediate setfacl fix (no reboot).');
 }
 
 /**
@@ -197,10 +207,13 @@ function showInstallDocs(outputChannel: vscode.OutputChannel): void {
  * consent we kick off `dali.pullRuntimeImage` automatically so they don't
  * have to remember it.
  */
-export async function verifyDockerCommand(outputChannel: vscode.OutputChannel): Promise<void> {
+export async function verifyDockerCommand(
+    outputChannel: vscode.OutputChannel,
+    onAccessLikelyChanged?: () => void,
+): Promise<void> {
     const result = await checkDockerAccess();
     if (result.state !== 'ok') {
-        await showDockerSetupGuidance(result, outputChannel);
+        await showDockerSetupGuidance(result, outputChannel, onAccessLikelyChanged);
         return;
     }
 
