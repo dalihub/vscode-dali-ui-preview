@@ -5,6 +5,19 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.2] - 2026-06-04 — Visible Docker-setup progress
+
+### Added
+
+- **Progress notification while waiting for Docker.** After the install/setfacl
+  step, a cancellable "DALi Preview · Docker setup" notification shows
+  "Waiting for Docker access… (attempt n/max)" so the wait is never silent. On
+  success it hands off to the image-download progress bar; on timeout it
+  surfaces a "did not become available" warning instead of hanging quietly.
+- `DockerAccessPoller` gained `onTick` (per-probe progress) and `onGiveUp`
+  (exhaustion) callbacks; the install / verify / guidance / use-docker paths
+  all route through the new progress-wrapped watcher.
+
 ## [0.36.1] - 2026-06-04 — Setup guidance fixes
 
 ### Fixed

@@ -225,7 +225,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     `[PreviewServer] Skipped — docker access state: ${access.state}`,
                 );
                 statusBar?.showMode('compile');
-                await showDockerSetupGuidance(access, outputChannel, () => dockerAccessPoller?.start());
+                await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
                 return;
             }
             // Ensure the runtime image is present BEFORE launching the
@@ -284,20 +284,51 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
     );
 
-    // Poller that auto-continues setup the moment docker access becomes
-    // available (after the install / setfacl flow) — no VS Code reload.
-    dockerAccessPoller = new DockerAccessPoller({
-        onOk: async () => {
-            outputChannel.appendLine('[DockerAccess] Access became available — continuing setup automatically.');
-            if (dockerRuntime) {
-                await ensureRuntimeImage(dockerRuntime, outputChannel);
-            }
-            await initPreviewServer();
-            void vscode.window.showInformationMessage(
-                'DALi Preview: Docker is ready — preview server starting. No reload needed.',
-            );
-        },
-    });
+    // Watch for docker access after the install / setfacl flow, showing a
+    // progress notification the whole time, and auto-continue (ensure image +
+    // start the preview server) once it's reachable — no VS Code reload.
+    const startDockerSetupWatch = (): void => {
+        if (dockerAccessPoller?.isRunning) {
+            return;
+        }
+        void vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: 'DALi Preview · Docker setup',
+                cancellable: true,
+            },
+            (progress, token) => new Promise<void>((resolve) => {
+                progress.report({ message: 'Waiting for Docker — finish the install in the terminal…' });
+                token.onCancellationRequested(() => {
+                    dockerAccessPoller?.stop();
+                    resolve();
+                });
+                dockerAccessPoller = new DockerAccessPoller({
+                    onTick: (n, max) => progress.report({
+                        message: `Waiting for Docker access… (attempt ${n}/${max})`,
+                    }),
+                    onOk: async () => {
+                        resolve(); // close the "waiting" notification before the image pull's own progress
+                        outputChannel.appendLine('[DockerAccess] Access available — continuing setup.');
+                        if (dockerRuntime) {
+                            await ensureRuntimeImage(dockerRuntime, outputChannel);
+                        }
+                        await initPreviewServer();
+                        void vscode.window.showInformationMessage(
+                            'DALi Preview: Docker is ready — preview running. No reload needed.',
+                        );
+                    },
+                    onGiveUp: () => {
+                        resolve();
+                        void vscode.window.showWarningMessage(
+                            'DALi Preview: Docker did not become available. Run "DALi: Verify Docker" once it is ready.',
+                        );
+                    },
+                });
+                dockerAccessPoller.start();
+            }),
+        );
+    };
 
     // Once-a-day background check for a newer runtime image (docker mode only,
     // gated by the autoCheckRuntimeUpdate setting; silent on no-update/offline).
@@ -359,7 +390,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // so the user can recover from a broken docker setup at any time).
     context.subscriptions.push(
         vscode.commands.registerCommand('dali.verifyDocker', () =>
-            verifyDockerCommand(outputChannel, () => dockerAccessPoller?.start()),
+            verifyDockerCommand(outputChannel, startDockerSetupWatch),
         ),
         vscode.commands.registerCommand('dali.cleanRuntimeImages', () =>
             cleanRuntimeImagesCommand(outputChannel),
@@ -368,7 +399,7 @@ export async function activate(context: vscode.ExtensionContext) {
             resetExtensionCommand(outputChannel),
         ),
         vscode.commands.registerCommand('dali.installDocker', () =>
-            installDockerCommand(() => dockerAccessPoller?.start()),
+            installDockerCommand(startDockerSetupWatch),
         ),
         vscode.commands.registerCommand('dali.pullRuntimeImage', () =>
             dockerRuntime
@@ -387,7 +418,7 @@ export async function activate(context: vscode.ExtensionContext) {
             useDockerRuntimeCommand(async () => {
                 const access = await checkDockerAccess();
                 if (access.state !== 'ok') {
-                    await showDockerSetupGuidance(access, outputChannel, () => dockerAccessPoller?.start());
+                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
                     return;
                 }
                 if (dockerRuntime) {

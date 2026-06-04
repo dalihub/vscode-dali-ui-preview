@@ -59,10 +59,11 @@ describe('DockerAccessPoller', () => {
         expect(onOk.called).to.equal(false);
     });
 
-    it('gives up after maxAttempts without firing onOk', async () => {
+    it('gives up after maxAttempts, firing onGiveUp (not onOk)', async () => {
         probe.resolves({ state: 'permission-denied' } as any);
         const onOk = sinon.stub();
-        const poller = new DockerAccessPoller({ intervalMs: 2000, maxAttempts: 3, onOk });
+        const onGiveUp = sinon.stub();
+        const poller = new DockerAccessPoller({ intervalMs: 2000, maxAttempts: 3, onOk, onGiveUp });
 
         poller.start();
         await clock.tickAsync(1);
@@ -72,7 +73,22 @@ describe('DockerAccessPoller', () => {
 
         expect(probe.callCount).to.equal(3);
         expect(onOk.called).to.equal(false);
+        expect(onGiveUp.calledOnce).to.equal(true);
         expect(poller.isRunning).to.equal(false);
+    });
+
+    it('calls onTick before each probe with (attempt, maxAttempts)', async () => {
+        probe.resolves({ state: 'permission-denied' } as any);
+        const onTick = sinon.stub();
+        const poller = new DockerAccessPoller({ intervalMs: 2000, maxAttempts: 3, onOk: sinon.stub(), onTick });
+
+        poller.start();
+        await clock.tickAsync(1);
+        await clock.tickAsync(2000);
+
+        expect(onTick.callCount).to.equal(2);
+        expect(onTick.firstCall.args).to.deep.equal([1, 3]);
+        expect(onTick.secondCall.args).to.deep.equal([2, 3]);
     });
 
     it('start() while already running is a no-op', async () => {

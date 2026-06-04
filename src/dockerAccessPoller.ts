@@ -8,6 +8,10 @@ export interface DockerAccessPollerOptions {
     maxAttempts?: number;
     /** Invoked once, when docker access first becomes 'ok'. */
     onOk: () => void | Promise<void>;
+    /** Invoked once if we exhaust maxAttempts without access becoming ok. */
+    onGiveUp?: () => void;
+    /** Invoked before each probe — useful for progress reporting. */
+    onTick?: (attempt: number, maxAttempts: number) => void;
 }
 
 /**
@@ -28,11 +32,15 @@ export class DockerAccessPoller {
     private readonly intervalMs: number;
     private readonly maxAttempts: number;
     private readonly onOk: () => void | Promise<void>;
+    private readonly onGiveUp?: () => void;
+    private readonly onTick?: (attempt: number, maxAttempts: number) => void;
 
     constructor(opts: DockerAccessPollerOptions) {
         this.intervalMs = opts.intervalMs ?? 2000;
         this.maxAttempts = opts.maxAttempts ?? 150;
         this.onOk = opts.onOk;
+        this.onGiveUp = opts.onGiveUp;
+        this.onTick = opts.onTick;
     }
 
     get isRunning(): boolean {
@@ -69,6 +77,7 @@ export class DockerAccessPoller {
             return;
         }
         this.attempts++;
+        this.onTick?.(this.attempts, this.maxAttempts);
         const result = await checkDockerAccess();
         // The poll may have been stopped while we awaited the probe.
         if (!this.running) {
@@ -86,6 +95,7 @@ export class DockerAccessPoller {
         if (this.attempts >= this.maxAttempts) {
             getLogger().warn('Docker', 'access poller gave up', { attempts: this.attempts });
             this.stop();
+            this.onGiveUp?.();
             return;
         }
         this.scheduleNext(this.intervalMs);
