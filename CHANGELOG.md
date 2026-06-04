@@ -5,6 +5,18 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1] - 2026-06-04 — Setup guidance fixes
+
+### Fixed
+
+- The activation `docker-not-installed` guidance now drives the no-reboot
+  install flow (`installDockerCommand`: pre-install modal → terminal with the
+  setfacl chain → access poller) instead of only printing manual instructions
+  to the Output channel. The previous "Install instructions" button was a dead
+  end — it never opened the install terminal or started the poller.
+- `buildRunner`'s docker-unavailable error no longer says "re-launch VS Code";
+  it now points to **"DALi: Install Docker via Terminal"** (no reboot needed).
+
 ## [0.36.0] - 2026-06-02 — Runtime image update management
 
 ### Added

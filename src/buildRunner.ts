@@ -331,7 +331,7 @@ export class BuildRunner {
         if (!(await this.dockerRuntime.isAvailable())) {
             return {
                 success: false,
-                error: 'Docker is not available. Install Docker, add your user to the docker group, and re-launch VS Code.'
+                error: 'Docker is not available. Run "DALi: Install Docker via Terminal" from the Command Palette to set it up — no reboot needed.'
             };
         }
 

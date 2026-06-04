@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { getLogger } from './logger';
+import { installDockerCommand } from './installDocker';
 
 const execAsync = promisify(exec);
 
@@ -92,9 +93,15 @@ export async function showDockerSetupGuidance(
         case 'docker-not-installed': {
             const choice = await vscode.window.showErrorMessage(
                 'DALi Preview (docker mode): Docker is not installed.',
-                'Install instructions',
+                'Install via Terminal',
+                'Manual instructions',
             );
-            if (choice === 'Install instructions') {
+            if (choice === 'Install via Terminal') {
+                // Drive the no-reboot install flow (pre-install modal → terminal
+                // with the setfacl chain → start the access poller so we
+                // auto-continue once docker becomes reachable).
+                await installDockerCommand(onAccessLikelyChanged);
+            } else if (choice === 'Manual instructions') {
                 showInstallDocs(outputChannel);
             }
             return;

@@ -42,3 +42,34 @@ describe('showDockerSetupGuidance — permission-denied', () => {
         expect(warn.called).to.equal(false);
     });
 });
+
+describe('showDockerSetupGuidance — docker-not-installed', () => {
+    afterEach(() => sinon.restore());
+
+    it('drives the no-reboot install flow when "Install via Terminal" is chosen', async () => {
+        sinon.stub(vscode.window, 'showErrorMessage').resolves('Install via Terminal' as any);
+        // installDockerCommand shows a modal, then opens a terminal.
+        sinon.stub(vscode.window, 'showInformationMessage').resolves('Open Terminal' as any);
+        let sentText = '';
+        const fakeTerminal = { name: '', show() {}, sendText(t: string) { sentText = t; }, dispose() {} };
+        sinon.stub(vscode.window, 'createTerminal').returns(fakeTerminal as any);
+        const onChanged = sinon.stub();
+
+        await showDockerSetupGuidance({ state: 'docker-not-installed' } as any, fakeOut, onChanged);
+
+        expect(sentText).to.contain('get.docker.com');
+        expect(sentText).to.contain('setfacl');
+        expect(onChanged.calledOnce).to.equal(true);   // poller started via onStarted
+    });
+
+    it('shows manual instructions (no terminal) when "Manual instructions" is chosen', async () => {
+        sinon.stub(vscode.window, 'showErrorMessage').resolves('Manual instructions' as any);
+        const createTerminal = sinon.stub(vscode.window, 'createTerminal');
+        const onChanged = sinon.stub();
+
+        await showDockerSetupGuidance({ state: 'docker-not-installed' } as any, fakeOut, onChanged);
+
+        expect(createTerminal.called).to.equal(false);
+        expect(onChanged.called).to.equal(false);
+    });
+});
