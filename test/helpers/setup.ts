@@ -14,6 +14,7 @@ const vscodeMock = {
     workspace: {
         getConfiguration: (_section?: string) => ({
             get: (_key: string, defaultValue?: any) => defaultValue,
+            update: (_key: string, _value: any, _target?: any) => Promise.resolve(),
         }),
         workspaceFolders: undefined,
         applyEdit: (_edit: any) => Promise.resolve(true),
@@ -107,6 +108,7 @@ const vscodeMock = {
             exitStatus: undefined,
         }),
         onDidCloseTerminal: (_listener: any) => ({ dispose: () => {} }),
+        showQuickPick: (_items: any, _opts?: any) => Promise.resolve(undefined),
     },
     ViewColumn: {
         One: 1,

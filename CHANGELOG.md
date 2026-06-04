@@ -5,6 +5,25 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-06-04 — Update policy + version picker
+
+### Added
+
+- **`daliPreview.runtimeUpdatePolicy`** setting (`off` / `notify` / `auto`).
+  The daily update check follows it: `notify` (default) shows a status-bar
+  badge + "Update now" notification; `auto` downloads and applies the update in
+  the background; `off` disables checking entirely.
+- **`dali.selectRuntimeVersion`** command — lists the available image tags from
+  the registry (GHCR), lets you pick one, then pulls it and restarts the
+  preview server on that version.
+- `registryClient.listRemoteTags` — anonymous GHCR token + `/v2/.../tags/list`.
+
+### Changed
+
+- Replaced the boolean `daliPreview.autoCheckRuntimeUpdate` with the three-way
+  `daliPreview.runtimeUpdatePolicy` (`off` == the old `false`; `notify`/`auto`
+  == the old `true`, now with a choice of how the update is applied).
+
 ## [0.36.3] - 2026-06-04 — Setup UX polish
 
 ### Fixed

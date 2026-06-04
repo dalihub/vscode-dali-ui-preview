@@ -22,7 +22,7 @@ import { openSampleCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, sh
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
-import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate } from './checkUpdateCommand';
+import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand } from './checkUpdateCommand';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -330,8 +330,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // Once-a-day background check for a newer runtime image (docker mode only,
     // gated by the autoCheckRuntimeUpdate setting; silent on no-update/offline).
     if (dockerRuntime) {
-        void maybeAutoCheckRuntimeUpdate(context, dockerRuntime, outputChannel, () => {
-            statusBar?.showUpdateAvailable();
+        void maybeAutoCheckRuntimeUpdate(context, dockerRuntime, outputChannel, {
+            onUpdateAvailable: () => statusBar?.showUpdateAvailable(),
+            onUpdated: async () => { await initPreviewServer(); },
         });
     }
 
@@ -406,6 +407,11 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('dali.checkRuntimeUpdate', () =>
             dockerRuntime
                 ? checkRuntimeUpdateCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); })
+                : Promise.resolve(),
+        ),
+        vscode.commands.registerCommand('dali.selectRuntimeVersion', () =>
+            dockerRuntime
+                ? selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); })
                 : Promise.resolve(),
         ),
         vscode.commands.registerCommand('dali.openSample', () =>
