@@ -5,6 +5,28 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1] - 2026-06-04 — DALi 2.5.24 runtime + harness compat fix
+
+### Fixed
+
+- **Harness templates compile against the latest DALi.** An upstream dali
+  `signal.h` refactor (2026-04-21: `SignalMixin`, raw-Impl ptr) broke the
+  standard member `Signal::Connect(this, &Class::Method)` — it mis-resolves to
+  the functor overload and fails to compile on dali 2.5.19+. Converted all
+  member Connects to lambdas (functor path) in `preview_server` and the
+  harness / animation / interactive templates. Verified: renders `dali_2.5.24`
+  to a 1024×600 PNG.
+
+### Changed
+
+- **Runtime image refreshed to `dali_2.5.24`** (was `dali_2.5.18`), pushed to
+  `ghcr.io/lwc0917/dali-preview-runtime` as `dali_2.5.24` + `latest`. With
+  `daliVersionTag=latest` (default) clients pick it up automatically.
+- **Dockerfile: dropped the dali-toolkit build stage.** dali-ui is an
+  independent UI framework that doesn't link `dali2-toolkit`, and
+  preview_server/harness use `dali-ui-foundation` only — so toolkit was built
+  but never linked. Removing it shrinks the image and speeds the build.
+
 ## [0.37.0] - 2026-06-04 — Update policy + version picker
 
 ### Added

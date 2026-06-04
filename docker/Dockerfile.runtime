@@ -132,16 +132,13 @@ RUN curl -fsSL "https://github.com/dalihub/dali-adaptor/archive/${DALI_ADAPTOR_R
     make -j${JOBS:-$(nproc)} install && \
     cd /build && rm -rf dali-adaptor
 
-# 3. dali-toolkit (depends on dali-core + dali-adaptor)
-RUN curl -fsSL "https://github.com/dalihub/dali-toolkit/archive/${DALI_TOOLKIT_REF}.tar.gz" \
-      | tar xz && \
-    mv dali-toolkit-* dali-toolkit && \
-    cd dali-toolkit/build/tizen && \
-    cmake -DCMAKE_INSTALL_PREFIX="${DESKTOP_PREFIX}" -DENABLE_PROFILE=UBUNTU . && \
-    make -j${JOBS:-$(nproc)} install && \
-    cd /build && rm -rf dali-toolkit
+# dali-toolkit is intentionally NOT built: dali-ui is an independent UI
+# framework that does not link dali2-toolkit, and preview_server/harness use
+# dali-ui-foundation only (verified: zero toolkit references). Dropping it
+# shrinks the image and speeds the build. (DALI_TOOLKIT_REF arg kept above for
+# reference; harmless if unused.)
 
-# 4. dali-ui (provides dali2-ui-foundation + dali2-ui-components).
+# dali-ui (provides dali2-ui-foundation + dali2-ui-components).
 # DALI_UI_REF may be a branch, tag, or full SHA — we download a tarball from
 # GitHub's archive endpoint (no git infrastructure needed, works for any ref).
 RUN curl -fsSL "https://github.com/dalihub/dali-ui/archive/${DALI_UI_REF}.tar.gz" \
