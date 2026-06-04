@@ -35,7 +35,10 @@ async function pullWithProgress(
                     });
                 });
                 outputChannel.appendLine(`[Runtime] Pull complete: ${ref}`);
-                await vscode.window.showInformationMessage(
+                // Fire-and-forget: don't await, so the progress notification
+                // closes immediately at 100% instead of lingering until this
+                // toast is dismissed.
+                void vscode.window.showInformationMessage(
                     `Runtime image downloaded. You can now open a sample preview.`,
                 );
                 return true;

@@ -47,11 +47,12 @@ export async function installDockerCommand(onStarted?: () => void): Promise<void
     const terminal = vscode.window.createTerminal({
         name: 'DALi Preview · Install Docker',
         message:
-            'Press Enter to start. Your sudo password will be requested once. ' +
-            'When it finishes, VS Code continues automatically — no reboot.',
+            'Running the install — just enter your sudo password when prompted. ' +
+            'When it finishes, VS Code continues automatically (no reboot).',
     });
     terminal.show(false);
-    // sendText with addNewLine=false — user reviews and presses Enter.
-    terminal.sendText(cmd, false);
+    // addNewLine=true: auto-run so the user goes straight to the sudo password
+    // prompt. The pre-install modal already explained what will run.
+    terminal.sendText(cmd, true);
     onStarted?.();
 }

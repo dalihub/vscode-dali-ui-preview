@@ -5,6 +5,22 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.3] - 2026-06-04 — Setup UX polish
+
+### Fixed
+
+- The runtime-image download progress notification now closes as soon as the
+  pull hits 100%. The completion toast is fire-and-forget instead of awaited —
+  awaiting it had kept the "100% — complete" bar on screen until dismissed.
+
+### Changed
+
+- The install terminal now **auto-runs** the install command, so you go
+  straight to the sudo password prompt instead of pressing Enter first.
+- The Docker-setup wait notification shows a plain "Installing Docker —
+  waiting for it to become available…" message instead of an "attempt n/150"
+  counter that looked like you had to wait for 150 tries.
+
 ## [0.36.2] - 2026-06-04 — Visible Docker-setup progress
 
 ### Added

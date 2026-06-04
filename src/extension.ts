@@ -298,15 +298,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 cancellable: true,
             },
             (progress, token) => new Promise<void>((resolve) => {
-                progress.report({ message: 'Waiting for Docker — finish the install in the terminal…' });
+                progress.report({ message: 'Installing Docker — waiting for it to become available…' });
                 token.onCancellationRequested(() => {
                     dockerAccessPoller?.stop();
                     resolve();
                 });
                 dockerAccessPoller = new DockerAccessPoller({
-                    onTick: (n, max) => progress.report({
-                        message: `Waiting for Docker access… (attempt ${n}/${max})`,
-                    }),
                     onOk: async () => {
                         resolve(); // close the "waiting" notification before the image pull's own progress
                         outputChannel.appendLine('[DockerAccess] Access available — continuing setup.');
