@@ -167,7 +167,7 @@ class InteractivePreviewApp : public ConnectionTracker
 public:
     InteractivePreviewApp(Application& app) : mApp(app)
     {
-        app.InitSignal().Connect(this, &InteractivePreviewApp::OnInit);
+        app.InitSignal().Connect(this, [this](Application& app) { OnInit(app); });
     }
 
     void OnInit(Application& app)
@@ -185,7 +185,7 @@ public:
 
         // Export metadata after first layout pass (slight delay for layout)
         mReadyTimer = Timer::New(300);
-        mReadyTimer.TickSignal().Connect(this, &InteractivePreviewApp::OnReadyTimer);
+        mReadyTimer.TickSignal().Connect(this, [this]() { return OnReadyTimer(); });
         mReadyTimer.Start();
     }
 
