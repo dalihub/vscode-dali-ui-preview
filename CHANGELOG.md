@@ -5,6 +5,29 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.2] - 2026-06-04 — User-facing README rewrite
+
+### Changed
+
+- **README rewritten as a user-facing guide** (English + Korean). The old README
+  read like a development-planning document — a feature/phase status matrix, a
+  cross-framework comparison table, and internal-implementation notes. Replaced
+  with: a value-focused intro, a grouped feature list, explicit Requirements, a
+  4-step Quick Start, runtime setup (Docker vs native), preview authoring
+  (`.preview.dali.cpp`, markers, `@preview-config`/multi-preview, CodeLens), and
+  reference tables for **Commands**, **Settings**, and **Troubleshooting**.
+- Documentation now reflects the shipped v0.37 feature set — Docker runtime as the
+  default, the guided setup walkthrough, runtime update policy + version picker,
+  multi-preview, Widget Inspector, Code-to-Preview, interactive (VNC) mode, and
+  device preview — instead of the obsolete "Phase 2/3/4 — planned" framing. Code
+  examples corrected to the real `.Set*` chaining API.
+
+### Fixed
+
+- `package.json` `repository.url` corrected to the canonical
+  `https://github.com/dalihub/vscode-dali-ui-preview` (was a stale fork URL), so
+  the Marketplace "Repository" link resolves correctly.
+
 ## [0.37.1] - 2026-06-04 — DALi 2.5.24 runtime + harness compat fix
 
 ### Fixed
