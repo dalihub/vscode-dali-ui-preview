@@ -655,7 +655,7 @@ public:
         , mCaptureBusy(false)
         , mResourceTickCount(0)
     {
-        app.InitSignal().Connect(this, &PreviewServer::OnInit);
+        app.InitSignal().Connect(this, [this](Application& app) { OnInit(app); });
     }
 
     // -----------------------------------------------------------------------
@@ -671,7 +671,7 @@ public:
 
         // Poll stdin every 100 ms
         mPollTimer = Timer::New(100);
-        mPollTimer.TickSignal().Connect(this, &PreviewServer::OnPollStdin);
+        mPollTimer.TickSignal().Connect(this, [this]() { return OnPollStdin(); });
         mPollTimer.Start();
 
         // Signal that the server is ready for commands
@@ -1010,7 +1010,7 @@ public:
         std::cout << "[ServerPerf] ScheduleCapture: slow path (polling for resources)" << std::endl;
         mResourceTickCount = 0;
         mResourceTimer = Timer::New(100);
-        mResourceTimer.TickSignal().Connect(this, &PreviewServer::OnResourceTimer);
+        mResourceTimer.TickSignal().Connect(this, [this]() { return OnResourceTimer(); });
         mResourceTimer.Start();
     }
 
@@ -1031,7 +1031,7 @@ public:
     bool OnStartCapture()
     {
         Capture capture = Capture::New();
-        capture.FinishedSignal().Connect(this, &PreviewServer::OnCaptured);
+        capture.FinishedSignal().Connect(this, [this](Capture capture, Capture::FinishState state) { OnCaptured(capture, state); });
         mCapture = capture;
 
         const Vector4 captureBg = mCurrentReq.bgColor.empty()

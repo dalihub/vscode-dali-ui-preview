@@ -76,13 +76,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Stage 2: build DALi from source ─────────────────────────────────────
 FROM build-deps AS build-dali
 
-# Verified working SHAs (snapshot of devel/master from 2026-04-17):
-#   - dali_2.5.18 tag itself has a uint16_t/int16_t Extents API mismatch
-#     with the current dali-ui, so we pin to commits a few past that tag.
-ARG DALI_CORE_REF=f2b8857825a3c2365d3d5f621c3254b2e6d4577a
-ARG DALI_ADAPTOR_REF=e96d2f32792adddce2154a50a73cf24c3f40cd93
-ARG DALI_TOOLKIT_REF=1e9dd13f335a0aa7c55404f4c1494d673392ee74
-ARG DALI_UI_REF=bec04e39abde7cbb2a3f5bfab53becb76dbbc896
+# Verified working SHAs (snapshot of master/devel HEAD from 2026-06-04;
+# latest tagged release line is dali_2.5.24). Pin the SAME-DAY HEADs of all
+# four components together — tagged releases drift in API across components
+# (e.g. dali_2.5.18 had a uint16_t/int16_t Extents mismatch vs dali-ui), so a
+# same-snapshot HEAD set is the most likely to compile together.
+ARG DALI_CORE_REF=93c3b3bf8360aea19e604880191a63018458084f
+ARG DALI_ADAPTOR_REF=b9f685b07518395b27d89ebd4a0a28a3327939ed
+ARG DALI_TOOLKIT_REF=7993cb22712adde994a6732ba3f7e84848ee854f
+ARG DALI_UI_REF=9a93d30648af8da1fb1e77d7ef80c4858f533e04
 ARG TIZENVG_REF=tizen
 ARG TIZENVG_REPO=git://review.tizen.org/git/platform/core/graphics/tizenvg
 ARG JOBS
