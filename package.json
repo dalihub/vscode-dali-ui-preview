@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.37.2",
+  "version": "0.38.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -87,6 +87,11 @@
       {
         "command": "dali.openSample",
         "title": "Open Sample File",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.openExamples",
+        "title": "Open Examples",
         "category": "DALi Preview"
       },
       {

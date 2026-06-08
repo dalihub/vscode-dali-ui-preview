@@ -109,6 +109,7 @@ const vscodeMock = {
         }),
         onDidCloseTerminal: (_listener: any) => ({ dispose: () => {} }),
         showQuickPick: (_items: any, _opts?: any) => Promise.resolve(undefined),
+        showOpenDialog: (_opts?: any) => Promise.resolve(undefined),
     },
     ViewColumn: {
         One: 1,

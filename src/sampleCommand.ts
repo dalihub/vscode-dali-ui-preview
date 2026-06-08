@@ -5,6 +5,9 @@ import { ConfigurationService } from './configurationService';
 
 const SAMPLE_BASENAME = 'hello-dali.preview.dali.cpp';
 
+/** Folder name created inside the user-chosen location by `dali.openExamples`. */
+const EXAMPLES_DIRNAME = 'dali-examples';
+
 /**
  * Command: `dali.openSample`
  *
@@ -38,6 +41,60 @@ export async function openSampleCommand(context: vscode.ExtensionContext): Promi
 
     const doc = await vscode.workspace.openTextDocument(destPath);
     await vscode.window.showTextDocument(doc);
+}
+
+/**
+ * Command: `dali.openExamples`
+ *
+ * Copies the bundled `examples/` tour (one folder per preview mode, each with
+ * a README) into a user-chosen location as `dali-examples/`, then opens it in
+ * a NEW window. Keeping it in its own folder + window means the throwaway
+ * example edits never mix with — or dirty the git state of — the user's real
+ * project.
+ */
+export async function openExamplesCommand(context: vscode.ExtensionContext): Promise<void> {
+    const sourceDir = path.join(context.extensionPath, 'examples');
+    if (!fs.existsSync(sourceDir)) {
+        vscode.window.showErrorMessage(
+            `Bundled examples not found at ${sourceDir}. Reinstall the extension.`,
+        );
+        return;
+    }
+
+    const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Create DALi examples here',
+        title: 'Choose a folder to copy the DALi examples into',
+    });
+    if (!picked || picked.length === 0) {
+        return; // user cancelled
+    }
+    const dest = path.join(picked[0].fsPath, EXAMPLES_DIRNAME);
+
+    if (fs.existsSync(dest)) {
+        const choice = await vscode.window.showInformationMessage(
+            `'${EXAMPLES_DIRNAME}' already exists here. Open it as-is, or replace it with a fresh copy?`,
+            'Open Existing', 'Replace', 'Cancel',
+        );
+        if (!choice || choice === 'Cancel') {
+            return;
+        }
+        if (choice === 'Replace') {
+            await fs.promises.rm(dest, { recursive: true, force: true });
+            await fs.promises.cp(sourceDir, dest, { recursive: true });
+        }
+        // 'Open Existing' falls through to open without copying.
+    } else {
+        await fs.promises.cp(sourceDir, dest, { recursive: true });
+    }
+
+    // Open the copy in a NEW window so it stays isolated from the current
+    // workspace.
+    await vscode.commands.executeCommand(
+        'vscode.openFolder', vscode.Uri.file(dest), { forceNewWindow: true },
+    );
 }
 
 /**

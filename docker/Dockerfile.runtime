@@ -249,4 +249,10 @@ RUN pkg-config --exists dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-co
     echo "DALi runtime image OK." && \
     pkg-config --modversion dali2-core dali2-adaptor
 
+# DALi release version, surfaced as an image label so the extension's
+# "Select Runtime Version" picker can display it for rolling tags (e.g. latest).
+# Pass at build time:  docker build --build-arg DALI_VERSION=2.5.24 ...
+ARG DALI_VERSION=2.5.24
+LABEL io.dalihub.dali.version="${DALI_VERSION}"
+
 ENTRYPOINT ["/usr/local/bin/dali-preview-entrypoint"]

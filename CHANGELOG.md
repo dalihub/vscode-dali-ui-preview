@@ -5,6 +5,35 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-06-08 — Offline version switcher + Examples tour
+
+### Added
+
+- **`DALi: Open Examples`** — copies a guided, one-folder-per-mode example tour
+  into a location you choose and opens it in a **new window**, so throwaway
+  example edits never mix with (or dirty the git state of) your real project.
+  Covers all five preview modes: `*.preview.dali.cpp` files, the `// @preview`
+  marker, CodeLens (Code-to-Preview), `// @preview-config` multi-config, and the
+  three build paths (parser / dlopen / full build), each with its own README.
+
+### Changed
+
+- **`DALi: Select Runtime Version` now works offline and shows what's cached.**
+  It merges locally-downloaded image tags with the registry's, marks each entry
+  `downloaded` / `will download`, and lets you switch to any already-pulled
+  version instantly — even with no network — so you can flip between DALi
+  releases to compare how a layout renders. Rolling tags like `latest` also
+  show their concrete DALi version on a second line (read instantly from the
+  image's `io.dalihub.dali.version` label — no slow registry round-trip), so
+  you always know which release you're on. (New `DockerRuntime.listLocalTags()`
+  / `getImageVersionLabel()`.)
+
+### Fixed
+
+- Regenerated the `red-box` / `animation` golden harness fixtures that had
+  drifted after the dali 2.5.19+ `Signal::Connect` member→lambda fix (d971a62),
+  restoring a fully green unit suite.
+
 ## [0.37.2] - 2026-06-04 — User-facing README rewrite
 
 ### Changed

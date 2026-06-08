@@ -18,7 +18,7 @@ import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from 
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
 import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
-import { openSampleCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
+import { openSampleCommand, openExamplesCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
@@ -416,6 +416,9 @@ export async function activate(context: vscode.ExtensionContext) {
         ),
         vscode.commands.registerCommand('dali.openSample', () =>
             openSampleCommand(context),
+        ),
+        vscode.commands.registerCommand('dali.openExamples', () =>
+            openExamplesCommand(context),
         ),
         vscode.commands.registerCommand('dali.useDockerRuntime', () =>
             useDockerRuntimeCommand(async () => {
