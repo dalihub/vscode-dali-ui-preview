@@ -190,7 +190,7 @@ class PreviewApp : public ConnectionTracker
 public:
   PreviewApp(Application& app) : mApp(app), mFrameIndex(0)
   {
-    app.InitSignal().Connect(this, &PreviewApp::OnInit);
+    app.InitSignal().Connect(this, [this](Application& app) { OnInit(app); });
   }
 
   void OnInit(Application& app)
@@ -204,7 +204,7 @@ public:
 
     // Wait for layout stabilisation before starting frame capture
     mLayoutTimer = Timer::New(500);
-    mLayoutTimer.TickSignal().Connect(this, &PreviewApp::OnLayoutReady);
+    mLayoutTimer.TickSignal().Connect(this, [this]() { return OnLayoutReady(); });
     mLayoutTimer.Start();
   }
 
@@ -227,12 +227,10 @@ public:
     std::snprintf(framePath, sizeof(framePath), "/tmp/frames/frame_%03d.png", mFrameIndex);
 
     Window window = mApp.GetWindow();
-    if(mCapture)
-    {
-      mCapture.FinishedSignal().Disconnect(this, &PreviewApp::OnFrameCaptured);
-    }
+    // Previous capture's connection is released when mCapture is reassigned
+    // below (member-pointer Disconnect doesn't pair with lambda Connect).
     Capture capture = Capture::New();
-    capture.FinishedSignal().Connect(this, &PreviewApp::OnFrameCaptured);
+    capture.FinishedSignal().Connect(this, [this](Capture capture, Capture::FinishState state) { OnFrameCaptured(capture, state); });
     mCapture = capture;
     capture.Start(Actor(window.GetRootLayer()),
                   Vector2(PREVIEW_WIDTH, PREVIEW_HEIGHT),
@@ -255,7 +253,7 @@ public:
       uint32_t intervalMs = static_cast<uint32_t>(1000 / ANIMATION_FPS);
       if(intervalMs < 1) intervalMs = 1;
       mCaptureTimer = Timer::New(intervalMs);
-      mCaptureTimer.TickSignal().Connect(this, &PreviewApp::OnCaptureInterval);
+      mCaptureTimer.TickSignal().Connect(this, [this]() { return OnCaptureInterval(); });
       mCaptureTimer.Start();
     }
     else

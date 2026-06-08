@@ -255,7 +255,7 @@ class PreviewApp : public ConnectionTracker
 public:
   PreviewApp(Application& app) : mApp(app), mTickCount(0)
   {
-    app.InitSignal().Connect(this, &PreviewApp::OnInit);
+    app.InitSignal().Connect(this, [this](Application& app) { OnInit(app); });
   }
 
   void OnInit(Application& app)
@@ -268,7 +268,7 @@ public:
     window.Add(root);
 
     mTimer = Timer::New(100);
-    mTimer.TickSignal().Connect(this, &PreviewApp::OnTimer);
+    mTimer.TickSignal().Connect(this, [this]() { return OnTimer(); });
     mTimer.Start();
   }
 
@@ -287,7 +287,7 @@ public:
     }
 
     Capture capture = Capture::New();
-    capture.FinishedSignal().Connect(this, &PreviewApp::OnCaptured);
+    capture.FinishedSignal().Connect(this, [this](Capture capture, Capture::FinishState state) { OnCaptured(capture, state); });
     mCapture = capture;
     capture.Start(Actor(window.GetRootLayer()),
                   Vector2(PREVIEW_WIDTH, PREVIEW_HEIGHT),
