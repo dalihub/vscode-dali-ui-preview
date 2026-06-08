@@ -16,6 +16,8 @@ function makeRuntime(over: Record<string, any> = {}) {
     return {
         isUpdateAvailable: sinon.stub().resolves(false),
         hasImage: sinon.stub().resolves(false),
+        listLocalTags: sinon.stub().resolves([]),
+        getImageVersionLabel: sinon.stub().resolves(undefined),
         pullImage: sinon.stub().resolves(undefined),
         imageRef: (t: string) => `ghcr.io/test/img:${t}`,
         getImageName: () => 'ghcr.io/test/img',
@@ -160,5 +162,62 @@ describe('selectRuntimeVersionCommand', () => {
         await selectRuntimeVersionCommand(makeRuntime(), fakeOut, sinon.stub().resolves());
         expect(warn.calledOnce).to.equal(true);
         expect(tags.called).to.equal(false);
+    });
+
+    it('works offline: falls back to local tags when the registry is unreachable', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').rejects(new Error('offline'));
+        const qp = sinon.stub(vscode.window, 'showQuickPick').resolves(undefined as any);
+        const warn = sinon.stub(vscode.window, 'showWarningMessage').resolves(undefined as any);
+        const rt = makeRuntime({ listLocalTags: sinon.stub().resolves(['dali_2.5.24', 'latest']) });
+        await selectRuntimeVersionCommand(rt, fakeOut, sinon.stub().resolves());
+        expect(qp.calledOnce).to.equal(true); // picker still shown from local tags
+        expect(warn.called).to.equal(false);  // no "no versions" warning
+        const items = qp.firstCall.args[0] as any[];
+        expect(items.map((i) => i.label)).to.deep.equal(['latest', 'dali_2.5.24']); // current first
+    });
+
+    it('orders the picker current-first, then downloaded, then will-download', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['latest', 'dali_2.5.24', 'dali_2.5.18']);
+        const qp = sinon.stub(vscode.window, 'showQuickPick').resolves(undefined as any);
+        const rt = makeRuntime({ listLocalTags: sinon.stub().resolves(['dali_2.5.24']) });
+        await selectRuntimeVersionCommand(rt, fakeOut, sinon.stub().resolves());
+        const items = qp.firstCall.args[0] as any[];
+        // current (latest) first, then other downloaded (dali_2.5.24), then will-download
+        expect(items.map((i) => i.label)).to.deep.equal(['latest', 'dali_2.5.24', 'dali_2.5.18']);
+        expect(items.find((i) => i.label === 'dali_2.5.24').description).to.contain('downloaded');
+        expect(items.find((i) => i.label === 'dali_2.5.18').description).to.contain('will download');
+    });
+
+    it('switching to an already-downloaded version does not re-pull', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves([]);
+        sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'dali_2.5.24' } as any);
+        sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
+        sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        const onSelected = sinon.stub().resolves();
+        const rt = makeRuntime({
+            listLocalTags: sinon.stub().resolves(['dali_2.5.24']),
+            hasImage: sinon.stub().resolves(true), // cached locally
+        });
+        await selectRuntimeVersionCommand(rt, fakeOut, onSelected);
+        expect(rt.pullImage.called).to.equal(false); // cached → skip pull
+        expect(onSelected.calledOnce).to.equal(true);
+    });
+
+    it('shows the concrete DALi version of a rolling tag via its image label', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['latest', 'dali_2.5.24', 'dali_2.5.18']);
+        const qp = sinon.stub(vscode.window, 'showQuickPick').resolves(undefined as any);
+        const rt = makeRuntime({
+            listLocalTags: sinon.stub().resolves(['latest']),
+            getImageVersionLabel: sinon.stub().resolves('2.5.24'), // latest's DALi version label
+        });
+        await selectRuntimeVersionCommand(rt, fakeOut, sinon.stub().resolves());
+        const items = qp.firstCall.args[0] as any[];
+        const find = (l: string) => items.find((i) => i.label === l);
+        expect(find('latest').detail).to.equal('DALi 2.5.24');   // rolling tag → version on its own line
+        expect(find('dali_2.5.24').detail).to.equal(undefined);  // version-named tag already says it
     });
 });

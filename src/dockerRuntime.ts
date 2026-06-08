@@ -36,6 +36,23 @@ export function extractManifestDigest(stdout: string): string | undefined {
     }
 }
 
+/**
+ * Parse `docker images --format {{.Tag}}` output into a clean, de-duplicated
+ * tag list (drops blanks and `<none>`), preserving docker's order.
+ */
+export function parseLocalImageTags(stdout: string): string[] {
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const raw of stdout.split('\n')) {
+        const tag = raw.trim();
+        if (tag && tag !== '<none>' && !seen.has(tag)) {
+            seen.add(tag);
+            tags.push(tag);
+        }
+    }
+    return tags;
+}
+
 export interface BuildAndCaptureRequest {
     /**
      * Templated, ready-to-compile C++ source. Must already include `main()`
@@ -178,6 +195,43 @@ export class DockerRuntime {
             return stdout.trim().length > 0;
         } catch {
             return false;
+        }
+    }
+
+    /**
+     * Tags of this image present in the local cache, in `docker images` order
+     * (most-recently-created first). Never throws — returns [] when docker is
+     * unavailable or nothing is cached. Lets the user switch to an
+     * already-downloaded version instantly, even offline.
+     */
+    async listLocalTags(): Promise<string[]> {
+        try {
+            const { stdout } = await execFileAsync('docker', [
+                'images', '--format', '{{.Tag}}', this.imageName,
+            ], { timeout: 10_000 });
+            return parseLocalImageTags(stdout);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Read the `io.dalihub.dali.version` label of a locally-cached image (e.g.
+     * "2.5.24"), or undefined when the image isn't cached or predates the label.
+     * Local-only `docker inspect` — instant, no network — so a rolling tag like
+     * `latest` can display its concrete DALi version. Never throws.
+     */
+    async getImageVersionLabel(tag: string): Promise<string | undefined> {
+        try {
+            const { stdout } = await execFileAsync('docker', [
+                'image', 'inspect', '--format',
+                '{{index .Config.Labels "io.dalihub.dali.version"}}',
+                this.imageRef(tag),
+            ], { timeout: 10_000 });
+            const v = stdout.trim();
+            return v && v !== '<no value>' ? v : undefined;
+        } catch {
+            return undefined;
         }
     }
 

@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { DockerRuntime, parseRepoDigest, extractManifestDigest } from '../../src/dockerRuntime';
+import { DockerRuntime, parseRepoDigest, extractManifestDigest, parseLocalImageTags } from '../../src/dockerRuntime';
 
 const SHA = (c: string) => 'sha256:' + c.repeat(64);
 
@@ -61,5 +61,23 @@ describe('dockerRuntime — digest helpers', () => {
             sinon.stub(rt2, 'getRemoteDigest').resolves(SHA('b'));
             expect(await rt2.isUpdateAvailable('latest')).to.equal(false);
         });
+    });
+});
+
+describe('dockerRuntime — parseLocalImageTags', () => {
+    it('splits lines, trims, and preserves order', () => {
+        expect(parseLocalImageTags('latest\ndali_2.5.24\ndali_2.5.18\n'))
+            .to.deep.equal(['latest', 'dali_2.5.24', 'dali_2.5.18']);
+    });
+    it('drops <none> and blank lines', () => {
+        expect(parseLocalImageTags('latest\n<none>\n\n  \ndali_2.5.24\n'))
+            .to.deep.equal(['latest', 'dali_2.5.24']);
+    });
+    it('de-duplicates while keeping first occurrence', () => {
+        expect(parseLocalImageTags('latest\ndali_2.5.24\nlatest\n'))
+            .to.deep.equal(['latest', 'dali_2.5.24']);
+    });
+    it('returns [] for empty output', () => {
+        expect(parseLocalImageTags('')).to.deep.equal([]);
     });
 });

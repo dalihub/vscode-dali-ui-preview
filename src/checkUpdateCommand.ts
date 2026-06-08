@@ -125,9 +125,14 @@ export async function maybeAutoCheckRuntimeUpdate(
 /**
  * Command: `dali.selectRuntimeVersion`
  *
- * Lists the available image tags from the registry, lets the user pick one,
- * stores it in `daliPreview.daliVersionTag`, pulls it (with progress) and
- * restarts the preview server on the selected version.
+ * Lets the user switch between DALi runtime versions and flip back and forth
+ * to compare them. Merges two sources so it works offline:
+ *   - local cached tags (`docker images`) — switch instantly, no download
+ *   - registry tags (`listRemoteTags`)     — selecting one pulls it first
+ *
+ * Each entry is marked `downloaded` / `will download` and the active tag
+ * `current`. Stores the pick in `daliPreview.daliVersionTag`, pulls it if
+ * needed, and restarts the preview server on the selected version.
  */
 export async function selectRuntimeVersionCommand(
     runtime: DockerRuntime,
@@ -142,29 +147,59 @@ export async function selectRuntimeVersionCommand(
         return;
     }
 
-    let tags: string[];
+    // Local tags switch instantly and work offline; remote tags may need a
+    // pull. Listing remote is best-effort — an offline failure still lets the
+    // user pick any already-downloaded version.
+    const local = await runtime.listLocalTags();
+    const localSet = new Set(local);
+    let remote: string[] = [];
     try {
-        tags = await listRemoteTags(runtime.getImageName());
+        remote = await listRemoteTags(runtime.getImageName());
     } catch (err) {
-        await vscode.window.showErrorMessage(
-            `Failed to list runtime versions from the registry: ${String(err).slice(0, 200)}`,
+        outputChannel.appendLine(
+            `[Runtime] Could not list registry versions (offline?): ${String(err).slice(0, 120)}`,
         );
-        return;
     }
-    if (tags.length === 0) {
+
+    // Local first (instant switch), then registry-only tags.
+    const allTags = [...local, ...remote.filter((t) => !localSet.has(t))];
+    if (allTags.length === 0) {
         await vscode.window.showWarningMessage(
-            'No runtime versions found in the registry (or this registry is not supported).',
+            'No runtime versions found locally or in the registry.',
         );
         return;
     }
 
-    const current = ConfigurationService.getInstance().daliVersionTag;
-    const items = tags.map((t) => ({
-        label: t,
-        description: t === current ? '(current)' : '',
+    // Read each cached image's DALi version label (local `docker inspect` —
+    // instant, no network) so a rolling tag like `latest` shows its concrete
+    // version. Version-named tags (dali_X.Y.Z) already say it in their name.
+    const versionByTag = new Map<string, string | undefined>();
+    await Promise.all(local.map(async (t) => {
+        versionByTag.set(t, await runtime.getImageVersionLabel(t));
     }));
+
+    const current = ConfigurationService.getInstance().daliVersionTag;
+    // Order the picker so the version in use comes first, then other
+    // already-downloaded tags, then not-yet-downloaded ones.
+    const rank = (t: string): number => (t === current ? 0 : localSet.has(t) ? 1 : 2);
+    const orderedTags = [...allTags].sort((a, b) => rank(a) - rank(b));
+    const items: vscode.QuickPickItem[] = orderedTags.map((t) => {
+        const cached = localSet.has(t);
+        const parts = [
+            t === current ? 'current' : '',
+            cached ? 'downloaded' : 'will download (~290 MB)',
+        ].filter(Boolean);
+        const item: vscode.QuickPickItem = { label: t, description: parts.join(' · ') };
+        // Show the concrete version on a second line (detail) for rolling tags
+        // whose name doesn't already contain it — clearly visible, not truncated.
+        const version = versionByTag.get(t);
+        if (version && !/\d+\.\d+\.\d+/.test(t)) {
+            item.detail = `DALi ${version}`;
+        }
+        return item;
+    });
     const pick = await vscode.window.showQuickPick(items, {
-        placeHolder: `Select the DALi runtime version to use (current: ${current})`,
+        placeHolder: `Select a DALi runtime version to preview with (current: ${current})`,
         ignoreFocusOut: true,
     });
     if (!pick || pick.label === current) {
