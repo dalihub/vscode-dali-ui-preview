@@ -39,7 +39,8 @@
 - 🐳 **Docker 런타임 (기본값)** — 내 PC에 DALi를 빌드할 필요 없음. 런타임은 미리 빌드된
   이미지로 제공되어 확장이 자동으로 받아옵니다(~290 MB, 최초 1회).
 - 🛠️ **네이티브 런타임** — 이미 `/opt/dali`에 DALi가 있다면 그 경로를 지정해 호스트 GPU로 렌더링.
-- 🧭 **가이드 설치** — 내장 walkthrough(단계별 안내)로 설치부터 첫 프리뷰까지 약 5분.
+- 🧭 **가이드 설치** — 확장을 설치하면 곧바로 Docker 설치**와** 런타임 이미지 다운로드를
+  안내하고 첫 프리뷰까지 데려갑니다 — 시작하는 데 프리뷰 파일이 필요 없습니다.
 - 🔄 **런타임 업데이트** — 새 DALi 런타임 이미지가 올라오면 알림을 받고, 버전 선택기에서 전환.
 
 ## 요구 사항
@@ -54,10 +55,23 @@
 
 ## 빠른 시작
 
+> ⚠️ **Docker 모드(기본값)는 두 가지 일회성 단계가 필요합니다: ① Docker 설치, ② 런타임
+> 이미지(~290 MB) 다운로드.** 직접 할 필요는 없습니다 — 확장을 설치하면 곧바로 DALi
+> Preview가 **물어보고 두 단계를 대신 수행**합니다(승인만 하면 됩니다). 두 단계가 모두
+> 끝나기 전에는 프리뷰가 렌더링되지 않습니다. 이미 네이티브 DALi 빌드가 있다면
+> [네이티브 런타임](#네이티브-런타임-고급)을 참고하세요.
+
 1. **확장을 설치**합니다 (아래 [설치](#설치) 참고).
-2. 아무 `.cpp` 파일이나 엽니다. **Get started with DALi Preview** walkthrough가 자동으로
-   열립니다 — 6단계를 따라가면 Docker를 설정(또는 네이티브 DALi 경로 지정)하고 런타임
-   이미지를 받습니다. **DALi Preview: Run Setup Walkthrough** 로 언제든 다시 열 수 있습니다.
+2. **안내가 뜨면 런타임을 설정합니다.** 설치 직후 **Set up DALi Preview** 대화상자가
+   뜹니다(프리뷰 파일이 없어도 됩니다). **Set Up Now** 를 누르면:
+   - **① Docker가 설치됩니다** — `sudo` 비밀번호를 1회 입력하세요. Ubuntu/Debian에서는
+     `setfacl` 로 실행 중인 VS Code 세션에 즉시 소켓 접근 권한을 부여하므로 **재부팅·재시작이
+     필요 없습니다.**
+   - **② 런타임 이미지가 자동으로 다운로드됩니다**(~290 MB). Docker가 준비되는 즉시 받기
+     시작하고, 이후 캐시됩니다.
+
+   *대화상자를 닫았다면?* 다음에 `.preview.dali.cpp` 파일을 열 때 다시 뜨거나, 명령
+   팔레트(`Ctrl+Shift+P`)에서 **DALi Preview: Run Setup Walkthrough** 로 다시 열 수 있습니다.
 3. 명령 팔레트(`Ctrl+Shift+P`)에서 **DALi Preview: Open Sample File** 을 실행하면
    `hello-dali.preview.dali.cpp` 가 워크스페이스에 생성되고 옆에 프리뷰 패널이 열립니다.
 4. 라벨을 바꾸고, 색을 바꾸고, **저장**하세요 — 프리뷰가 갱신됩니다.
@@ -96,20 +110,30 @@ code --install-extension dali-preview-*.vsix
 
 ## 런타임 설정하기
 
-설치 walkthrough가 자동으로 구성해 주지만, 각 방식이 무엇을 하는지 정리하면 다음과 같습니다.
+설치 직후 뜨는 설정 안내가 Docker를 대신 구성해 주며(네이티브 설정은 walkthrough가 안내),
+각 방식이 무엇을 하고 무엇이 필요한지 정리하면 다음과 같습니다.
 
 ### Docker 런타임 *(권장)*
 
 DALi 런타임이 미리 빌드된 컨테이너 이미지로 제공되므로, DALi를 직접 빌드하지 않습니다.
+**두 가지 일회성 단계가 필수**이며, 확장이 설치 직후(그리고 설정이 끝나기 전 프리뷰 파일을
+열 때마다) 두 단계를 모두 안내합니다:
 
-1. **Docker 설치** — walkthrough가 명령을 미리 채워 줍니다(`sudo` 비밀번호 1회 입력).
-   Ubuntu/Debian에서는 `setfacl` 로 실행 중인 VS Code 세션에 즉시 소켓 접근 권한을 부여하므로
-   **재부팅이나 재시작이 필요 없습니다.**
-2. **런타임 이미지 받기** — 첫 프리뷰 전에 자동으로, 또는 **DALi Preview: Download Runtime
-   Image** 로 직접 받습니다. 이후 캐시되므로 기다리는 건 첫 프리뷰 한 번뿐입니다.
+| | 단계 | 방법 |
+|---|---|---|
+| **①** | **Docker 설치** | 설정 안내의 **Set Up Now** 클릭(또는 **DALi Preview: Install Docker via Terminal** 실행). `sudo` 비밀번호 1회 입력. Ubuntu/Debian에서는 `setfacl` 로 실행 중인 VS Code 세션에 즉시 소켓 접근 권한을 부여하므로 **재부팅·재시작 불필요.** |
+| **②** | **런타임 이미지(~290 MB) 다운로드** | Docker가 준비되면 **자동으로** 시작 — 또는 **DALi Preview: Download Runtime Image** 로 직접 받기. 최초 1회 받은 뒤 캐시되므로 기다리는 건 이때뿐입니다. |
 
-나중에 디스크를 비우려면 **DALi Preview: Clean Runtime Images**, Docker는 그대로 두고 처음부터
-다시 시작하려면 **DALi Preview: Reset Extension** 을 사용하세요.
+> **두 단계가 모두 끝나야 프리뷰가 렌더링됩니다.** 그 전에는 docker 설정 안내 팝업이 뜨거나,
+> 프리뷰 패널에 *"Docker is not available"* 인라인 메시지로 남은 단계를 알려 줍니다.
+
+런타임 상태는 언제든 확인·복구할 수 있습니다:
+
+- **DALi Preview: Verify Docker Access** — Docker 접근 가능 여부 확인, "permission denied"
+  세션을 재부팅 없이 복구.
+- **DALi Preview: Clean Runtime Images** — 디스크 비우기.
+- **DALi Preview: Reset Extension** — 컨테이너·이미지·캐시를 제거하고 처음부터 다시 시작
+  (코드·설정·Docker 설치는 그대로).
 
 ### 네이티브 런타임 *(고급)*
 
@@ -189,6 +213,9 @@ return MyScreen();
 | **Preview Function** | 커서 위치의 함수 프리뷰 |
 | **Open Sample File** | 시작용 `hello-dali.preview.dali.cpp` 생성 |
 | **Run Setup Walkthrough** | 가이드 설치 다시 열기 |
+| **Install Docker via Terminal** | **① Docker 설치** (`sudo` 비밀번호 1회, 재부팅 없음) |
+| **Download Runtime Image** | **② DALi 런타임 이미지 받기** (~290 MB) |
+| **Verify Docker Access** | Docker 접근 확인; "permission denied" 세션 복구 |
 | **Toggle Theme** | 프리뷰 다크/라이트 전환 |
 | **Toggle Interactive Mode (VNC)** | 패널 안에서 실제 앱 조작 |
 | **Select Target Device** / **Device Preview** | SDB 기기 선택 후 그 기기에서 렌더링 |
@@ -220,6 +247,11 @@ return MyScreen();
 
 ## 문제 해결
 
+- **설정 안내가 안 떴거나, 닫아버렸음** — Docker 모드는 Docker 설치**와** 런타임 이미지
+  다운로드가 **모두** 끝나야 렌더링됩니다. `.preview.dali.cpp` 파일을 열면(예: **DALi
+  Preview: Open Sample File**) 안내가 다시 뜨고, **DALi Preview: Run Setup Walkthrough** 로도
+  열 수 있습니다. 수동으로 하려면 **DALi Preview: Install Docker via Terminal** 후
+  **DALi Preview: Download Runtime Image** 를 실행하세요.
 - **프리뷰가 자동으로 안 열림** — `Ctrl+S` 를 한 번 눌러 첫 렌더링을 트리거하거나
   **DALi Preview: Open Preview** 를 실행하세요.
 - **첫 Docker 프리뷰가 느림** — ~290 MB 런타임 이미지를 받는 중입니다. 최초 1회뿐이며 이후

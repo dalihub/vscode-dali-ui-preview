@@ -4,6 +4,26 @@ import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess } from './dockerAccessCheck';
 
 /**
+ * Build the download-notification sub-message. Deliberately percentage-free.
+ *
+ * Off-TTY (how the extension always spawns docker) `docker pull` exposes no
+ * byte/percent detail, so any percent we derive is a coarse per-layer guess
+ * that misreads a pull dominated by one big ~290 MB layer as "stuck near 0%".
+ * We instead show completed/total layers — a real, monotonic milestone — plus
+ * elapsed time. Pure + exported so it is unit-tested without vscode/docker.
+ */
+export function formatPullMessage(
+    completedLayers: number,
+    totalLayers: number,
+    elapsedMs: number,
+): string {
+    const s = Math.max(0, Math.floor(elapsedMs / 1000));
+    const elapsed = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const head = totalLayers > 0 ? `${completedLayers}/${totalLayers} layers` : 'starting';
+    return `${head} · ${elapsed} elapsed`;
+}
+
+/**
  * Pull the configured runtime image with a VS Code progress notification.
  * Shared by `pullRuntimeImageCommand` (explicit user command) and
  * `ensureRuntimeImage` (automatic setup flow). Resolves true on success.
@@ -23,16 +43,33 @@ async function pullWithProgress(
             cancellable: false,
         },
         async (progress) => {
-            let lastReported = 0;
+            const startMs = Date.now();
+            let completedLayers = 0;
+            let totalLayers = 0;
+
+            // Indeterminate bar — deliberately percentage-free. Off-TTY,
+            // `docker pull` emits no byte/percent detail (that bar is TTY-only),
+            // and a per-layer mean misreads a pull dominated by one big ~290 MB
+            // layer as "stuck near 0%" (the 0.39.1 approach). Reporting NO
+            // increment keeps VS Code's bar in its always-animating
+            // indeterminate state, and the heartbeat ticks an honest
+            // "N/M layers · elapsed" status every second — so the user sees it
+            // working without a misleading number. Install speed matters more
+            // than a progress percentage we cannot compute accurately here.
+            const render = (): void => {
+                progress.report({
+                    message: formatPullMessage(completedLayers, totalLayers, Date.now() - startMs),
+                });
+            };
+
+            const heartbeat = setInterval(render, 1000);
+
             try {
                 await runtime.pullImage(tag, (p) => {
-                    // VS Code's progress increments are deltas, not absolute %.
-                    const delta = Math.max(0, p.percent - lastReported);
-                    lastReported = p.percent;
-                    progress.report({
-                        increment: delta,
-                        message: `${Math.round(p.percent)}% — ${p.status.slice(0, 80)}`,
-                    });
+                    completedLayers = p.completedLayers;
+                    totalLayers = p.totalLayers;
+                    // Never pass an increment → the bar stays indeterminate.
+                    render();
                 });
                 outputChannel.appendLine(`[Runtime] Pull complete: ${ref}`);
                 // Fire-and-forget: don't await, so the progress notification
@@ -49,6 +86,8 @@ async function pullWithProgress(
                     `Runtime image pull failed: ${msg.slice(0, 200)}`,
                 );
                 return false;
+            } finally {
+                clearInterval(heartbeat);
             }
         },
     );
@@ -96,6 +135,20 @@ export async function pullRuntimeImageCommand(
 }
 
 /**
+ * Tracks in-flight auto-pulls keyed by image tag so concurrent
+ * `ensureRuntimeImage` callers share ONE download and ONE progress
+ * notification.
+ *
+ * Without this, first-time setup could surface a *second* "Downloading ~290 MB"
+ * popup: the preview-server init, every preview render (when the server isn't up
+ * yet), and the post-install docker-access poller all call `ensureRuntimeImage`
+ * independently and with no mutual exclusion. If a second trigger fired while
+ * the first pull was still running, `hasImage` was still false, so it kicked off
+ * its own pull. Coalescing on the tag collapses those into a single pull.
+ */
+const inFlightPulls = new Map<string, Promise<boolean>>();
+
+/**
  * Ensure the configured runtime image is present locally. If missing, auto-pull
  * it with the same progress notification as the explicit command (but without
  * the "already cached" toast — this is the silent setup-flow path).
@@ -103,6 +156,9 @@ export async function pullRuntimeImageCommand(
  * Returns true if the image is available afterward (cached or freshly pulled),
  * false otherwise. Never throws — safe to call when docker isn't ready (returns
  * false), so callers can guard preview-server startup on the result.
+ *
+ * Concurrent calls for the same tag are coalesced into a single pull (see
+ * `inFlightPulls`).
  */
 export async function ensureRuntimeImage(
     runtime: DockerRuntime,
@@ -122,5 +178,21 @@ export async function ensureRuntimeImage(
         return true;
     }
 
-    return pullWithProgress(runtime, tag, outputChannel);
+    // Coalesce with any pull of the same tag already in progress so we never
+    // show a duplicate download notification.
+    const existing = inFlightPulls.get(tag);
+    if (existing) {
+        outputChannel.appendLine(
+            `[Runtime] Joining in-flight pull for ${runtime.imageRef(tag)} (no duplicate download).`,
+        );
+        return existing;
+    }
+
+    const pull = pullWithProgress(runtime, tag, outputChannel);
+    inFlightPulls.set(tag, pull);
+    try {
+        return await pull;
+    } finally {
+        inFlightPulls.delete(tag);
+    }
 }

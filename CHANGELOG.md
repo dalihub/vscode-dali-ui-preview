@@ -5,6 +5,87 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.3] - 2026-06-09 — Honest, always-moving download progress
+
+### Changed
+
+- **Runtime-image download no longer shows a percentage — it shows an
+  indeterminate (always-animating) bar with a live "N/M layers · elapsed"
+  status.** This supersedes the per-layer percentage from 0.39.1. Off-TTY
+  (how the extension always spawns `docker pull`) docker emits **no** byte or
+  percent detail — the `Downloading [===>] X/Y` bar is a TTY-only feature drawn
+  with carriage returns. Any percent we computed was therefore a coarse
+  per-layer mean in which a 1 KB layer and the ~290 MB DALi layer each counted
+  equally, so the bar sat near a low number for most of the download and read as
+  "stuck" (and felt slower than it was). The download itself is unchanged and
+  network-bound; the only honest signals available off-TTY are completed-layer
+  milestones and elapsed time, so that is all we show now. The notification
+  reports no `increment`, which keeps VS Code's bar in its continuously
+  animating indeterminate state, and a 1 s heartbeat ticks the elapsed clock so
+  it is visibly working between milestones. Progress-bar precision is
+  deliberately traded away in favour of a download that always looks alive.
+  (`src/pullImageCommand.ts`; new `formatPullMessage` unit tests.)
+
+## [0.39.2] - 2026-06-09 — Re-armable first-run Docker setup
+
+### Fixed
+
+- **The first-run "install Docker" popup never reappeared after a reset.** The
+  proactive onboarding is gated by a once-per-machine globalState flag
+  (`daliPreview.dockerOnboarding.v1`), and that flag **survives an extension
+  uninstall/reinstall** — VS Code keeps globalState keyed by extension id. Since
+  nothing cleared it, a developer (or user) who removed Docker and reinstalled
+  could never get the guided setup prompt again; it silently short-circuited at
+  `if (alreadyShown) return`. `DALi: Reset Extension` now also clears the
+  first-run flags (`clearFirstRunFlags`), re-arming both the Docker onboarding
+  and the setup walkthrough — done through the globalState Memento, which is
+  race-free (unlike editing `state.vscdb` behind a running VS Code). The
+  companion `dali-docker-reset.sh` test script clears the same flag, so wiping
+  Docker re-arms the popup in one step. (`src/dockerMaintenance.ts`,
+  `src/extension.ts`.)
+
+## [0.39.1] - 2026-06-09 — Smooth runtime-image download progress
+
+### Fixed
+
+- **Runtime-image download progress jumped straight from 0% to 100% and then
+  looked frozen.** The extension spawns `docker pull` with a piped (non-TTY)
+  stdout, and in that mode docker prints only discrete per-layer milestones
+  (`Pulling fs layer` → `Download complete` → `Pull complete`) — never the
+  byte/percent `Downloading [===>] X/Y` bar, which is a TTY-only feature drawn
+  with carriage returns. The old parser matched only that never-emitted percent
+  line, so its average could only ever be 0 or 100; the first completed layer
+  pinned it at 100% while the big ~290 MB layer was still downloading. Progress
+  is now computed from the milestones docker actually emits (each layer scored
+  across its queued → downloaded → extracted phases, averaged over all layers
+  and held monotonic), and the notification ticks an elapsed-time heartbeat so it
+  stays visibly alive while a layer downloads silently. (`src/dockerRuntime.ts`
+  `PullProgressTracker`, `src/pullImageCommand.ts`.)
+
+## [0.39.0] - 2026-06-09 — Proactive first-run Docker setup
+
+### Added
+
+- **First-run Docker onboarding that no longer needs a preview file.** The
+  extension now also activates on `onStartupFinished`, so right after install it
+  proactively offers (once per machine) to install Docker and download the
+  runtime image — instead of staying dormant until you happened to open a
+  `.preview.dali.cpp` file. Consenting runs the no-reboot install and then
+  auto-pulls the ~290 MB image and starts the preview server. Native-mode users
+  still get the setup walkthrough. (`src/dockerOnboarding.ts`.)
+
+### Fixed
+
+- **Duplicate "Downloading runtime image (~290 MB)" popup during first-time
+  setup.** `ensureRuntimeImage` is called independently by the preview-server
+  init, every preview render, and the post-install docker-access poller, with no
+  mutual exclusion — so a second trigger that fired while the first pull was
+  still running saw `hasImage === false` and started its *own* download. Pulls
+  are now coalesced by image tag, so concurrent callers share a single download
+  and a single progress notification. The activation-time preview-server init no
+  longer shows its own docker-setup modal either (the onboarding owns that
+  prompt), preventing a double popup.
+
 ## [0.38.0] - 2026-06-08 — Offline version switcher + Examples tour
 
 ### Added

@@ -2,7 +2,9 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { ConfigurationService } from './configurationService';
+import { DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { getLogger } from './logger';
+import { FIRST_LAUNCH_KEY } from './walkthroughController';
 
 const execAsync = promisify(exec);
 
@@ -154,6 +156,25 @@ export async function cleanRuntimeImagesCommand(outputChannel: vscode.OutputChan
 }
 
 /**
+ * Re-arm the first-run flows by clearing their "shown once per machine"
+ * globalState flags. After this, the next activation treats the machine as
+ * fresh: in docker mode, if Docker is missing the proactive install prompt
+ * appears again.
+ *
+ * Why this is needed: those flags persist across an extension reinstall (VS
+ * Code keeps globalState keyed by extension id), and nothing else clears them —
+ * so once shown, the install prompt would never reappear, even after the user
+ * removes Docker and genuinely needs to reinstall it. Clearing through the
+ * globalState Memento is race-free: it updates VS Code's authoritative in-memory
+ * store, unlike editing `state.vscdb` behind a running VS Code (which gets
+ * overwritten on the next flush).
+ */
+export async function clearFirstRunFlags(globalState: vscode.Memento): Promise<void> {
+    await globalState.update(DOCKER_ONBOARDING_KEY, undefined);
+    await globalState.update(FIRST_LAUNCH_KEY, undefined);
+}
+
+/**
  * Command: `dali.resetExtension`
  *
  * Heavy-handed cleanup for "I'm uninstalling" or "something broke, start
@@ -161,11 +182,15 @@ export async function cleanRuntimeImagesCommand(outputChannel: vscode.OutputChan
  *   - Every dali-preview-server-* container
  *   - All cached DALi runtime images
  *   - Persistent named volumes (shader cache, ccache)
+ *   - The first-run "shown once" flags, so setup guidance can appear again
  *
  * Intentionally does NOT touch the user's docker installation, group
  * memberships, or any image we didn't create.
  */
-export async function resetExtensionCommand(outputChannel: vscode.OutputChannel): Promise<void> {
+export async function resetExtensionCommand(
+    outputChannel: vscode.OutputChannel,
+    globalState?: vscode.Memento,
+): Promise<void> {
     const cfg = ConfigurationService.getInstance();
     const repo = cfg.dockerImage;
 
@@ -173,7 +198,8 @@ export async function resetExtensionCommand(outputChannel: vscode.OutputChannel)
         'Reset DALi Preview docker state? This will:\n\n' +
         `  1. Stop & remove dali-preview-server-* containers\n` +
         `  2. Delete all cached images for ${repo}\n` +
-        `  3. Delete cache volumes (dali-preview-shader-cache, dali-preview-ccache)\n\n` +
+        `  3. Delete cache volumes (dali-preview-shader-cache, dali-preview-ccache)\n` +
+        `  4. Re-arm first-run setup (the Docker install prompt can appear again)\n\n` +
         'Your code, settings, and Docker installation are untouched.',
         { modal: true },
         'Reset',
@@ -214,6 +240,13 @@ export async function resetExtensionCommand(outputChannel: vscode.OutputChannel)
         } catch (err) {
             // Volume may not exist; not fatal.
         }
+    }
+
+    // 4. Re-arm first-run onboarding/walkthrough so setup guidance reappears
+    //    next launch (e.g. after the user removes Docker and must reinstall it).
+    if (globalState) {
+        await clearFirstRunFlags(globalState);
+        outputChannel.appendLine('[Maintenance] Re-armed first-run setup (cleared shown-once flags).');
     }
 
     outputChannel.appendLine('[Maintenance] === Done ===');

@@ -43,8 +43,9 @@ panel. After the first render, text edits update in **~100 ms**.
   pre-built image that the extension pulls for you (~290 MB, once).
 - 🛠️ **Native runtime** — already have DALi at `/opt/dali`? Point the extension at it and
   render on your host GPU.
-- 🧭 **Guided setup** — a built-in walkthrough takes you from install to first preview in
-  about five minutes.
+- 🧭 **Guided setup** — right after you install the extension it prompts you to install
+  Docker **and** download the runtime image, then takes you to your first preview — no
+  preview file needed to get started.
 - 🔄 **Runtime updates** — get notified when a newer DALi runtime image is published, and
   switch versions from a picker.
 
@@ -60,14 +61,25 @@ You only need **one** of the two runtimes. If you're not sure, pick Docker — i
 
 ## Quick start
 
+> ⚠️ **Docker mode (the default) requires two one-time steps: ① install Docker, and
+> ② download the runtime image (~290 MB).** You don't do these by hand — right after you
+> install the extension, DALi Preview **prompts you and performs both for you** once you
+> approve. Until both are done, previews can't render. Already have a native DALi build?
+> See [Native runtime](#native-runtime-advanced).
+
 1. **Install the extension** (see [Installation](#installation) below).
-2. Open any `.cpp` file. The **Get started with DALi Preview** walkthrough opens
-   automatically — follow its six steps to set up Docker (or point at a native DALi
-   build) and pull the runtime image. You can reopen it any time with
-   **DALi Preview: Run Setup Walkthrough**.
-3. Run **DALi Preview: Open Sample File** from the Command Palette (`Ctrl+Shift+P`). A
-   `hello-dali.preview.dali.cpp` is dropped into your workspace and the preview panel
-   opens beside it.
+2. **Set up the runtime when prompted.** Right after install, a **Set up DALi Preview**
+   dialog appears (no preview file needed). Click **Set Up Now**:
+   - **① Docker is installed** — enter your `sudo` password once. On Ubuntu/Debian the
+     running VS Code session gets socket access immediately via `setfacl`, so **no reboot
+     or reload**.
+   - **② The runtime image downloads automatically** (~290 MB) as soon as Docker is ready,
+     and is cached after that.
+
+   *Dismissed the dialog?* It returns the next time you open a `.preview.dali.cpp` file, or
+   run **DALi Preview: Run Setup Walkthrough** from the Command Palette (`Ctrl+Shift+P`).
+3. Run **DALi Preview: Open Sample File** (`Ctrl+Shift+P`). A `hello-dali.preview.dali.cpp`
+   is dropped into your workspace and the preview panel opens beside it.
 4. Edit a label, change a colour, **save** — the preview updates.
 
 That's the whole loop: **write → save → see**.
@@ -104,21 +116,31 @@ code --install-extension dali-preview-*.vsix
 
 ## Setting up your runtime
 
-The setup walkthrough configures this for you, but here's what each option does.
+The first-run prompt sets up Docker for you (and the walkthrough guides native setup), but
+here's what each option does — and exactly what you need in place.
 
 ### Docker runtime *(recommended)*
 
 The DALi runtime is a pre-built container image — you don't build DALi yourself.
+**Two one-time steps are required**, and the extension prompts you for both right after
+install (and again whenever you open a preview file before setup is finished):
 
-1. **Install Docker** (the walkthrough pre-fills the command; enter your `sudo` password
-   once). On Ubuntu/Debian it grants the running VS Code session socket access immediately
-   via `setfacl`, so **no reboot or reload is needed**.
-2. **Pull the runtime image** — done automatically before your first preview, or on demand
-   with **DALi Preview: Download Runtime Image**. It's cached after that, so the first
-   preview is the only wait.
+| | Step | How |
+|---|---|---|
+| **①** | **Install Docker** | Click **Set Up Now** on the setup prompt (or run **DALi Preview: Install Docker via Terminal**). Enter your `sudo` password once; on Ubuntu/Debian the running VS Code session gets socket access immediately via `setfacl`, so **no reboot or reload**. |
+| **②** | **Download the runtime image (~290 MB)** | Starts **automatically** once Docker is ready — or run **DALi Preview: Download Runtime Image** on demand. Cached after the first download, so this is the only wait. |
 
-Free disk later with **DALi Preview: Clean Runtime Images**; start over (without
-uninstalling Docker) with **DALi Preview: Reset Extension**.
+> **Both steps must finish before any preview can render.** Until then you'll see the
+> docker-setup prompt, or an inline *"Docker is not available"* message in the preview
+> panel telling you what's left to do.
+
+Check or fix the runtime anytime:
+
+- **DALi Preview: Verify Docker Access** — confirm Docker is reachable, and fix a
+  "permission denied" session without a reboot.
+- **DALi Preview: Clean Runtime Images** — free disk.
+- **DALi Preview: Reset Extension** — remove containers, images, and caches and start
+  fresh (your code, settings, and Docker install are untouched).
 
 ### Native runtime *(advanced)*
 
@@ -201,6 +223,9 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | **Preview Function** | Preview the function under the cursor |
 | **Open Sample File** | Drop a starter `hello-dali.preview.dali.cpp` into the workspace |
 | **Run Setup Walkthrough** | Reopen the guided setup |
+| **Install Docker via Terminal** | **① Install Docker** (one `sudo` password, no reboot) |
+| **Download Runtime Image** | **② Pull the DALi runtime image** (~290 MB) |
+| **Verify Docker Access** | Confirm Docker is reachable; fix a "permission denied" session |
 | **Toggle Theme** | Switch the preview between dark and light |
 | **Toggle Interactive Mode (VNC)** | Drive the live app in the panel |
 | **Select Target Device** / **Device Preview** | Pick an SDB device and render on it |
@@ -232,6 +257,11 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 
 ## Troubleshooting
 
+- **The setup prompt didn't appear, or I dismissed it** — Docker mode can't render until
+  Docker is installed **and** the runtime image is downloaded. Bring the prompt back by
+  opening any `.preview.dali.cpp` file (e.g. via **DALi Preview: Open Sample File**), or run
+  **DALi Preview: Run Setup Walkthrough**. To do the steps manually: **DALi Preview: Install
+  Docker via Terminal**, then **DALi Preview: Download Runtime Image**.
 - **Preview doesn't open automatically** — press `Ctrl+S` once to trigger the first render,
   or run **DALi Preview: Open Preview**.
 - **First Docker preview is slow** — it's pulling the ~290 MB runtime image. This happens

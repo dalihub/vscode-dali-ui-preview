@@ -20,6 +20,7 @@ import { installDockerCommand } from './installDocker';
 import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
 import { openSampleCommand, openExamplesCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
 import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
+import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
 import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand } from './checkUpdateCommand';
@@ -53,7 +54,7 @@ let dockerRuntime: DockerRuntime | undefined;
 let dockerAccessPoller: DockerAccessPoller | undefined;
 // Reassigned in activate(); the no-op default lets callers invoke it
 // unconditionally (e.g. from the access poller before the first real init).
-let initPreviewServer: () => Promise<void> = async () => {};
+let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<void> = async () => {};
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
@@ -195,7 +196,11 @@ export async function activate(context: vscode.ExtensionContext) {
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable.
     // Honored at startup: when daliPreview.disablePreviewServer is true the server
     // is never spawned, so every preview goes through the full g++ harness path.
-    initPreviewServer = async () => {
+    initPreviewServer = async (opts?: { promptOnDockerIssue?: boolean }) => {
+        // When invoked proactively at activation (onStartupFinished), suppress the
+        // docker-setup guidance modal — the first-run onboarding owns that prompt,
+        // so we don't double up. Command/poller callers keep the default (prompt).
+        const promptOnDockerIssue = opts?.promptOnDockerIssue ?? true;
         // Re-callable after docker becomes available (or a runtime switch):
         // tear down any prior instance first so we don't leak a process or
         // leave a stale orchestrator reference.
@@ -225,7 +230,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     `[PreviewServer] Skipped — docker access state: ${access.state}`,
                 );
                 statusBar?.showMode('compile');
-                await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+                if (promptOnDockerIssue) {
+                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+                }
                 return;
             }
             // Ensure the runtime image is present BEFORE launching the
@@ -280,9 +287,37 @@ export async function activate(context: vscode.ExtensionContext) {
             previewServer = undefined;
         }
     };
-    initPreviewServer().catch(err =>
-        outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
-    );
+    // Tracks whether we've already kicked off a preview-server init in this
+    // session (so the activation eager-start and the on-focus lazy-start below
+    // don't both fire, and we don't re-prompt for docker on every file switch).
+    let serverInitTriggered = false;
+
+    // Activation is now also driven by onStartupFinished (no preview file needed).
+    // Two consequences handled here:
+    //   1. Don't spin up the preview-server container in a window that has no
+    //      DALi file — only eager-start when a previewable editor is in context.
+    //      Other windows just run the first-run onboarding (below) and defer the
+    //      container until a previewable file is actually opened.
+    //   2. Don't double-prompt: when the first-run onboarding is going to offer
+    //      docker setup (first run + docker mode), keep this init silent so its
+    //      modal is the only prompt. Otherwise (already onboarded, or docker is
+    //      fine) let this init surface docker-setup guidance on demand.
+    const onboardingMayPrompt =
+        ConfigurationService.getInstance().runtimeMode === 'docker' &&
+        !context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY);
+    const hasPreviewableContext =
+        (!!vscode.window.activeTextEditor && isPreviewable(vscode.window.activeTextEditor.document)) ||
+        vscode.window.visibleTextEditors.some((e) => isPreviewable(e.document));
+    if (hasPreviewableContext) {
+        serverInitTriggered = true;
+        initPreviewServer({ promptOnDockerIssue: !onboardingMayPrompt }).catch(err =>
+            outputChannel.appendLine(`[PreviewServer] init error: ${err?.message ?? err}`)
+        );
+    } else {
+        outputChannel.appendLine(
+            '[PreviewServer] Deferred container start — no previewable file open at activation.',
+        );
+    }
 
     // Watch for docker access after the install / setfacl flow, showing a
     // progress notification the whole time, and auto-continue (ensure image +
@@ -394,7 +429,7 @@ export async function activate(context: vscode.ExtensionContext) {
             cleanRuntimeImagesCommand(outputChannel),
         ),
         vscode.commands.registerCommand('dali.resetExtension', () =>
-            resetExtensionCommand(outputChannel),
+            resetExtensionCommand(outputChannel, context.globalState),
         ),
         vscode.commands.registerCommand('dali.installDocker', () =>
             installDockerCommand(startDockerSetupWatch),
@@ -444,11 +479,52 @@ export async function activate(context: vscode.ExtensionContext) {
         ),
     );
 
-    // First-launch walkthrough — shown once per machine via globalState flag.
-    // Idempotent: rerun via "DALi Preview: Run Setup Walkthrough" command.
-    maybeOpenWalkthrough(context).catch((err) =>
-        outputChannel.appendLine(`[Walkthrough] init error: ${err?.message ?? err}`),
-    );
+    // First-launch onboarding — shown once per machine via globalState flag.
+    // In docker mode (the default) we proactively offer to install Docker +
+    // download the runtime image, so the user no longer has to open a
+    // `.preview.dali.cpp` file first to discover setup. Native users get the
+    // setup walkthrough instead. Both are idempotent: rerun via
+    // "DALi Preview: Run Setup Walkthrough".
+    const onboardingCfg = ConfigurationService.getInstance();
+    if (onboardingCfg.runtimeMode === 'docker') {
+        context.globalState.setKeysForSync([DOCKER_ONBOARDING_KEY]);
+        maybeRunFirstRunDockerSetup({
+            runtimeMode: 'docker',
+            daliVersionTag: onboardingCfg.daliVersionTag,
+            alreadyShown: !!context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY),
+            checkAccess: () => checkDockerAccess(),
+            hasImage: (tag) => dockerRuntime ? dockerRuntime.hasImage(tag) : Promise.resolve(false),
+            markShown: () => Promise.resolve(context.globalState.update(DOCKER_ONBOARDING_KEY, true)),
+            confirmInstall: async () => {
+                const choice = await vscode.window.showInformationMessage(
+                    'DALi Preview renders your UI inside a Docker container. Set it up now? ' +
+                    'This installs Docker (one password), then downloads the runtime image ' +
+                    '(~290 MB) automatically — no reboot or reload needed.',
+                    { modal: true },
+                    'Set Up Now',
+                );
+                return choice === 'Set Up Now';
+            },
+            installDocker: async () => {
+                // Re-probe so we run the right action: a fresh install vs. just a
+                // socket-permission / daemon fix (both wired to start the access
+                // poller, which auto-pulls the image and starts the server next).
+                const access = await checkDockerAccess();
+                if (access.state === 'docker-not-installed') {
+                    await installDockerCommand(startDockerSetupWatch);
+                } else {
+                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+                }
+            },
+            log: (msg) => outputChannel.appendLine(msg),
+        }).catch((err) =>
+            outputChannel.appendLine(`[Onboarding] init error: ${err?.message ?? err}`),
+        );
+    } else {
+        maybeOpenWalkthrough(context).catch((err) =>
+            outputChannel.appendLine(`[Walkthrough] init error: ${err?.message ?? err}`),
+        );
+    }
 
     // Command: DALi: Select Target Device
     const selectDeviceCmd = vscode.commands.registerCommand('dali.selectDevice', async () => {
@@ -538,6 +614,17 @@ export async function activate(context: vscode.ExtensionContext) {
     // preview tracks the user's focus instead of going stale.
     const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (!editor || !isPreviewable(editor.document)) { return; }
+        // First time a previewable file is focused this session, make sure the
+        // preview server is (being) started — and surface docker-setup guidance
+        // if docker isn't ready yet. This is the "I skipped setup, then opened a
+        // DALi file" path: even though the extension already activated (e.g. via
+        // onStartupFinished with no file open), the install prompt still appears.
+        if (!previewServer && !serverInitTriggered) {
+            serverInitTriggered = true;
+            void initPreviewServer().catch((err) =>
+                outputChannel.appendLine(`[PreviewServer] lazy init error: ${err?.message ?? err}`),
+            );
+        }
         ensurePreviewManager(context);
         previewManager!.show(true);
         if (!orchestrator) { return; }

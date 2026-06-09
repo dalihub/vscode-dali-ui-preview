@@ -114,10 +114,124 @@ export interface BuildAndCaptureResult {
 
 export interface PullProgress {
     tag: string;
-    /** Best-effort 0-100 percent across all known layers. */
+    /** Monotonic best-effort 0-100 percent across all known layers. */
     percent: number;
     /** Most recent status line from `docker pull`. */
     status: string;
+    /** Layers fully pulled so far (`Pull complete` / `Already exists`). */
+    completedLayers: number;
+    /** Total layers seen so far — the denominator behind `percent`. */
+    totalLayers: number;
+}
+
+/** Decimal byte-size units, as printed by docker's `go-units` HumanSize. */
+const PULL_SIZE_UNITS: Record<string, number> = {
+    b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12,
+};
+
+const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/**
+ * Parse the completion fraction (0..1) out of a docker `Downloading` /
+ * `Extracting` detail string, or undefined when it carries no numeric detail.
+ *
+ * Handles both the literal-percent form (`... 45%`) and the `current/total`
+ * byte form (`... 12MB/24MB`). Docker only prints these on a TTY; off-TTY
+ * (how the extension always spawns it) neither appears, so callers must treat
+ * undefined as "no byte detail — fall back to milestone phases".
+ */
+export function parsePullFraction(detail: string): number | undefined {
+    const pct = detail.match(/([\d.]+)\s*%/);
+    if (pct) {
+        const n = parseFloat(pct[1]);
+        if (!Number.isNaN(n)) return clamp01(n / 100);
+    }
+    const bytes = detail.match(/([\d.]+)\s*([kMGT]?B)\s*\/\s*([\d.]+)\s*([kMGT]?B)/i);
+    if (bytes) {
+        const cur = parseFloat(bytes[1]) * (PULL_SIZE_UNITS[bytes[2].toLowerCase()] ?? 1);
+        const tot = parseFloat(bytes[3]) * (PULL_SIZE_UNITS[bytes[4].toLowerCase()] ?? 1);
+        if (tot > 0) return clamp01(cur / tot);
+    }
+    return undefined;
+}
+
+/**
+ * Turns the line-by-line stdout of `docker pull` into a monotonic 0-100 percent.
+ *
+ * Why this is milestone-based: with a piped (non-TTY) stdout — how the extension
+ * always spawns docker — `docker pull` emits ONLY discrete per-layer milestones
+ * (`Pulling fs layer` → `Download complete` → `Pull complete`). It never prints
+ * the byte/percent `Downloading [===>] X/Y` progress bar; that is drawn with
+ * carriage returns and is suppressed off-TTY. The old parser matched only a
+ * `Downloading … NN%` line that never occurs off-TTY, so its average could be
+ * 0 or 100 and nothing between: the download appeared to jump straight 0% → 100%
+ * and then sit at 100% (the first completed layer pinned the average there) while
+ * the big ~290 MB layer was still downloading.
+ *
+ * Each layer is scored 0→1 across its phases (queued 0, downloaded 0.6,
+ * extracted/complete 1.0); byte detail, when present on a TTY, refines the
+ * download band. The reported percent is the mean over every layer seen, held
+ * monotonic so the bar never jumps backwards when a late layer registers.
+ *
+ * Extracted as a standalone class so the parsing is unit-tested without docker.
+ */
+export class PullProgressTracker {
+    private readonly layers = new Map<string, number>();
+    private emittedMax = 0;
+    private lastStatus = '';
+
+    constructor(private readonly tag: string) {}
+
+    /** Feed one trimmed stdout line; returns the running snapshot. */
+    push(line: string): PullProgress {
+        this.lastStatus = line;
+        const m = line.match(/^([0-9a-f]{6,}):\s+(.*\S)/i);
+        if (m) this.applyLayer(m[1], m[2]);
+        return this.snapshot(line);
+    }
+
+    /** Force every layer to 100% on a clean `docker pull` exit. */
+    complete(): PullProgress {
+        for (const id of this.layers.keys()) this.layers.set(id, 1);
+        this.emittedMax = 100;
+        const n = this.layers.size;
+        return { tag: this.tag, percent: 100, status: 'complete', completedLayers: n, totalLayers: n };
+    }
+
+    private applyLayer(id: string, detail: string): void {
+        let value: number;
+        if (/^(Pull complete|Already exists)\b/i.test(detail)) {
+            value = 1;
+        } else if (/^(Download complete|Verifying Checksum)\b/i.test(detail)) {
+            value = 0.6;
+        } else if (/^Extracting\b/i.test(detail)) {
+            const f = parsePullFraction(detail);
+            value = f === undefined ? 0.6 : 0.6 + 0.4 * f;
+        } else if (/^Downloading\b/i.test(detail)) {
+            const f = parsePullFraction(detail);
+            value = f === undefined ? 0 : 0.6 * f;
+        } else {
+            // Pulling fs layer / Waiting / Retrying / Pulling — register at 0.
+            value = 0;
+        }
+        const cur = this.layers.get(id);
+        if (cur === undefined || value > cur) this.layers.set(id, value);
+    }
+
+    private snapshot(status: string): PullProgress {
+        const total = this.layers.size;
+        let percent = 0;
+        if (total > 0) {
+            const sum = [...this.layers.values()].reduce((a, b) => a + b, 0);
+            percent = (sum / total) * 100;
+        }
+        // Hold monotonic: registering a late layer shrinks the mean, but a
+        // progress bar must never run backwards.
+        if (percent < this.emittedMax) percent = this.emittedMax;
+        else this.emittedMax = percent;
+        const completed = [...this.layers.values()].filter((v) => v >= 1).length;
+        return { tag: this.tag, percent, status, completedLayers: completed, totalLayers: total };
+    }
 }
 
 /**
@@ -322,24 +436,13 @@ export class DockerRuntime {
 
         return new Promise<void>((resolve, reject) => {
             const proc = spawn('docker', ['pull', ref], { stdio: ['ignore', 'pipe', 'pipe'] });
-            const layerProgress = new Map<string, number>();
+            const tracker = new PullProgressTracker(tag);
             let lastStatus = '';
             let stderrBuf = '';
 
             const handleLine = (line: string) => {
                 lastStatus = line;
-                const dl = line.match(/^([0-9a-f]+):\s+(?:Downloading|Extracting)\s+\[=*>?\s*\]\s+([\d.]+)%/);
-                if (dl) {
-                    layerProgress.set(dl[1], parseFloat(dl[2]));
-                }
-                const done = line.match(/^([0-9a-f]+):\s+(?:Pull complete|Already exists)/);
-                if (done) {
-                    layerProgress.set(done[1], 100);
-                }
-                const avg = layerProgress.size > 0
-                    ? Array.from(layerProgress.values()).reduce((a, b) => a + b, 0) / layerProgress.size
-                    : 0;
-                onProgress?.({ tag, percent: avg, status: line });
+                onProgress?.(tracker.push(line));
             };
 
             let stdoutBuf = '';
@@ -360,7 +463,7 @@ export class DockerRuntime {
             });
             proc.on('exit', (code) => {
                 if (code === 0) {
-                    onProgress?.({ tag, percent: 100, status: 'complete' });
+                    onProgress?.(tracker.complete());
                     log.debug('Docker', 'pullImage done', { ref });
                     resolve();
                 } else {
