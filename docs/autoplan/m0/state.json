@@ -1,0 +1,9 @@
+{
+  "milestone": "M0",
+  "cycles_used": 1,
+  "cycles_max": 3,
+  "completed": ["F0.1", "F0.2", "F0.3"],
+  "milestone_done": true,
+  "verdict": "PASS",
+  "tests": "583 passing (579 baseline + 4 new)"
+}
