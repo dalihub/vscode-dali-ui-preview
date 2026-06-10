@@ -212,6 +212,13 @@ export interface OrchestratorDeps {
     statusBar: StatusBarManager | undefined;
     outputChannel: vscode.OutputChannel;
     diagnosticCollection: vscode.DiagnosticCollection;
+    /**
+     * Gate a render on docker readiness (docker mode only). Returns true if the
+     * render may proceed. When docker is missing it surfaces the actionable
+     * setup popup (unless `silent`, for live-preview keystroke renders).
+     * Injected late via `setEnsureDockerReady` (see extension.ts).
+     */
+    ensureDockerReady?: (opts: { silent: boolean }) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +402,10 @@ export class PreviewOrchestrator {
         this.deps.previewManager = manager;
     }
 
+    setEnsureDockerReady(fn: (opts: { silent: boolean }) => Promise<boolean>): void {
+        this.deps.ensureDockerReady = fn;
+    }
+
     // -----------------------------------------------------------------------
     // Error debounce helpers
     // -----------------------------------------------------------------------
@@ -455,6 +466,26 @@ export class PreviewOrchestrator {
         }
 
         log.debug('Extension', 'extraction mode selected', { mode: extraction.mode, fileName: doc.fileName });
+
+        // Docker gate: in docker mode, when the dlopen server isn't up we are about
+        // to fall back to the full-harness path. Verify docker access first and, if
+        // it's missing, surface the actionable install/setup popup (the no-reload
+        // resume path) instead of letting buildAndRunDocker fail with a raw string
+        // buried in the panel. Runs before building/lastDocument advance so an early
+        // return needs no cleanup. Live-preview (keystroke) renders pass silent so
+        // they never pop a modal or spam the panel.
+        if (!this.deps.previewServer?.isRunning && this.deps.ensureDockerReady) {
+            const ready = await this.deps.ensureDockerReady({ silent: livePreview });
+            if (!ready) {
+                if (!livePreview) {
+                    previewManager.showError(
+                        'Docker is required to render the preview. Follow the "DALi: Install Docker via Terminal" setup steps in the notification.',
+                    );
+                    this.deps.statusBar?.showError('Docker not available');
+                }
+                return;
+            }
+        }
 
         this.lastPreviewedDoc_ = doc;
 

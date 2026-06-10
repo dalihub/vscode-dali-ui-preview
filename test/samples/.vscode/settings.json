@@ -1,5 +1,5 @@
 {
   "daliPreview.runtimeMode": "docker",
-  "daliPreview.daliVersionTag": "dali_2.5.18-local",
+  "daliPreview.daliVersionTag": "latest",
   "daliPreview.logLevel": "debug"
 }

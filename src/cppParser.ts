@@ -10,9 +10,13 @@
  *       .Method(value)
  *       .Children({ TypeName::New(...), ... });
  *
+ * Argument values may themselves be scoped builder chains, e.g.
+ *   .SetLayoutParams(StackLayoutParams::New().SetWeight(1.0f))
+ *
  * Unsupported → null:
  *   Ternary operators, control flow keywords, preprocessor directives,
- *   bare user-defined function calls.
+ *   bare user-defined function calls (model.GetTitle() must keep falling
+ *   back to the compile path — only Scope::Call(...) bases may chain).
  */
 
 // ---------------------------------------------------------------------------
@@ -391,6 +395,7 @@ class CppChainParser {
         if (t.kind === 'IDENT') {
             this.consume();
             let result = t.text;
+            let isCall = false;
 
             // Optional scope resolution: Enum::VALUE or Namespace::Constructor
             if (this.peek().kind === 'SCOPE') {
@@ -400,13 +405,32 @@ class CppChainParser {
                 result += '::' + next.text;
             }
 
-            // Optional call parens: UiColor(0x...), Extents(a,b,c,d)
+            // Optional call parens: UiColor(0x...), Extents(a,b,c,d),
+            // StackLayoutParams::New()
             if (this.peek().kind === 'LPAREN') {
                 this.consume();
                 const innerArgs = this.parseArgValueList();
                 if (innerArgs === null) { return null; }
                 if (!this.expect('RPAREN')) { return null; }
                 result += '(' + innerArgs.join(', ') + ')';
+                isCall = true;
+            }
+
+            // Optional nested builder chain on a call result:
+            //   StackLayoutParams::New().SetWeight(1.0f).SetAlignment(...)
+            //   FlexLayoutParams::New().SetFlexGrow(1.0f)
+            // Gated on isCall so a bare member access like `model.GetTitle()`
+            // (no preceding `(...)`) still falls through to null and the
+            // compile path — only `Type::New(...)`-style results may chain.
+            while (isCall && this.peek().kind === 'DOT') {
+                this.consume(); // '.'
+                const methodToken = this.expect('IDENT');
+                if (!methodToken) { return null; }
+                if (!this.expect('LPAREN')) { return null; }
+                const methodArgs = this.parseArgValueList();
+                if (methodArgs === null) { return null; }
+                if (!this.expect('RPAREN')) { return null; }
+                result += '.' + methodToken.text + '(' + methodArgs.join(', ') + ')';
             }
 
             return result;

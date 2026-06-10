@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.39.3",
+  "version": "0.40.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -35,7 +35,8 @@
     "commands": [
       {
         "command": "dali.openPreview",
-        "title": "DALi: Open Preview",
+        "title": "Open Preview",
+        "category": "DALi Preview",
         "icon": {
           "light": "images/icon.svg",
           "dark": "images/icon.svg"
@@ -136,6 +137,23 @@
         "category": "DALi Preview"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        { "command": "dali.previewFunction", "when": "false" },
+        { "command": "dali.selectDevice", "when": "false" },
+        { "command": "dali.devicePreview", "when": "false" },
+        { "command": "dali.verifyDocker", "when": "false" },
+        { "command": "dali.cleanRuntimeImages", "when": "false" },
+        { "command": "dali.resetExtension", "when": "false" },
+        { "command": "dali.useDockerRuntime", "when": "false" },
+        { "command": "dali.useNativeRuntime", "when": "false" },
+        { "command": "dali.installDocker", "when": "false" },
+        { "command": "dali.pullRuntimeImage", "when": "false" },
+        { "command": "dali.checkRuntimeUpdate", "when": "false" },
+        { "command": "dali.selectRuntimeVersion", "when": "false" },
+        { "command": "dali.showReadme", "when": "false" }
+      ]
+    },
     "walkthroughs": [
       {
         "id": "dali-preview.setup",

@@ -14,7 +14,7 @@ import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { initLogger, getLogger } from './logger';
 import { ConfigurationService } from './configurationService';
 import { DockerRuntime } from './dockerRuntime';
-import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand } from './dockerAccessCheck';
+import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand, decidePreviewDockerGate, DockerAccessResult } from './dockerAccessCheck';
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
 import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
@@ -193,6 +193,20 @@ export async function activate(context: vscode.ExtensionContext) {
         },
     );
 
+    // Throttle the docker-setup guidance popup so the two paths that surface it
+    // (preview-server init on focus, and the preview-render gate on save) don't
+    // double-prompt within seconds of each other. `Date.now()` is fine here —
+    // this is ordinary extension code, not a workflow script.
+    let lastDockerGuidanceTs = 0;
+    const maybeShowDockerGuidance = async (access: DockerAccessResult) => {
+        const now = Date.now();
+        if (now - lastDockerGuidanceTs < 8000) {
+            return;
+        }
+        lastDockerGuidanceTs = now;
+        await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+    };
+
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable.
     // Honored at startup: when daliPreview.disablePreviewServer is true the server
     // is never spawned, so every preview goes through the full g++ harness path.
@@ -231,7 +245,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 );
                 statusBar?.showMode('compile');
                 if (promptOnDockerIssue) {
-                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+                    await maybeShowDockerGuidance(access);
                 }
                 return;
             }
@@ -361,6 +375,22 @@ export async function activate(context: vscode.ExtensionContext) {
             }),
         );
     };
+
+    // Wire the preview-render docker gate into the orchestrator now that
+    // startDockerSetupWatch exists. (Passing this at orchestrator construction
+    // would hit a TDZ on the block-scoped startDockerSetupWatch const.) The
+    // arrow reads previewServer/dockerAccessPoller at call time, so it always
+    // reflects the current runtime state.
+    const ensureDockerReadyForPreview = (opts: { silent: boolean }): Promise<boolean> =>
+        decidePreviewDockerGate({
+            runtimeMode: ConfigurationService.getInstance().runtimeMode,
+            serverRunning: !!previewServer?.isRunning,
+            pollerRunning: !!dockerAccessPoller?.isRunning,
+            silent: opts.silent,
+            checkAccess: checkDockerAccess,
+            showGuidance: maybeShowDockerGuidance,
+        });
+    orchestrator?.setEnsureDockerReady(ensureDockerReadyForPreview);
 
     // Once-a-day background check for a newer runtime image (docker mode only,
     // gated by the autoCheckRuntimeUpdate setting; silent on no-update/offline).
@@ -609,9 +639,11 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // Auto-open preview panel when opening a previewable file, and rebuild
-    // when the active editor switches to a different previewable file so the
-    // preview tracks the user's focus instead of going stale.
+    // Track the active editor: when the preview panel is already open, rebuild
+    // for the newly-focused previewable file so the preview follows the user's
+    // focus instead of going stale. Focusing a file does NOT auto-open a closed
+    // panel — the user opens the preview via Ctrl+S / the Open Preview command /
+    // the CodeLens button, and closing it with (×) keeps it closed.
     const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (!editor || !isPreviewable(editor.document)) { return; }
         // First time a previewable file is focused this session, make sure the
@@ -625,12 +657,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 outputChannel.appendLine(`[PreviewServer] lazy init error: ${err?.message ?? err}`),
             );
         }
-        ensurePreviewManager(context);
-        previewManager!.show(true);
+        // Don't auto-open the preview on focus. Only follow focus when the panel
+        // is already open; if the user closed it (or never opened it this
+        // session), leave it closed instead of resurrecting it on every switch.
+        if (!previewManager?.isVisible) { return; }
+        previewManager.show(true);
         if (!orchestrator) { return; }
-        previewManager!.setTheme(orchestrator.theme);
+        previewManager.setTheme(orchestrator.theme);
         if (orchestrator.bgColor) {
-            previewManager!.setBackgroundColor(orchestrator.bgColor);
+            previewManager.setBackgroundColor(orchestrator.bgColor);
         }
         // Skip if we're already showing this exact doc to avoid redundant rebuilds
         // when the user re-focuses the same tab.
@@ -653,6 +688,12 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!isCodeLensTarget && !isPreviewable(event.document)) {
             return;
         }
+        // Live preview only refreshes an already-open panel — it never auto-opens
+        // one. If the user closed the preview, typing won't bring it back.
+        if (!previewManager?.isVisible) {
+            liveDebouncer?.cancel();
+            return;
+        }
         if (orchestrator.isInteractiveMode) {
             return;
         }
@@ -665,10 +706,12 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!liveDebouncer) {
             outputChannel.appendLine(`[LivePreview] Debouncer created with debounce=${debounceMs}ms`);
             liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
+                // The panel may have been closed during the debounce window — if
+                // so, don't resurrect it.
+                if (!previewManager?.isVisible) { return; }
                 const debounceElapsed = Date.now() - (orchestrator!.lastTextChangeTime || 0);
                 outputChannel.appendLine(`[Perf] T1 debounce fired — ${debounceElapsed}ms since last text change`);
-                ensurePreviewManager(context);
-                previewManager!.show(true);
+                previewManager.show(true);
                 orchestrator!.runPreview(doc, true);
             });
         }

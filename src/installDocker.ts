@@ -21,14 +21,41 @@ import * as vscode from 'vscode';
  * We deliberately do NOT auto-run the command — the user reviews it and presses
  * Enter, supplying their sudo password once.
  */
-export async function installDockerCommand(onStarted?: () => void): Promise<void> {
-    const cmd =
-        'curl -fsSL https://get.docker.com | sudo sh' +
+/**
+ * Build the single-line install command (extracted so tests can assert on it
+ * and there is one source of truth).
+ *
+ * Downloader robustness: a bare `curl … | sudo sh` aborts the whole `&&` chain
+ * on an Ubuntu box that ships without curl. We instead:
+ *   1. ensure a downloader exists — prefer curl, then wget, and only if BOTH are
+ *      absent install curl via apt. `apt-get update` failure stays fatal here:
+ *      this branch only runs when there is no other way to fetch the installer,
+ *      so swallowing it would just hide the real cause (offline / broken
+ *      sources). (Contrast the `acl` step, which is optional → `|| true`.)
+ *   2. download+run with whichever exists (curl preferred, wget fallback).
+ *
+ * Every choice group is fully parenthesized: POSIX `&&`/`||` share precedence
+ * and are left-associative, so an unparenthesized `A || B && C` would wrongly
+ * parse as `(A || B) && C`.
+ */
+export function buildDockerInstallCommand(): string {
+    const ensureDownloader =
+        '( command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 ' +
+        '|| ( sudo apt-get update && sudo apt-get install -y curl ) )';
+    const downloadAndRun =
+        '( command -v curl >/dev/null 2>&1 && curl -fsSL https://get.docker.com | sudo sh ' +
+        '|| wget -qO- https://get.docker.com | sudo sh )';
+    return ensureDownloader +
+        ' && ' + downloadAndRun +
         ' && sudo usermod -aG docker "$USER"' +
         ' && sudo systemctl enable --now docker' +
         ' && ( command -v setfacl >/dev/null 2>&1 || sudo apt-get install -y acl || true )' +
         ' && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock' +
         ' && echo "" && echo "Docker is ready for this session — VS Code will continue automatically."';
+}
+
+export async function installDockerCommand(onStarted?: () => void): Promise<void> {
+    const cmd = buildDockerInstallCommand();
 
     // Pre-install modal so the user knows exactly what to expect: one password,
     // then hands-off. Keeps the sudo-password prompt (which appears INSIDE the

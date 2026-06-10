@@ -23,3 +23,5 @@ install.sh
 .c8rc.json
 # Internal: prior VSIX builds.
 *.vsix
+# Internal: ad-hoc research packs — kept on disk but never shipped in the VSIX.
+*.research-pack.json

@@ -5,6 +5,79 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-06-10 — Curl-free Docker setup, preview-time install prompt & a calmer panel
+
+### Fixed
+
+- **Files using a nested builder chain as an argument — most commonly
+  `.SetLayoutParams(StackLayoutParams::New().SetWeight(1.0f))` — now render on
+  the fast T1 parser path (<100 ms) instead of being forced onto the ~1.2 s
+  compile path.** The TypeScript chain parser (`src/cppParser.ts`) previously
+  accepted a single call as an argument value (`UiColor(0x…)`, `Extents(…)`) but
+  not a call followed by further `.Method(…)` chaining, so one such line made
+  `parseChainExpression` return `null` and demoted the **entire** file to the
+  dlopen path. A single weighted spacer in a 283-line screen was enough to cost
+  a full second per keystroke. The parser now accepts a nested builder chain
+  **only when the base is itself a `Type::New(...)`-style call**, so a bare
+  member access like `model.GetTitle()` still falls through to the compile path
+  as before. This restored seven sample screens (the three `flow-banking`
+  screens plus `boarding-pass`, `crypto-portfolio`, `fitness-dashboard`,
+  `food-delivery`) to the parser path. See `code_preview_strategy_0610.md` for
+  the full pattern-support analysis.
+- **The render server now honours `SetLayoutParams` on the T1 path**
+  (`server/preview_server.cpp`): `StackLayoutParams::New().SetWeight(w)` and
+  `FlexLayoutParams::New().SetFlexGrow/Shrink/Basis(...)` are parsed out of the
+  captured chain and applied to the child view, so a weighted spacer pushes its
+  siblings to the far edge exactly as it does on the compile path. (Takes effect
+  once the runtime image is rebuilt; the host falls back gracefully until then.)
+- **`DALi: Install Docker via Terminal` no longer fails on a machine without
+  `curl`.** The generated install command began with `curl … | sudo sh`, so on
+  an Ubuntu box that ships without curl the whole `&&` chain aborted at the very
+  first step. The downloader is now robust — it prefers `curl`, falls back to
+  `wget`, and only if neither exists installs `curl` via apt first — then runs
+  the same no-reboot install/permission chain. The command is centralized in a
+  unit-tested `buildDockerInstallCommand()` (one source of truth), and the
+  "Manual instructions" output was updated to match. (`src/installDocker.ts`,
+  `src/dockerAccessCheck.ts`.)
+- **Attempting a preview while Docker is missing now surfaces the actionable
+  setup popup instead of a raw error buried in the panel — and resumes a
+  half-finished install with no reload.** Previously, if first-run setup was
+  dismissed or its terminal was closed mid-install, a later save / `▶ Preview`
+  fell through to the harness path and printed `Docker is not available…` as
+  plain text in the webview. `PreviewOrchestrator.runPreview` now gates
+  docker-mode renders on a docker-access check (`decidePreviewDockerGate`): when
+  Docker is missing it shows the same install / "fix permissions" / "start
+  daemon" guidance the onboarding uses (whichever applies), then the existing
+  poller pulls the image and starts the server with **no VS Code reload**.
+  Live-preview keystrokes stay silent (no modal, no panel error), and a shared
+  8-second throttle prevents focus-then-save double-prompts. (`src/previewOrchestrator.ts`,
+  `src/dockerAccessCheck.ts`, `src/extension.ts`.)
+
+### Changed
+
+- **The preview panel no longer auto-opens when you focus or type in a DALi
+  file — it opens only on an explicit gesture (Ctrl+S, the `DALi Preview: Open
+  Preview` command, or the `▶ Preview` CodeLens) and stays closed once you
+  close it with (×).** Previously the active-editor handler called
+  `previewManager.show()` on every focus change, and live-preview re-showed the
+  panel on every keystroke, so a panel the user dismissed kept reappearing the
+  moment they switched back to the file or typed a character. Both the
+  focus-change and live-preview paths now bail out unless the panel is already
+  visible (`previewManager?.isVisible`); save (the documented "Ctrl+S to render"
+  gesture) and the explicit commands still open it. (`src/extension.ts`.)
+- **Curated the Command Palette: typing "preview" no longer surfaces a wall of
+  internal commands.** 13 commands that are reachable from the setup
+  walkthrough, the CodeLens button, or are device/maintenance/runtime actions
+  are now hidden from the palette via `contributes.menus.commandPalette`
+  (`when: false`) — they remain registered, so walkthrough buttons, CodeLens,
+  and programmatic callers are unaffected. The palette now lists only the seven
+  core commands (Open Preview, Toggle Theme, Toggle Interactive Mode, Open
+  Settings, Open Sample File, Open Examples, Run Setup Walkthrough). `Open
+  Preview` was also normalized to the shared `DALi Preview` category so every
+  visible entry is consistently prefixed. A new `commandPalette.test.ts` locks
+  in the visible/hidden split and fails if a future command is added without
+  classifying it. (`package.json`, `test/unit/commandPalette.test.ts`.)
+
 ## [0.39.3] - 2026-06-09 — Honest, always-moving download progress
 
 ### Changed

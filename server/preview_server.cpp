@@ -486,6 +486,50 @@ static float SBParseDimension(const std::string& s)
     return SBParseFloat(s);
 }
 
+// Extract the first numeric arg of a chained setter inside a builder-spec
+// string, e.g. SBExtractChainFloat("StackLayoutParams::New().SetWeight(1.0f)",
+// "SetWeight") -> 1.0f. Returns NaN when the setter is absent so callers can
+// leave the corresponding param at its default.
+static float SBExtractChainFloat(const std::string& spec, const std::string& method)
+{
+    const std::string needle = method + "(";
+    size_t pos = spec.find(needle);
+    if (pos == std::string::npos) return std::nanf("");
+    pos += needle.size();
+    size_t end = spec.find(')', pos);
+    if (end == std::string::npos) return std::nanf("");
+    return SBParseFloat(spec.substr(pos, end - pos));
+}
+
+// Apply a SetLayoutParams(...) spec captured verbatim by the TS parser, e.g.
+//   "StackLayoutParams::New().SetWeight(1.0f)"
+//   "FlexLayoutParams::New().SetFlexGrow(1.0f).SetFlexShrink(0.0f)"
+// Only the float-valued setters that change a still layout are honoured —
+// SetWeight drives StackLayout space distribution (a weighted spacer pushes
+// siblings to the far edge), FlexGrow/Shrink/Basis drive FlexLayout sizing.
+// Enum alignment setters are skipped (no effect on a static capture's bounds).
+static void SBApplyLayoutParams(View& view, const std::string& spec)
+{
+    if (spec.find("StackLayoutParams") != std::string::npos)
+    {
+        StackLayoutParams p = StackLayoutParams::New();
+        float w = SBExtractChainFloat(spec, "SetWeight");
+        if (!std::isnan(w)) p.SetWeight(w);
+        view.SetLayoutParams(p);
+    }
+    else if (spec.find("FlexLayoutParams") != std::string::npos)
+    {
+        FlexLayoutParams p = FlexLayoutParams::New();
+        float g = SBExtractChainFloat(spec, "SetFlexGrow");
+        if (!std::isnan(g)) p.SetFlexGrow(g);
+        float s = SBExtractChainFloat(spec, "SetFlexShrink");
+        if (!std::isnan(s)) p.SetFlexShrink(s);
+        float b = SBExtractChainFloat(spec, "SetFlexBasis");
+        if (!std::isnan(b)) p.SetFlexBasis(b);
+        view.SetLayoutParams(p);
+    }
+}
+
 static void SBApplyCommonProps(View& view,
     const std::map<std::string, std::vector<std::string>>& props)
 {
@@ -499,6 +543,7 @@ static void SBApplyCommonProps(View& view,
         else if (n == "SetBackgroundColor") view.SetBackgroundColor(SBParseUiColor(a0));
         else if (n == "SetPadding" || n == "SetViewPadding") view.SetPadding(SBParseExtents(a0));
         else if (n == "SetMargin"  || n == "SetViewMargin")  view.SetMargin(SBParseExtents(a0));
+        else if (n == "SetLayoutParams") SBApplyLayoutParams(view, a0);
     }
 }
 

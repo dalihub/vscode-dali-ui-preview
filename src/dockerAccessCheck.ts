@@ -177,7 +177,8 @@ function showInstallDocs(outputChannel: vscode.OutputChannel): void {
     outputChannel.appendLine('=== Docker install (Ubuntu) ===');
     outputChannel.appendLine('Run these in a terminal (sudo password requested once):');
     outputChannel.appendLine('');
-    outputChannel.appendLine('  curl -fsSL https://get.docker.com | sudo sh');
+    outputChannel.appendLine('  # if curl is missing:  sudo apt-get update && sudo apt-get install -y curl');
+    outputChannel.appendLine('  curl -fsSL https://get.docker.com | sudo sh    # or: wget -qO- https://get.docker.com | sudo sh');
     outputChannel.appendLine('  sudo usermod -aG docker "$USER"');
     outputChannel.appendLine('  sudo systemctl enable --now docker');
     outputChannel.appendLine('  sudo setfacl -m "u:$USER:rw" /var/run/docker.sock');
@@ -234,4 +235,34 @@ export async function verifyDockerCommand(
     if (choice === 'Download Runtime Image') {
         await vscode.commands.executeCommand('dali.pullRuntimeImage');
     }
+}
+
+/**
+ * Pure decision for the preview-render docker gate (deps injected so it is unit
+ * testable without spawning processes or stubbing vscode). Returns whether the
+ * render may proceed; when it cannot and we are not in a silent (live-preview)
+ * render, shows the actionable setup guidance as a side effect via `showGuidance`.
+ *
+ *   - native mode             → true  (nothing to gate)
+ *   - dlopen server running   → true  (docker is by definition reachable)
+ *   - a setup poll is running → false (install in flight — don't render, and
+ *                                      don't re-prompt on top of it)
+ *   - docker access ok        → true
+ *   - access not ok           → false; guidance shown unless silent
+ */
+export async function decidePreviewDockerGate(deps: {
+    runtimeMode: 'native' | 'docker';
+    serverRunning: boolean;
+    pollerRunning: boolean;
+    silent: boolean;
+    checkAccess: () => Promise<DockerAccessResult>;
+    showGuidance: (a: DockerAccessResult) => Promise<void>;
+}): Promise<boolean> {
+    if (deps.runtimeMode !== 'docker') { return true; }
+    if (deps.serverRunning) { return true; }
+    if (deps.pollerRunning) { return false; }
+    const access = await deps.checkAccess();
+    if (access.state === 'ok') { return true; }
+    if (!deps.silent) { await deps.showGuidance(access); }
+    return false;
 }

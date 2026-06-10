@@ -181,6 +181,56 @@ describe('cppParser', () => {
     });
 
     // -----------------------------------------------------------------------
+    // Nested builder-chain arguments (e.g. SetLayoutParams)
+    // -----------------------------------------------------------------------
+
+    describe('nested builder-chain arguments', () => {
+        it('parses a single-method chain inside an argument', () => {
+            const code = 'return View::New().SetLayoutParams(StackLayoutParams::New().SetWeight(1.0f));';
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.type).to.equal('View');
+            expect(node!.properties['SetLayoutParams'])
+                .to.deep.equal(['StackLayoutParams::New().SetWeight(1.0f)']);
+        });
+
+        it('parses a multi-method chain inside an argument', () => {
+            const code = 'return View::New().SetLayoutParams(FlexLayoutParams::New().SetFlexGrow(1.0f).SetFlexShrink(0.0f));';
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.properties['SetLayoutParams'])
+                .to.deep.equal(['FlexLayoutParams::New().SetFlexGrow(1.0f).SetFlexShrink(0.0f)']);
+        });
+
+        it('parses a nested-chain arg on a child node', () => {
+            const code = [
+                'return StackLayout::New(StackOrientation::VERTICAL)',
+                '    .Children({',
+                '        View::New().SetLayoutParams(StackLayoutParams::New().SetWeight(1.0f)),',
+                '        Label::New("footer"),',
+                '    });',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.children).to.have.length(2);
+            expect(node!.children[0].properties['SetLayoutParams'])
+                .to.deep.equal(['StackLayoutParams::New().SetWeight(1.0f)']);
+        });
+
+        it('still returns null for a bare member call argument (compile fallback)', () => {
+            // model.GetTitle() is NOT a Type::New(...) call, so it must not chain —
+            // it has to fall through to the compile path.
+            const code = 'return Label::New(model.GetTitle());';
+            expect(parseChainExpression(code)).to.be.null;
+        });
+
+        it('still returns null for a bare helper-function call', () => {
+            const code = 'return MakeCard("Title", value);';
+            expect(parseChainExpression(code)).to.be.null;
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Unsupported patterns → returns null (compile fallback)
     // -----------------------------------------------------------------------
 
@@ -318,6 +368,17 @@ describe('cppParser', () => {
                 path.join(samplesDir, 'gallery.preview.dali.cpp'), 'utf-8').trim();
             const node = parseChainExpression(code);
             expect(node).to.not.be.null;
+        });
+
+        it('parses flow-banking/card.preview.dali.cpp (nested SetLayoutParams chain)', () => {
+            // Regression guard: this file failed to parse before nested
+            // builder-chain args were supported, forcing the whole file onto
+            // the slow compile path. See code_preview_strategy_0610.md.
+            const code = fs.readFileSync(
+                path.join(samplesDir, 'flow-banking', 'card.preview.dali.cpp'), 'utf-8').trim();
+            const node = parseChainExpression(code);
+            expect(node, 'card.preview.dali.cpp should parse on the T1 path').to.not.be.null;
+            expect(node!.type).to.equal('StackLayout');
         });
     });
 });
