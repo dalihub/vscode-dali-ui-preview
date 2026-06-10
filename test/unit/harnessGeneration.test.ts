@@ -23,6 +23,10 @@ function substituteTemplate(
         ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
         : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
     return template
+        // M1 3-slot template: empty includes/globals on the self-contained path
+        // (restores the original blank line → byte-identical).
+        .replace(/\{\{USER_INCLUDES\}\}/g, '')
+        .replace(/\{\{USER_GLOBALS\}\}/g, '')
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -137,6 +141,10 @@ function substituteAnimationTemplate(
         ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
         : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
     return template
+        // M1 3-slot template: empty includes/globals on the self-contained path
+        // (restores the original blank line → byte-identical).
+        .replace(/\{\{USER_INCLUDES\}\}/g, '')
+        .replace(/\{\{USER_GLOBALS\}\}/g, '')
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)

@@ -163,6 +163,8 @@ export class BuildRunner {
         const soPath    = path.join(this.tmpDir, `preview_plugin${suffix}.so`);
 
         const pluginCode = this.pluginTemplateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode);
 
         // Docker mode: compile inside the container so the host doesn't need DALi.
@@ -288,6 +290,8 @@ export class BuildRunner {
         }
 
         const harness = this.templateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -372,6 +376,8 @@ export class BuildRunner {
             : BuildRunner.themeToBackgroundColor(theme);
 
         const harness = this.templateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -561,6 +567,8 @@ export class BuildRunner {
         }
 
         const harness = this.interactiveTemplateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -661,6 +669,8 @@ export class BuildRunner {
         const totalFrames = Math.floor(duration * fps / 1000);
 
         const harness = this.animationTemplateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -832,6 +842,8 @@ export class BuildRunner {
 
         // 1. Generate harness (reuse same template, but output paths point to remote)
         const harness = this.templateContent
+            .replace(/\{\{USER_INCLUDES\}\}/g, '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)

@@ -6,7 +6,7 @@
 #include <dali-ui-foundation/dali-ui-foundation.h>
 
 #include <iostream>
-
+{{USER_INCLUDES}}
 using namespace Dali;
 using namespace Dali::Ui;
 using Dali::Ui::View;
@@ -18,7 +18,7 @@ T __tag(T obj, const char* name)
     obj.SetProperty(Dali::Actor::Property::NAME, Dali::String(name));
     return obj;
 }
-
+{{USER_GLOBALS}}
 // === User preview code — exported symbol for dlopen ===
 extern "C" View CreatePreview()
 {
