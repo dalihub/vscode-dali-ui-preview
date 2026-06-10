@@ -1,0 +1,1 @@
+{"milestone":"M3","cycles_used":1,"cycles_max":3,"completed":["F3.1 render","F3.2 matrix","F3.3 report"],"deferred":["M3b orchestrator integration (production wiring, needs user confirm)"],"milestone_done":true,"verdict":"PASS","tests":"588 passing","png_rendered":["navbar(helper)","member(stub)"]}
