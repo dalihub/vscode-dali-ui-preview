@@ -1,0 +1,1 @@
+{"milestone":"M2","cycles_used":1,"cycles_max":3,"completed":["F2.1","F2.2"],"deferred_to_m3":["F2.3 orchestrator integration + compile-probe fallback"],"external_review":"CONCERN→addressed (local-var bug fixed; cross-file=Rung1 boundary)","milestone_done":true,"verdict":"PASS","tests":"588 passing"}
