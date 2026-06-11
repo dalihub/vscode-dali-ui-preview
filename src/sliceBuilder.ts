@@ -273,11 +273,19 @@ export function synthWeakStub(name: string, body: string): string {
  * sample arguments (the automated form of Compose's @PreviewParameter).
  */
 function synthParamStub(type: string, name: string): string {
-    const bare = type.replace(/&/g, '').trim();  // drop reference qualifier
+    let bare = type.replace(/&/g, '').trim();  // drop reference qualifier
+    // A by-value weak global needs external linkage; a leading `const` on a value
+    // type (`const std::string`) makes it internal → "weak declaration must be
+    // public" link error. A pointer (`const char*`) is fine — the const is on the
+    // pointee, not the global itself — so only strip const when there's no `*`.
+    if (!bare.includes('*')) { bare = bare.replace(/^const\s+/, ''); }
     if (/char\s*\*|\bstring\b|String/.test(bare)) { return `${bare} ${name} = "Sample";`; }
     if (/\bbool\b/.test(bare)) { return `${bare} ${name} = false;`; }
     if (/\b(?:float|double)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
-    if (/\b(?:u?int\w*|short|long|size_t|unsigned|signed)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
+    // An unsigned-int param in UI code is very often a packed colour (0xRRGGBB);
+    // default to a visible grey so it shows, not 0 (black, invisible on dark bg).
+    if (/\buint\w*\b|\bunsigned\b/.test(bare)) { return `${bare} ${name} = 0x888888;`; }
+    if (/\b(?:int|short|long|size_t|signed)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
     return `${bare} ${name}{};`;
 }
 
@@ -382,11 +390,12 @@ export interface SourceFile { path: string; text: string; }
  * @param entryBody    pre-extracted preview body (orchestrator passes instrumented)
  * @param extraSources #include'd project sources for cross-file (Rung1) resolution
  */
-export function buildSlice(src: string, entrySrcPath: string, entryBody?: string, extraSources: SourceFile[] = []): SliceResult {
+export function buildSlice(src: string, entrySrcPath: string, entryBody?: string, extraSources: SourceFile[] = [], entryParams?: { name: string; type: string }[]): SliceResult {
     // Prefer the already-extracted (and possibly instrumented) preview body the
     // orchestrator passes in; standalone use / tests locate it in `src` instead.
+    // entryParams (from a CodeLens targeting a specific fn) wins over the first-fn guess.
     const entry = entryBody !== undefined
-        ? { body: entryBody, params: findPreviewFunction(src)?.params ?? [] }
+        ? { body: entryBody, params: entryParams ?? findPreviewFunction(src)?.params ?? [] }
         : findPreviewFunction(src);
     if (!entry) {
         // Nothing to slice — treat the whole input as the body (Rung3 passthrough).

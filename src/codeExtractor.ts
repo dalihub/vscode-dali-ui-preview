@@ -7,6 +7,9 @@ export interface ExtractionResult {
     startLine: number;
     mode: 'preview-file' | 'marker' | 'single-marker';
     configs?: PreviewConfig[];
+    /** Signature params of the previewed function (when a CodeLens targets a
+     *  specific function), so the slice stubs ITS params — not the file's first. */
+    params?: { name: string; type: string }[];
 }
 
 const MARKER_BEGIN = '// @dali-preview-begin';
@@ -299,6 +302,14 @@ export function isPreviewable(document: vscode.TextDocument): boolean {
  *
  * Returns null if the body cannot be determined or is empty.
  */
+/** Parse a parameter list ("const std::string& a, int b") into {type, name} pairs. */
+function parseParamList(s: string): { name: string; type: string }[] {
+    return s.split(',').map((p) => p.trim()).filter(Boolean).map((p) => {
+        const m = p.match(/^(.*?)\b([A-Za-z_]\w*)\s*$/);
+        return m ? { type: m[1].trim(), name: m[2] } : null;
+    }).filter((p): p is { name: string; type: string } => p !== null);
+}
+
 export function extractFunctionBody(
     document: vscode.TextDocument,
     funcStartLine: number,
@@ -341,10 +352,18 @@ export function extractFunctionBody(
         }
     }
 
+    // Parse the signature params (funcStartLine..braceLineStart) so a CodeLens on a
+    // specific function carries ITS params — not the file's first function's.
+    let sig = '';
+    for (let i = funcStartLine; i <= braceLineStart; i++) { sig += document.lineAt(i).text + ' '; }
+    const pmatch = sig.match(/\(([^)]*)\)/);
+    const params = pmatch ? parseParamList(pmatch[1]) : [];
+
     return {
         code,
         startLine,
         mode: 'marker',
+        params,
     };
 }
 

@@ -633,7 +633,7 @@ export class PreviewOrchestrator {
             // yields rung 'single-fn' (empty globals → byte-identical, current
             // path). Only the dlopen strategy consumes it; parser/harness ignore.
             const extraSources = resolveProjectIncludes(doc);
-            const slice = buildSlice(doc.getText(), doc.fileName, instrumented, extraSources);
+            const slice = buildSlice(doc.getText(), doc.fileName, instrumented, extraSources, extraction.params);
             if (slice.rung === 'heuristic') {
                 this.deps.outputChannel.appendLine(
                     `[Slice] Rung2 heuristic: globals collected, ${slice.unresolvedStubs.length} stub(s)` +
