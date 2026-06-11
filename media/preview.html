@@ -1512,23 +1512,28 @@
     if (!metadata || !metadata.root) return;
     if (!img || !img.naturalWidth) return;
 
-    var scaleX = img.clientWidth / img.naturalWidth;
-    var scaleY = img.clientHeight / img.naturalHeight;
+    // The image uses object-fit: contain, so it scales UNIFORMLY (min of the two
+    // ratios) and is centred with letterbox bars. Using scaleX/scaleY separately
+    // stretches the overlay; ignoring the bars shifts it. Compute one scale + the
+    // letterbox padding so the boxes land exactly on the rendered pixels.
+    var scale = Math.min(img.clientWidth / img.naturalWidth, img.clientHeight / img.naturalHeight);
+    var renderedW = img.naturalWidth * scale;
+    var renderedH = img.naturalHeight * scale;
 
     var containerRect = overlayEl.parentElement.getBoundingClientRect();
     var imgRect = img.getBoundingClientRect();
-    var offsetX = imgRect.left - containerRect.left;
-    var offsetY = imgRect.top - containerRect.top;
+    var offsetX = (imgRect.left - containerRect.left) + (img.clientWidth - renderedW) / 2;
+    var offsetY = (imgRect.top - containerRect.top) + (img.clientHeight - renderedH) / 2;
 
     function renderActor(actor) {
       if (actor.name && actor.name.indexOf('__L') === 0) {
         var lineNum = parseInt(actor.name.substring(3), 10);
         var div = document.createElement('div');
         div.className = 'element-bbox';
-        div.style.left = (actor.x * scaleX + offsetX) + 'px';
-        div.style.top = (actor.y * scaleY + offsetY) + 'px';
-        div.style.width = (actor.w * scaleX) + 'px';
-        div.style.height = (actor.h * scaleY) + 'px';
+        div.style.left = (actor.x * scale + offsetX) + 'px';
+        div.style.top = (actor.y * scale + offsetY) + 'px';
+        div.style.width = (actor.w * scale) + 'px';
+        div.style.height = (actor.h * scale) + 'px';
         div.dataset.line = lineNum;
 
         div.addEventListener('click', (function(ln, d) { return function (e) {
@@ -1681,12 +1686,14 @@
     for (var i = 0; i < existing.length; i++) { existing[i].remove(); }
     if (!visible || !metadata || !metadata.root || !img || !img.naturalWidth) { return; }
 
-    var scaleX = img.clientWidth / img.naturalWidth;
-    var scaleY = img.clientHeight / img.naturalHeight;
+    // object-fit: contain → uniform scale + letterbox (see renderMetadataOverlayInto).
+    var scale = Math.min(img.clientWidth / img.naturalWidth, img.clientHeight / img.naturalHeight);
+    var renderedW = img.naturalWidth * scale;
+    var renderedH = img.naturalHeight * scale;
     var containerRect = overlayEl.parentElement.getBoundingClientRect();
     var imgRect = img.getBoundingClientRect();
-    var offsetX = imgRect.left - containerRect.left;
-    var offsetY = imgRect.top - containerRect.top;
+    var offsetX = (imgRect.left - containerRect.left) + (img.clientWidth - renderedW) / 2;
+    var offsetY = (imgRect.top - containerRect.top) + (img.clientHeight - renderedH) / 2;
 
     function walkFlex(actor) {
       if (flexHasData(actor) && actor.w > 0 && actor.h > 0) {
@@ -1694,10 +1701,10 @@
         var direction = fp.direction || 'ROW';
         var arrowChar = FLEX_DIRECTION_ARROWS[direction] || '\u2192';
 
-        var bx = actor.x * scaleX + offsetX;
-        var by = actor.y * scaleY + offsetY;
-        var bw = actor.w * scaleX;
-        var bh = actor.h * scaleY;
+        var bx = actor.x * scale + offsetX;
+        var by = actor.y * scale + offsetY;
+        var bw = actor.w * scale;
+        var bh = actor.h * scale;
 
         // Direction arrow at center of the FlexLayout bbox
         var arrowDiv = document.createElement('div');
