@@ -11,7 +11,7 @@ namespace wallet {
 
 View WalletScreen::Build() {
     // P2 + P6: loop over the view-model's data to build transaction rows.
-    auto txList = StackLayout::New(StackOrientation::VERTICAL).SetSpacing(theme::GAP_ROW);
+    auto txList = StackLayout::New(StackOrientation::VERTICAL).SetSpacing(theme::GAP_ROW).SetRequestedWidth(MATCH_PARENT);
     for (const auto& tx : mVm.recent) {
         txList.Add(MakeTransactionRow(tx.merchant, tx.amount));  // P1 cross-file helper
     }

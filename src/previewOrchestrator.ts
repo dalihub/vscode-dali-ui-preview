@@ -251,30 +251,43 @@ function sanitizeForPath(name: string): string {
  * Rung1 (heuristic cross-file): read the project sources the document #include's
  * by relative path ("...") — each header and, if present, its same-stem .cpp —
  * so SliceBuilder can collect helper/type/const definitions that live in other
- * files. Only project-local quoted includes are followed (system <...> are
- * provided by the template); 1 hop, missing files are skipped silently.
+ * files. Followed TRANSITIVELY (BFS, header → header) up to MAX_HOPS, so a type
+ * two hops away (wallet_screen.h → model/wallet_vm.h) is reachable (P11). Only
+ * project-local quoted includes are followed (system <...> come from the
+ * template); contained to the workspace root; missing files skipped silently.
  */
 function resolveProjectIncludes(doc: vscode.TextDocument): SourceFile[] {
     const sources: SourceFile[] = [];
-    const dir = path.dirname(doc.uri.fsPath);
     // Security containment: only read files inside the workspace root (or the
     // document's own directory if there's no workspace). An include that escapes
     // it — e.g. #include "/etc/passwd" or "../../../../etc/hostname" — is skipped.
-    const root = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? dir;
+    const root = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? path.dirname(doc.uri.fsPath);
     const seen = new Set<string>();
-    const includeRe = /^[ \t]*#include\s+"([^"]+)"/gm;
-    let m: RegExpExecArray | null;
-    while ((m = includeRe.exec(doc.getText())) !== null) {
-        const hdr = path.resolve(dir, m[1]);
-        // header + its same-stem .cpp (definitions often live in the .cpp)
-        for (const p of [hdr, hdr.replace(/\.(h|hpp)$/, '.cpp')]) {
-            if (seen.has(p)) { continue; }
-            seen.add(p);
-            if (!(p === root || p.startsWith(root + path.sep))) { continue; } // containment guard
-            try {
-                if (fs.existsSync(p)) { sources.push({ path: p, text: fs.readFileSync(p, 'utf8') }); }
-            } catch { /* unreadable include — skip */ }
+    const MAX_HOPS = 4;
+    let frontier: { dir: string; text: string }[] = [{ dir: path.dirname(doc.uri.fsPath), text: doc.getText() }];
+    for (let hop = 0; hop < MAX_HOPS && frontier.length > 0; hop++) {
+        const next: { dir: string; text: string }[] = [];
+        for (const cur of frontier) {
+            const includeRe = /^[ \t]*#include\s+"([^"]+)"/gm;
+            let m: RegExpExecArray | null;
+            while ((m = includeRe.exec(cur.text)) !== null) {
+                const hdr = path.resolve(cur.dir, m[1]);
+                // header + its same-stem .cpp (definitions often live in the .cpp)
+                for (const p of [hdr, hdr.replace(/\.(h|hpp)$/, '.cpp')]) {
+                    if (seen.has(p)) { continue; }
+                    seen.add(p);
+                    if (!(p === root || p.startsWith(root + path.sep))) { continue; } // containment guard
+                    try {
+                        if (fs.existsSync(p)) {
+                            const text = fs.readFileSync(p, 'utf8');
+                            sources.push({ path: p, text });
+                            next.push({ dir: path.dirname(p), text });  // recurse into ITS includes
+                        }
+                    } catch { /* unreadable include — skip */ }
+                }
+            }
         }
+        frontier = next;
     }
     return sources;
 }

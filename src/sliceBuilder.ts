@@ -320,6 +320,50 @@ function baseTypeName(type: string): string {
     return last.replace(/<.*$/, '').split('::').pop() ?? '';
 }
 
+/** Parse a struct definition's top-level fields into {type, name} pairs. */
+function parseStructFields(structText: string): { name: string; type: string }[] {
+    const brace = structText.indexOf('{');
+    if (brace === -1) { return []; }
+    // Strip comments first, else `std::string balance;  // e.g. "$3,500"` breaks
+    // the next field's match (the trailing comment swallows the separator).
+    const body = structText.slice(brace + 1, structText.lastIndexOf('}'))
+        .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const fields: { name: string; type: string }[] = [];
+    // Split on `;` so each declaration is parsed independently — a single regex
+    // walk consumes the separator and skips every other field.
+    for (const decl of body.split(';')) {
+        const m = decl.trim().match(/^((?:const\s+)?[\w:]+(?:<[^>]*>)?[\s*&]*?)\s+(\w+)\s*(?:=.*)?$/s);
+        if (m) { fields.push({ type: m[1].trim(), name: m[2] }); }
+    }
+    return fields;
+}
+
+/**
+ * Synthesise a sample aggregate-initialiser for a value of `type`, recursively:
+ * strings → "Sample", numbers → 1, vector<T> → three sample T's, a project-local
+ * struct → brace-init of its fields. This is P6 — the preview shows SAMPLE data
+ * for an injected model the real app would populate from a repository/network.
+ */
+function synthSampleInit(type: string, structDefs: Map<string, string>, depth: number): string {
+    if (depth > 4) { return '{}'; }
+    const bare = type.replace(/[&]/g, '').replace(/^const\s+/, '').trim();
+    if (/char\s*\*|\bstring\b|String/.test(bare)) { return '"Sample"'; }
+    if (/\bbool\b/.test(bare)) { return 'true'; }
+    if (/\b(?:float|double)\b/.test(bare)) { return '1'; }
+    if (/\b(?:u?int\w*|short|long|size_t|unsigned|signed)\b/.test(bare)) { return '1'; }
+    const vec = bare.match(/vector\s*<\s*(.+)\s*>/);
+    if (vec) {
+        const el = synthSampleInit(vec[1].trim(), structDefs, depth + 1);
+        return `{${el}, ${el}, ${el}}`;   // three sample rows so a for-loop renders
+    }
+    const tn = baseTypeName(bare);
+    if (structDefs.has(tn)) {
+        const fields = parseStructFields(structDefs.get(tn)!);
+        return `${tn}{${fields.map((f) => synthSampleInit(f.type, structDefs, depth + 1)).join(', ')}}`;
+    }
+    return '{}';
+}
+
 /** Topologically order collected defs (constants/types/namespaces before functions). */
 function orderDefs(defs: CollectedDef[]): CollectedDef[] {
     // Simple ordering: source order is usually correct (defs precede the preview fn);
@@ -364,15 +408,15 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     // context-based weak stub (which colours/sizes better than a default value).
     const allSources: SourceFile[] = [{ path: entrySrcPath, text: src }, ...extraSources];
     const memberFields = parseMemberFields(allSources);
-    const memberStubs: string[] = [];
+    const memberRefs: { name: string; type: string }[] = [];
     for (const r of [...refs]) {
         const mtype = memberFields.get(r);
         if (!mtype) { continue; }
         const tn = baseTypeName(mtype);
         if (tn && !KNOWN_SYMBOLS.has(tn) && !KEYWORDS.has(tn)) {
-            memberStubs.push(`__attribute__((weak)) ${synthParamStub(mtype, r)}`);
+            memberRefs.push({ name: r, type: mtype });
             refs.delete(r);
-            refs.add(tn);   // collect the struct/class definition below
+            refs.add(tn);   // collect the struct/class definition below (+ its sample data)
         }
     }
 
@@ -392,6 +436,38 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         }
         unresolved = r.unresolved;
     }
+
+    // Fixpoint: a collected type can reference further project-local types that
+    // aren't in the body's refs — a nested struct (WalletViewModel holds
+    // vector<Transaction>). Pull those in too, a few rounds, until nothing new.
+    for (let round = 0; round < 4; round++) {
+        const have = new Set(collected.map((d) => d.name));
+        const more = new Set<string>();
+        for (const d of collected) {
+            for (const nr of scanRefs(d.text)) {
+                if (!have.has(nr) && !KNOWN_SYMBOLS.has(nr)) { more.add(nr); }
+            }
+        }
+        if (more.size === 0) { break; }
+        const before = collected.length;
+        let rem = more;
+        for (const s of allSources) {
+            if (rem.size === 0) { break; }
+            const rr = collectSameFileDefs(s.text, rem);
+            for (const d of rr.collected) {
+                if (!have.has(d.name)) { collected.push(d); have.add(d.name); }
+            }
+            rem = new Set(rr.unresolved);
+        }
+        if (collected.length === before) { break; }   // nothing new → done
+    }
+
+    // P6: stub each struct member with SAMPLE data synthesised from its (now
+    // collected) struct definition — an empty {} renders blank; this fills
+    // strings/numbers and gives vectors a few elements so for-loops produce rows.
+    const structDefs = new Map(collected.map((d) => [d.name, d.text]));
+    const memberStubs = memberRefs.map((m) =>
+        `__attribute__((weak)) ${baseTypeName(m.type)} ${m.name} = ${synthSampleInit(m.type, structDefs, 0)};`);
 
     const ordered = orderDefs(collected);
     const includes = ''; // defs inlined into globals rather than mounting headers (ADR-006).
