@@ -5,6 +5,50 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-06-11 — Zero-annotation auto-extract preview
+
+Preview real app code — helpers, member functions, MVVM models, cross-file
+components — without adding any preview annotations.
+
+### Added
+
+- **Automatic dependency extraction.** Previewing a helper/factory/member
+  function (or a whole screen) no longer needs a self-contained snippet: the
+  extension collects the same-file *and* cross-file (transitive `#include`)
+  definitions the code references, injects sample data for model structs, and
+  weak-stubs whatever is left. Real dali-ui patterns — helper/factory functions,
+  class member assembly, MVVM model injection, theme constants, header splits,
+  `for`-loop data binding — render as-is.
+- **Arg-receiving UI preview.** Functions that take parameters
+  (`MakeStatCard(label, value, accent)`) get a **"▶ Preview (sample args)"**
+  CodeLens that fills in sample values. For meaningful values, add a `// @preview`
+  wrapper that calls them with real literals.
+- **`vector` → `.Children`.** A `.Children(rows)` where `rows` is a
+  `std::vector<View>` built by a loop now renders (auto-rewritten to an `.Add`
+  loop — `View::Children` only accepts an initializer list).
+- **click-to-code on cross-file helpers.** Clicking a `MakeSectionHeader(...)`
+  result in the preview jumps to that call site, not just `Type::New()` calls.
+
+### Fixed
+
+- **Resize & resolution apply immediately** — picking a resolution or typing a
+  size updates the preview right away instead of only after **Ctrl+S**, including
+  files previewed via CodeLens (no `// @preview` marker).
+- **Overlay highlights line up with the render.** The click-to-code and layout
+  overlays now honour `object-fit: contain` (uniform scale + letterbox), so boxes
+  no longer stretch or drift when the panel isn't 16:9.
+- **Full-harness render path** now injects the extracted globals too (previously
+  only the fast dlopen path did), fixing "`theme` has not been declared" on the
+  fallback path.
+- **Emoji with no glyph in the preview font** (☀⛅☁☂ across separate Labels) are
+  shown as **□** instead of aborting the render. Real devices have emoji fonts;
+  this only affects the preview runtime.
+
+### Changed
+
+- **Removed drag-to-resize** from the preview panel — resize via the resolution
+  dropdown or the width/height inputs.
+
 ## [0.40.0] - 2026-06-10 — Curl-free Docker setup, preview-time install prompt & a calmer panel
 
 ### Fixed
