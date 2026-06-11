@@ -7,6 +7,8 @@ import {
     formatErrorsForDisplay,
     formatRawError,
     ParsedError,
+    diagnoseGccErrors,
+    errorsToDiagnostics,
 } from '../../src/errorParser';
 
 // Path to the real harness template
@@ -188,5 +190,41 @@ describe('errorParser', () => {
             const result = formatRawError(raw);
             expect(result.length).to.be.at.most(200);
         });
+    });
+});
+
+// Characterization tests pinning the behavior the orchestrator's 4 build modes
+// previously open-coded inline, so the extraction into diagnoseGccErrors() is
+// provably behavior-preserving.
+describe('diagnoseGccErrors()', () => {
+    const fakeDoc = {
+        uri: { fsPath: '/x.cpp' },
+        lineCount: 100,
+        lineAt: (_n: number) => ({ text: 'placeholder' }),
+    } as any;
+
+    it('returns diagnostics + display message matching the inline sequence it replaces', () => {
+        const stderr = '/tmp/preview_harness.cpp:25:10: error: use of undeclared identifier \'Foo\'';
+        const offset = 20;
+        const errors = parseGccErrors(stderr, offset, false);
+        expect(errors.length, 'precondition: sample yields errors').to.be.greaterThan(0);
+
+        const result = diagnoseGccErrors(stderr, offset, fakeDoc, 3, false);
+        expect(result).to.not.equal(null);
+        expect(result!.displayMessage).to.equal(formatErrorsForDisplay(errors));
+        expect(result!.diagnostics.length).to.equal(errors.length);
+        expect(result!.diagnostics.map((d: any) => d.message)).to.deep.equal(errors.map((e) => e.message));
+    });
+
+    it('returns null when no structured errors are found (caller shows its raw fallback)', () => {
+        const stderr = '/usr/bin/ld: undefined reference to `sym\'\ncollect2: error: ld returned 1 exit status';
+        expect(parseGccErrors(stderr, 20, false).length, 'precondition: no diagnostics').to.equal(0);
+        expect(diagnoseGccErrors(stderr, 20, fakeDoc, 0, false)).to.equal(null);
+    });
+
+    it('passes isPlugin/isInteractive through (recognises plugin source, rejects it under harness mode)', () => {
+        const stderr = '/tmp/preview_plugin.cpp:30:5: error: expected \';\'';
+        expect(diagnoseGccErrors(stderr, 20, fakeDoc, 0, true)).to.not.equal(null);
+        expect(diagnoseGccErrors(stderr, 20, fakeDoc, 0, false)).to.equal(null);
     });
 });

@@ -202,3 +202,30 @@ export function errorsToDiagnostics(
         return diag;
     });
 }
+
+/**
+ * Parse raw g++ stderr into editor diagnostics plus a formatted display message.
+ *
+ * Returns `null` when no structured errors were recognised — the caller then
+ * shows its own raw-error fallback (the orchestrator's build modes differ in
+ * what that fallback is, so it stays at the call site). This collapses the
+ * identical `parseGccErrors → errorsToDiagnostics → formatErrorsForDisplay`
+ * sequence that every build mode otherwise repeats inline.
+ */
+export function diagnoseGccErrors(
+    stderr: string,
+    harnessCodeOffset: number,
+    document: vscode.TextDocument,
+    startLine: number,
+    isPlugin = false,
+    isInteractive = false,
+): { diagnostics: vscode.Diagnostic[]; displayMessage: string } | null {
+    const errors = parseGccErrors(stderr, harnessCodeOffset, isPlugin, isInteractive);
+    if (errors.length === 0) {
+        return null;
+    }
+    return {
+        diagnostics: errorsToDiagnostics(errors, document, startLine),
+        displayMessage: formatErrorsForDisplay(errors),
+    };
+}

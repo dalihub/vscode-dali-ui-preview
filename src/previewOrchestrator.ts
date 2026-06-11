@@ -12,7 +12,7 @@ import { extractPreviewCode, extractFunctionBody, instrumentCode, transformVecto
 import { parseChainExpression, SceneNode } from './cppParser';
 import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
-import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
+import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, diagnoseGccErrors } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
@@ -710,12 +710,11 @@ export class PreviewOrchestrator {
                     // .so compile failed -- parse errors against plugin template
                     const pluginTemplate = buildRunner.getPluginTemplateContent();
                     const offset = getPluginCodeOffset(pluginTemplate);
-                    const errors = parseGccErrors(stratResult.result.error || '', offset, true);
                     const buildTimeMs = Date.now() - startTime;
-                    if (errors.length > 0) {
-                        const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                        this.deps.diagnosticCollection.set(doc.uri, diagnostics);
-                        this.scheduleShowError(formatErrorsForDisplay(errors));
+                    const diag = diagnoseGccErrors(stratResult.result.error || '', offset, doc, extraction.startLine, true);
+                    if (diag) {
+                        this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                        this.scheduleShowError(diag.displayMessage);
                     } else {
                         this.scheduleShowError(formatRawError(stratResult.result.error || ''));
                     }
@@ -771,12 +770,10 @@ export class PreviewOrchestrator {
                 let template = '';
                 try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'harness template read failed', { error: String(err) }); }
                 const offset = getHarnessCodeOffset(template);
-                const errors = parseGccErrors(result!.error || '', offset, false);
-
-                if (errors.length > 0) {
-                    const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                    this.deps.diagnosticCollection.set(doc.uri, diagnostics);
-                    this.scheduleShowError(formatErrorsForDisplay(errors));
+                const diag = diagnoseGccErrors(result!.error || '', offset, doc, extraction.startLine, false);
+                if (diag) {
+                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                    this.scheduleShowError(diag.displayMessage);
                 } else {
                     this.scheduleShowError(formatRawError(result!.error || ''));
                 }
@@ -869,12 +866,10 @@ export class PreviewOrchestrator {
             let template = '';
             try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'animation template read failed', { error: String(err) }); }
             const offset = getHarnessCodeOffset(template);
-            const errors = parseGccErrors(result.error || '', offset, false);
-
-            if (errors.length > 0) {
-                const diagnostics = errorsToDiagnostics(errors, doc, startLine);
-                this.deps.diagnosticCollection.set(doc.uri, diagnostics);
-                this.scheduleShowError(formatErrorsForDisplay(errors));
+            const diag = diagnoseGccErrors(result.error || '', offset, doc, startLine, false);
+            if (diag) {
+                this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                this.scheduleShowError(diag.displayMessage);
             } else {
                 this.scheduleShowError(formatRawError(result.error || ''));
             }
@@ -1041,11 +1036,10 @@ export class PreviewOrchestrator {
                 this.deps.statusBar?.showError('VNC build failed');
                 const interactiveTemplate = buildRunner.getInteractiveTemplateContent();
                 const offset = getHarnessCodeOffset(interactiveTemplate);
-                const errors = parseGccErrors(buildResult.error || '', offset, false, true);
-                if (errors.length > 0) {
-                    const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                    this.deps.diagnosticCollection.set(doc.uri, diagnostics);
-                    this.scheduleShowError(formatErrorsForDisplay(errors));
+                const diag = diagnoseGccErrors(buildResult.error || '', offset, doc, extraction.startLine, false, true);
+                if (diag) {
+                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                    this.scheduleShowError(diag.displayMessage);
                 } else {
                     this.scheduleShowError(buildResult.error || 'Interactive build failed');
                 }
@@ -1217,12 +1211,10 @@ export class PreviewOrchestrator {
                 let template = '';
                 try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('SDB', 'device template read failed', { error: String(err) }); }
                 const offset = getHarnessCodeOffset(template);
-                const errors = parseGccErrors(result.error || '', offset, false);
-
-                if (errors.length > 0) {
-                    const diagnostics = errorsToDiagnostics(errors, doc, extraction.startLine);
-                    this.deps.diagnosticCollection.set(doc.uri, diagnostics);
-                    this.scheduleShowError(formatErrorsForDisplay(errors));
+                const diag = diagnoseGccErrors(result.error || '', offset, doc, extraction.startLine, false);
+                if (diag) {
+                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                    this.scheduleShowError(diag.displayMessage);
                 } else {
                     this.scheduleShowError(formatRawError(result.error || ''));
                 }
@@ -1262,7 +1254,7 @@ export class PreviewOrchestrator {
     // -----------------------------------------------------------------------
 
     private getCurrentDeviceSerial(): string | undefined {
-        return vscode.workspace.getConfiguration('daliPreview').get<string>('targetDevice', '') || undefined;
+        return ConfigurationService.getInstance().targetDevice || undefined;
     }
 }
 
