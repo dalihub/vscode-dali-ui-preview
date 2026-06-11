@@ -273,64 +273,6 @@
     white-space: nowrap;
   }
 
-  /* ── Resize handle ── */
-  .resize-handle {
-    position: absolute;
-    right: -2px;
-    bottom: -2px;
-    width: 16px;
-    height: 16px;
-    cursor: nwse-resize;
-    z-index: 10;
-  }
-
-  .resize-handle::before {
-    content: '';
-    position: absolute;
-    right: 2px;
-    bottom: 2px;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: 0 0 10px 10px;
-    border-color: transparent transparent #888 transparent;
-  }
-
-  .resize-handle:hover::before {
-    border-color: transparent transparent #007acc transparent;
-  }
-
-  .resize-outline {
-    display: none;
-    position: absolute;
-    top: 0;
-    left: 0;
-    border: 2px dashed #007acc;
-    pointer-events: none;
-    z-index: 5;
-  }
-
-  .resize-outline.active {
-    display: block;
-  }
-
-  .resize-dimensions {
-    display: none;
-    position: absolute;
-    background: rgba(0, 122, 204, 0.85);
-    color: #fff;
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    pointer-events: none;
-    z-index: 15;
-    white-space: nowrap;
-  }
-
-  .resize-dimensions.active {
-    display: block;
-  }
-
   /* ── Overlays ── */
   .overlay {
     position: absolute;
@@ -1131,9 +1073,6 @@
           </div>
 
           <div id="elementOverlay" class="element-overlay"></div>
-          <div class="resize-handle" id="resizeHandle"></div>
-          <div class="resize-outline" id="resizeOutline"></div>
-          <div class="resize-dimensions" id="resizeDimensions"></div>
           <div class="dimensions-label hidden" id="dimensionsLabel"></div>
         </div>
 
@@ -1211,9 +1150,6 @@
   var animSpeedSlider = document.getElementById('animSpeedSlider');
   var animSpeedLabel = document.getElementById('animSpeedLabel');
   var animBadge = document.getElementById('animBadge');
-  var resizeHandle = document.getElementById('resizeHandle');
-  var resizeOutline = document.getElementById('resizeOutline');
-  var resizeDimensions = document.getElementById('resizeDimensions');
   var dimensionsLabel = document.getElementById('dimensionsLabel');
   var overlayLoading = document.getElementById('overlayLoading');
   var overlayError = document.getElementById('overlayError');
@@ -1537,60 +1473,7 @@
     }, 300);
   }
 
-  // ── Drag resize handle ──
-  var isDragging = false;
-  var dragStartX = 0;
-  var dragStartY = 0;
-  var dragStartW = 0;
-  var dragStartH = 0;
-
-  resizeHandle.addEventListener('mousedown', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    isDragging = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    var rect = previewImage.getBoundingClientRect();
-    dragStartW = rect.width;
-    dragStartH = rect.height;
-    resizeOutline.classList.add('active');
-    resizeDimensions.classList.add('active');
-    document.body.style.cursor = 'nwse-resize';
-  });
-
-  document.addEventListener('mousemove', function (e) {
-    if (!isDragging) { return; }
-    var dx = e.clientX - dragStartX;
-    var dy = e.clientY - dragStartY;
-    var newW = Math.max(32, Math.round(dragStartW + dx));
-    var newH = Math.max(32, Math.round(dragStartH + dy));
-
-    resizeOutline.style.width = newW + 'px';
-    resizeOutline.style.height = newH + 'px';
-
-    resizeDimensions.textContent = newW + ' x ' + newH;
-    resizeDimensions.style.left = (newW + 8) + 'px';
-    resizeDimensions.style.top = (newH - 4) + 'px';
-  });
-
-  document.addEventListener('mouseup', function () {
-    if (!isDragging) { return; }
-    isDragging = false;
-    document.body.style.cursor = '';
-    resizeOutline.classList.remove('active');
-    resizeDimensions.classList.remove('active');
-
-    var outlineW = parseInt(resizeOutline.style.width, 10);
-    var outlineH = parseInt(resizeOutline.style.height, 10);
-    if (outlineW > 0 && outlineH > 0) {
-      currentWidth = outlineW;
-      currentHeight = outlineH;
-      inputWidth.value = currentWidth;
-      inputHeight.value = currentHeight;
-      preset.value = 'custom';
-      sendResize(currentWidth, currentHeight);
-    }
-  });
+  // (drag-to-resize removed — use the resolution dropdown or the width/height inputs)
 
   // ── Click-to-Code ──
   var elementOverlay = document.getElementById('elementOverlay');
