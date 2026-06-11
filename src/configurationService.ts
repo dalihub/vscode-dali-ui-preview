@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { DEFAULT_DOCKER_IMAGE, DEFAULT_IMAGE_TAG } from './dockerRuntime';
 
 /**
  * Centralized access to `daliPreview.*` workspace configuration values.
@@ -31,11 +32,11 @@ export class ConfigurationService {
     }
 
     get dockerImage(): string {
-        return this.getConfig().get<string>('dockerImage', 'ghcr.io/dalihub/dali-preview-runtime');
+        return this.getConfig().get<string>('dockerImage', DEFAULT_DOCKER_IMAGE);
     }
 
     get daliVersionTag(): string {
-        return this.getConfig().get<string>('daliVersionTag', 'latest');
+        return this.getConfig().get<string>('daliVersionTag', DEFAULT_IMAGE_TAG);
     }
 
     get runtimeUpdatePolicy(): 'off' | 'notify' | 'auto' {
