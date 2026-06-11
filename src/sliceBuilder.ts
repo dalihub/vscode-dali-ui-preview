@@ -263,13 +263,18 @@ function orderDefs(defs: CollectedDef[]): CollectedDef[] {
     return [...defs].sort((a, b) => a.line - b.line);
 }
 
+/** A project source file (header or .cpp) to resolve cross-file refs from. */
+export interface SourceFile { path: string; text: string; }
+
 /**
  * Build a self-contained slice from a full source file.
  *
  * @param src          full text of the source file
  * @param entrySrcPath path to the file (for #line / sourcePaths)
+ * @param entryBody    pre-extracted preview body (orchestrator passes instrumented)
+ * @param extraSources #include'd project sources for cross-file (Rung1) resolution
  */
-export function buildSlice(src: string, entrySrcPath: string, entryBody?: string): SliceResult {
+export function buildSlice(src: string, entrySrcPath: string, entryBody?: string, extraSources: SourceFile[] = []): SliceResult {
     // Prefer the already-extracted (and possibly instrumented) preview body the
     // orchestrator passes in; standalone use / tests locate it in `src` instead.
     const entry = entryBody !== undefined ? { body: entryBody } : findPreviewFunction(src);
@@ -283,13 +288,25 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         return { includes: '', globals: '', body: entry.body, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
     }
 
-    const { collected, unresolved } = collectSameFileDefs(src, refs);
-    const ordered = orderDefs(collected);
+    let { collected, unresolved } = collectSameFileDefs(src, refs);
+    const sourcePaths = [entrySrcPath];
 
-    // Hoist project-local #include lines (relative includes). System <...> are
-    // already provided by the template; skip them.
-    const includeLines = (src.match(/^[ \t]*#include\s+"[^"]+"/gm) ?? []);
-    const includes = ''; // Rung2 inlines defs rather than mounting headers (ADR: avoid mount gap).
+    // Rung1 (heuristic cross-file): resolve the refs still unresolved after the
+    // same-file pass from the #include'd project sources (headers + their .cpp),
+    // applying the same brace-matching collector to each. Collected defs are
+    // inlined into the globals slot — no header mount needed (ADR-006).
+    for (const extra of extraSources) {
+        if (unresolved.length === 0) { break; }
+        const r = collectSameFileDefs(extra.text, new Set(unresolved));
+        if (r.collected.length > 0) {
+            collected = collected.concat(r.collected);
+            sourcePaths.push(extra.path);
+        }
+        unresolved = r.unresolved;
+    }
+
+    const ordered = orderDefs(collected);
+    const includes = ''; // defs inlined into globals rather than mounting headers (ADR-006).
 
     const stubs = unresolved.map((u) => synthWeakStub(u, entry.body));
     const globalsParts = [
@@ -297,8 +314,6 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         ...stubs,
     ];
     const globals = globalsParts.length ? '\n' + globalsParts.join('\n\n') + '\n' : '';
-
-    const sourcePaths = [entrySrcPath];
 
     return {
         includes,

@@ -1,0 +1,59 @@
+# M5 External Review — Rung1 heuristic cross-file resolution
+
+**Reviewer:** independent adversarial (no trust in implementer)
+**Scope:** `src/sliceBuilder.ts` (`buildSlice` + `extraSources`), `src/previewOrchestrator.ts` (`resolveProjectIncludes`), fixture + test.
+**Method:** read working-tree code in full; compiled (`npm run compile`, exit 0) and ran `node` against `out/src/sliceBuilder.js` with a faithful re-implementation of the private `resolveProjectIncludes` to test every claim against real flow-wallet sources.
+
+## Verdict: CONCERN
+
+The feature is correct on its happy path and the regression floor is genuinely byte-identical for the 41 self-contained samples. But `resolveProjectIncludes` reads files **outside the workspace** with no path guard (confirmed: it read `/etc/passwd` and `/etc/hostname`), and the headline real-world target (flow-wallet `WalletScreen::Build()`) still does **not** compile after this change — it falls back to Rung3 blank output. Neither is a release blocker (read content is only fed into a compile the user triggered on their own file and is never exfiltrated), but both should be addressed/documented before this is sold as "cross-file works."
+
+## Findings
+
+- **Finding 1 (Security — arbitrary file read outside workspace):** `src/previewOrchestrator.ts:264` `const hdr = path.resolve(dir, m[1]);` resolves whatever is between the quotes with no containment check, then `:270` `fs.readFileSync(p, 'utf8')`. Empirically: a doc containing `#include "/etc/passwd"` or `#include "/etc/hostname"` causes those files to be read (`path.resolve(dir, "/etc/passwd")` → `/etc/passwd`, which exists and is read). Relative `../../../../etc/passwd` only missed in my test because the workspace depth landed on a nonexistent path — the absolute-include escape is the reliable one. **Impact:** low-to-moderate. The file content is inlined into the globals slot of a g++ compile that the user themselves triggered on their own file; it is not written to disk, not shown in the panel, and not sent over IPC. Worst realistic case: a hostile `.cpp`+`.h` pair a victim opens could coerce a read of a readable file and *might* surface fragments via a compiler error in the output channel. No write, no network. Still, reading `/etc/*` off a `#include` is surprising and trivially guardable. **Recommend:** skip absolute paths and any resolved path that escapes the workspace root, e.g. reject if `path.isAbsolute(m[1])` or if `!resolved.startsWith(workspaceRoot + path.sep)` (using `vscode.workspace.getWorkspaceFolder(doc.uri)`).
+
+- **Finding 2 (Honesty — flow-wallet still does not compile; "cross-file works" overclaims):** Running the orchestrator's exact 1-hop resolution on `samples/flow-wallet/screens/wallet_screen.cpp` yields `rung='heuristic'`, collects `theme::*` constants + all three `Make*` factories (real defs from `widgets/cards.cpp`), but leaves `mVm` unresolved → stubbed as `static auto mVm = std::vector<int>{0,0,0};` (`synthWeakStub`, `src/sliceBuilder.ts:244-246`, triggered by `for (... : mVm.recent)`). The body then calls `mVm.recent` and `mVm.balance.c_str()` on that `std::vector<int>` → "member `.recent`/`.balance` not found" → **compile error** → `DlopenStrategy` Rung3 fallback (`src/previewOrchestrator.ts:149-153`) drops globals and renders the empty/stub body. **Impact:** the dominant real-world shape (a class member function reading an injected view-model) is *not* covered; the win is limited to free-function helpers + constants reachable in 1 hop. The code comments are honest about this ("members fall through to weak stubs"), but a changelog/PR line saying "cross-file now works" would mislead. Keep the framing as "cross-file *helpers/constants*, 1 hop."
+
+- **Finding 3 (Coverage gap — transitive file-scope deps of a collected function are NOT pulled):** `collectSameFileDefs` extracts a function's *body* but not the file-scope symbols that body references. Verified: a helper `View MakeThing(){ g_counter++; ... }` backed by `static int g_counter = 0;` inlines `MakeThing` into globals **without** `g_counter` → undefined symbol → compile fail → Rung3 blank. The collection is 1-level (the named ref only), not a dependency closure. **Impact:** messy-but-legal real helpers (those touching file-static counters, caches, namespace-level config) silently degrade to blank. This is broader than "member functions / transitive includes" — even a *successfully located* free helper can fail to compile if it leans on a file-scope global.
+
+- **Finding 4 (Inlining hazard, partially mitigated — ODR / using-namespace / static):** Inlining a whole `.cpp` function def into the plugin globals can collide on messy code: a `using namespace X;` in the donor `.cpp` is **not** carried over (the def text is spliced raw into the plugin TU, which has its own `using namespace Dali::Ui;`), so an unqualified name the helper relied on may not resolve; a `static` helper inlined into the plugin TU changes linkage context; and an ODR double-definition is possible if the same symbol is defined in two scanned sources. The double-def case is **mitigated** by the early-stop: the loop breaks when `unresolved.length === 0` (`src/sliceBuilder.ts:299`) and the header is scanned before the `.cpp`, so a header inline def short-circuits before the `.cpp` redef is read (verified: `Foo` appears exactly once). But this is incidental ordering, not a dedup — two *unrelated* refs each resolved from a different source, or a header that only declares (so the `.cpp` is reached) plus a second include that also defines, can still emit duplicates.
+
+- **Finding 5 (Minor — `excludeRange` not passed in the cross-file loop):** `buildSlice` calls `collectSameFileDefs(extra.text, new Set(unresolved))` (`src/sliceBuilder.ts:300`) with no `excludeRange`, unlike the same-file pass. Low risk because the entry/preview function lives in `src`, not in `extra`, so the self-collection footgun the param guards against can't fire from an extra source. Worth a one-line comment so a future edit doesn't assume the guard is active.
+
+## Security assessment (resolveProjectIncludes)
+
+- **What it does:** parses `^\s*#include\s+"..."` (quoted only; `<...>` system includes correctly ignored), `path.resolve(dir, m[1])` against the document's directory, then for each it reads the header **and** the same-stem `.cpp`. 1 hop, no recursion. `seen` set dedups. Errors swallowed (`try/catch` → skip).
+- **Containment: NONE.** No check that the resolved path stays inside the workspace folder. Absolute includes (`#include "/etc/hostname"`) and sufficiently deep `../` escape and are read (empirically confirmed: `/etc/hostname` 16 bytes, `/etc/passwd` resolves+exists). `.h`/`.hpp` is rewritten to `.cpp`, so a crafted include can also probe for a sibling `.cpp`'s existence.
+- **Blast radius: low.** Read-only; content is inlined into a user-triggered g++ compile, never written, never sent over IPC, never rendered. The only plausible leak channel is a compiler error echoing an inlined fragment into the output channel — and the Rung3 fallback re-compiles without globals, so even that is unlikely to reach the user verbatim. No code execution from the read itself.
+- **Perf: not a concern.** Measured ~0.026 ms/call on flow-wallet (3 includes → 5 stat+read), bounded by the document's quoted-include count with no recursion. Runs on every keystroke render via `runPreview` → `resolveProjectIncludes` (`src/previewOrchestrator.ts:581`), but `fs.readFileSync` of a handful of small project files is negligible against the g++ compile that follows. Note it is sync (`existsSync`/`readFileSync`) inside the otherwise-async render; fine at this scale, would want batching only if include counts grew large.
+- **Recommendation:** add a workspace-containment guard (reject absolute `m[1]` and any resolved path not under the workspace folder). Cheap, removes the surprise, and aligns with the "project-local quoted includes only" intent already stated in the doc comment.
+
+## flow-wallet reality check (how far cross-file gets, what's still uncovered)
+
+Previewing `screens/wallet_screen.cpp` (the `// @preview` target is `WalletScreen::Build()`):
+
+| Pattern | Symbol | 1-hop result |
+|---|---|---|
+| P11 project header | `#include "../theme/tokens.h"`, `"../widgets/cards.h"` (+ same-stem `.cpp`) | **resolved** — read directly off the doc's includes |
+| P4 theme constants | `theme::BG/ACCENT/TEXT/SURFACE/...` | **resolved** — `namespace theme { constexpr ... }` inlined from `tokens.h` |
+| P1/P14 factories | `MakeSectionHeader`, `MakeStatCard`, `MakeTransactionRow` | **resolved** — real bodies inlined from `widgets/cards.cpp` (found via the `cards.h` → `cards.cpp` same-stem hop) |
+| P6 view-model instance | `mVm` | **STUB** → `std::vector<int>{0,0,0}`; body does `mVm.recent` / `mVm.balance.c_str()` → member-not-found → **compile fail** |
+| P6 view-model *type* | `WalletViewModel`, `Transaction` | not referenced by name in the body, so never collected; even if `mVm` were typed, the type lives in `model/wallet_vm.h` which IS 1-hop reachable, but the **instance** has no constructor/data |
+| P5 member-fn context | `WalletScreen::Build()` body extracted fine, but `this`/member access | the body is hoisted to a free function in the plugin; `mVm` becomes a free stub, losing the member semantics |
+
+**Net:** resolved `theme` + 3 factories (real defs), but `mVm` is the load-bearing stub and breaks compile. `buildSlice` returns `rung='heuristic'`, `unresolvedStubs=['mVm']`, `sourcePaths=[wallet_screen.cpp, tokens.h, cards.cpp]`. **It does not compile → Rung3 fallback → blank/stub render.**
+
+**Still NOT covered (honest list):**
+1. **Member functions / injected model instances** — the single biggest real-world shape. A stubbed `mVm` cannot satisfy `.recent` (a `vector<Transaction>`) or `.balance` (a `string`); the stub is structurally wrong by design.
+2. **Transitive includes** — only directly-`#include`d files + their same-stem `.cpp` are read. `wallet_screen.cpp` → `cards.h` works (1 hop), but `cards.cpp`'s own `#include "../theme/tokens.h"` is irrelevant here only because `tokens.h` was *also* directly included by `wallet_screen.cpp`. A symbol reachable only 2 hops away (included by a header, not by the doc) is missed.
+3. **File-scope deps of a collected function** (Finding 3) — even a located helper fails if it uses a file-static/global not named in the body.
+4. **The model type's data** — there is no way to synthesize realistic `Transaction{merchant, amount}` rows from a stub; the P2 for-loop over `mVm.recent` would iterate an `int` vector even if the member access compiled.
+
+## Could-be-stronger (1-3, required even though not a PASS)
+
+1. **Add the workspace-containment guard** to `resolveProjectIncludes` (reject absolute and `../`-escaping includes). One conditional; closes the `/etc/*` read and matches the stated "project-local only" intent. (Finding 1.)
+2. **Make the cross-file collection dedup by symbol name** rather than relying on the `unresolved.length===0` early-stop for ODR safety — track collected names in a `Set` and skip re-emitting, so two includes that both define a symbol can't double-emit. (Finding 4.)
+3. **State the limit in user-facing text** (CHANGELOG/PR): "resolves cross-file *helpers, types, and constants* reachable in one include hop; member functions, injected model instances, and transitive (2-hop) includes still fall back to stubs." Prevents the flow-wallet gap from reading as a bug. (Findings 2-3.)
+
+---
+*Tests run:* `npm run compile` (exit 0); `node` harness against `out/src/sliceBuilder.js` exercising path traversal (`/etc/passwd`, `/etc/hostname`, `../`-escape), flow-wallet 1-hop resolution, self-contained regression (empty globals + `single-fn`), decl-vs-def precedence, ODR ordering, and transitive file-scope-dep failure. All findings above are from observed output, not inference.

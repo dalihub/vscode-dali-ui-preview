@@ -10,7 +10,7 @@ import { SdbManager } from './sdbManager';
 import { StatusBarManager } from './statusBar';
 import { extractPreviewCode, extractFunctionBody, instrumentCode, isPreviewable, ExtractionResult } from './codeExtractor';
 import { parseChainExpression, SceneNode } from './cppParser';
-import { buildSlice, SliceResult } from './sliceBuilder';
+import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
@@ -245,6 +245,38 @@ export interface OrchestratorDeps {
 
 function sanitizeForPath(name: string): string {
     return BuildRunner.sanitizeConfigName(name);
+}
+
+/**
+ * Rung1 (heuristic cross-file): read the project sources the document #include's
+ * by relative path ("...") — each header and, if present, its same-stem .cpp —
+ * so SliceBuilder can collect helper/type/const definitions that live in other
+ * files. Only project-local quoted includes are followed (system <...> are
+ * provided by the template); 1 hop, missing files are skipped silently.
+ */
+function resolveProjectIncludes(doc: vscode.TextDocument): SourceFile[] {
+    const sources: SourceFile[] = [];
+    const dir = path.dirname(doc.uri.fsPath);
+    // Security containment: only read files inside the workspace root (or the
+    // document's own directory if there's no workspace). An include that escapes
+    // it — e.g. #include "/etc/passwd" or "../../../../etc/hostname" — is skipped.
+    const root = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? dir;
+    const seen = new Set<string>();
+    const includeRe = /^[ \t]*#include\s+"([^"]+)"/gm;
+    let m: RegExpExecArray | null;
+    while ((m = includeRe.exec(doc.getText())) !== null) {
+        const hdr = path.resolve(dir, m[1]);
+        // header + its same-stem .cpp (definitions often live in the .cpp)
+        for (const p of [hdr, hdr.replace(/\.(h|hpp)$/, '.cpp')]) {
+            if (seen.has(p)) { continue; }
+            seen.add(p);
+            if (!(p === root || p.startsWith(root + path.sep))) { continue; } // containment guard
+            try {
+                if (fs.existsSync(p)) { sources.push({ path: p, text: fs.readFileSync(p, 'utf8') }); }
+            } catch { /* unreadable include — skip */ }
+        }
+    }
+    return sources;
 }
 
 export class PreviewOrchestrator {
@@ -551,7 +583,8 @@ export class PreviewOrchestrator {
             // defs the body references and stub the rest. A self-contained body
             // yields rung 'single-fn' (empty globals → byte-identical, current
             // path). Only the dlopen strategy consumes it; parser/harness ignore.
-            const slice = buildSlice(doc.getText(), doc.fileName, instrumented);
+            const extraSources = resolveProjectIncludes(doc);
+            const slice = buildSlice(doc.getText(), doc.fileName, instrumented, extraSources);
             if (slice.rung === 'heuristic') {
                 this.deps.outputChannel.appendLine(
                     `[Slice] Rung2 heuristic: globals collected, ${slice.unresolvedStubs.length} stub(s)` +
