@@ -8,6 +8,10 @@ import * as path from 'path';
 
 export interface StandaloneBuildOptions {
     userCode: string;
+    /** Slice includes/globals for the M1 3-slot template. Empty (default) for
+     *  self-contained goldens → byte-identical to the pre-slot harness. */
+    userIncludes?: string;
+    userGlobals?: string;
     width: number;
     height: number;
     outputPngPath: string;
@@ -98,6 +102,8 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
     }
 
     const harness = templateContent
+        .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
+        .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
         .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
