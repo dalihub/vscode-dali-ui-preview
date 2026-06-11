@@ -396,6 +396,24 @@ const ACTOR_TYPES = new Set([
  * The original user file is never modified — only the temporary build harness uses this.
  */
 /**
+ * Replace emoji/pictographic chars the preview runtime's font (DejaVu only) can't
+ * render with a placeholder □, so DALi doesn't abort when several land in separate
+ * Labels (real Tizen devices have emoji/CJK fonts; the docker preview doesn't).
+ * Only touches string-literal contents; returns whether anything changed so the
+ * caller can warn the user. Box-drawing / geometric shapes (━ ● ▮) are kept — they
+ * render fine; only the emoji blocks are stripped.
+ */
+export function sanitizeUnsupportedGlyphs(code: string): { code: string; replaced: boolean } {
+    let replaced = false;
+    const out = code.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (full, inner) => {
+        const fixed = inner.replace(/[\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{1F000}-\u{1FAFF}]/gu, '□');
+        if (fixed !== inner) { replaced = true; return '"' + fixed + '"'; }
+        return full;
+    });
+    return { code: out, replaced };
+}
+
+/**
  * Rewrite `EXPR.Children(vec)` — where vec is a single identifier (a
  * std::vector<View>), not an `{ init-list }` — into an IIFE that .Add()s each
  * element. View::Children has only an initializer_list overload, so passing a

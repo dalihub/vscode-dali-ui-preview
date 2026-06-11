@@ -8,7 +8,7 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { SdbManager } from './sdbManager';
 import { StatusBarManager } from './statusBar';
-import { extractPreviewCode, extractFunctionBody, instrumentCode, transformVectorChildren, isPreviewable, ExtractionResult } from './codeExtractor';
+import { extractPreviewCode, extractFunctionBody, instrumentCode, transformVectorChildren, sanitizeUnsupportedGlyphs, isPreviewable, ExtractionResult } from './codeExtractor';
 import { parseChainExpression, SceneNode } from './cppParser';
 import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
@@ -603,9 +603,15 @@ export class PreviewOrchestrator {
         // Slice the RAW body first to learn which collected helpers return a View,
         // then instrument so those helper CALLS get tagged too (a cross-file
         // MakeSectionHeader(...) → click-to-code), and re-point the slice body at it.
+        // Strip emoji/pictographs the preview font lacks (they abort DALi when
+        // spread across separate Labels); warn so the user knows □ is a stand-in.
+        const sanitized = sanitizeUnsupportedGlyphs(extraction.code);
+        if (sanitized.replaced) {
+            this.deps.outputChannel.appendLine('[Preview] Emoji with no glyph in the preview font are shown as □ (they render fine on a real device).');
+        }
         // P13: rewrite `.Children(vector)` → an .Add loop before slicing/instrumenting
         // (View::Children only takes an initializer_list, so a vector won't compile).
-        const transformedCode = transformVectorChildren(extraction.code);
+        const transformedCode = transformVectorChildren(sanitized.code);
         const extraSources = resolveProjectIncludes(doc);
         const slice = buildSlice(doc.getText(), doc.fileName, transformedCode, extraSources, extraction.params);
         const instrumented = instrumentCode(transformedCode, extraction.startLine, new Set(slice.helpers));
