@@ -29,6 +29,9 @@ export interface SliceResult {
     unresolvedStubs: string[];
     /** Rung3 passthrough vs Rung2 heuristic slice. */
     rung: 'single-fn' | 'heuristic';
+    /** Names of collected View-returning helpers, so instrumentCode can __tag their
+     *  calls too (a cross-file MakeSectionHeader(...) → click-to-code). */
+    helpers: string[];
 }
 
 // dali-ui / std symbols that arrive via the template's #includes — never collected
@@ -399,7 +402,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         : findPreviewFunction(src);
     if (!entry) {
         // Nothing to slice — treat the whole input as the body (Rung3 passthrough).
-        return { includes: '', globals: '', body: src, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
+        return { includes: '', globals: '', body: src, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn', helpers: [] };
     }
 
     const refs = scanRefs(entry.body);
@@ -407,7 +410,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     // them from the unresolved refs so they don't get a fuzzy (wrong-type) stub.
     for (const p of entry.params) { refs.delete(p.name); }
     if (refs.size === 0 && entry.params.length === 0) {
-        return { includes: '', globals: '', body: entry.body, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
+        return { includes: '', globals: '', body: entry.body, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn', helpers: [] };
     }
 
     // Member fields (for a member-function preview target like Class::Build()):
@@ -481,6 +484,13 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     const ordered = orderDefs(collected);
     const includes = ''; // defs inlined into globals rather than mounting headers (ADR-006).
 
+    // Collected defs whose return type is a View/Actor handle are helper factories
+    // (MakeSectionHeader, MakeStatCard, ...) — surface their names so instrumentCode
+    // tags their CALLS for click-to-code, not just Type::New(...).
+    const helpers = ordered
+        .filter((d) => /^\s*(?:static\s+)?(?:View|FlexLayout|Control|Label|TextLabel|ImageView|ScrollView|TableView|Actor|StackLayout|GridLayout)\b[^=;]*\(/.test(d.text))
+        .map((d) => d.name);
+
     const paramStubs = entry.params.map((p) => `__attribute__((weak)) ${synthParamStub(p.type, p.name)}`);
     const stubs = unresolved.map((u) => synthWeakStub(u, entry.body));
     const globalsParts = [
@@ -498,5 +508,6 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         sourcePaths,
         unresolvedStubs: unresolved,
         rung: 'heuristic',
+        helpers,
     };
 }

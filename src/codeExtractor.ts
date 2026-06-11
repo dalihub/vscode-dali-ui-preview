@@ -395,22 +395,27 @@ const ACTOR_TYPES = new Set([
  *
  * The original user file is never modified — only the temporary build harness uses this.
  */
-export function instrumentCode(code: string, startLine: number): string {
+export function instrumentCode(code: string, startLine: number, helperNames: Set<string> = new Set()): string {
     const log = getLogger();
     let result = '';
     let lastIndex = 0;
     let instrumentedCount = 0;
 
-    // Match Type::New( at the start, then find the balanced closing ')' while
-    // skipping characters inside string literals so that ')' inside strings
-    // (e.g. Label::New(")text)") does not prematurely close the match.
-    const CALL_START_RE = /(\w+)::New\(/g;
+    // Tag two things for click-to-code: an Actor-derived `Type::New(` call, OR a
+    // call to a View-returning project helper (e.g. MakeSectionHeader(...)) whose
+    // name SliceBuilder collected — both yield a taggable handle. Other fn calls
+    // (UiColor, SetFontSize, ...) are skipped. The balanced ')' walk skips string
+    // literals so a ')' inside a string doesn't close the match early.
+    const CALL_START_RE = /(\w+)::New\(|\b([A-Za-z_]\w*)\s*\(/g;
     let startMatch;
 
     while ((startMatch = CALL_START_RE.exec(code)) !== null) {
         const typeName = startMatch[1];
-        if (!ACTOR_TYPES.has(typeName)) {
-            continue;
+        const fnName = startMatch[2];
+        if (typeName) {
+            if (!ACTOR_TYPES.has(typeName)) { continue; }
+        } else if (!(fnName && helperNames.has(fnName))) {
+            continue;   // plain call that isn't a known View-returning helper
         }
 
         // Walk forward from the opening '(' to find the balanced ')'

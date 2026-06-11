@@ -600,8 +600,13 @@ export class PreviewOrchestrator {
 
         this.deps.outputChannel.appendLine(`[Perf] T2 runPreview start (live=${livePreview})`);
 
-        // Instrument code with line annotations for click-to-code
-        const instrumented = instrumentCode(extraction.code, extraction.startLine);
+        // Slice the RAW body first to learn which collected helpers return a View,
+        // then instrument so those helper CALLS get tagged too (a cross-file
+        // MakeSectionHeader(...) → click-to-code), and re-point the slice body at it.
+        const extraSources = resolveProjectIncludes(doc);
+        const slice = buildSlice(doc.getText(), doc.fileName, extraction.code, extraSources, extraction.params);
+        const instrumented = instrumentCode(extraction.code, extraction.startLine, new Set(slice.helpers));
+        slice.body = instrumented;
         const instrumentTime = Date.now();
         this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${instrumentTime - startTime}ms`);
 
@@ -628,12 +633,8 @@ export class PreviewOrchestrator {
             // file (e.g. boarding-pass at 2520x4480) doesn't leak into the next file.
             this.applyConfigSize(extraction);
 
-            // Rung2 slice for the dlopen path: collect same-file helper/const/type
-            // defs the body references and stub the rest. A self-contained body
-            // yields rung 'single-fn' (empty globals → byte-identical, current
-            // path). Only the dlopen strategy consumes it; parser/harness ignore.
-            const extraSources = resolveProjectIncludes(doc);
-            const slice = buildSlice(doc.getText(), doc.fileName, instrumented, extraSources, extraction.params);
+            // slice was built (raw) + re-pointed at the instrumented body above; the
+            // dlopen path consumes its globals, parser/harness ignore them.
             if (slice.rung === 'heuristic') {
                 this.deps.outputChannel.appendLine(
                     `[Slice] Rung2 heuristic: globals collected, ${slice.unresolvedStubs.length} stub(s)` +
