@@ -289,6 +289,7 @@ export class PreviewOrchestrator {
     private buildGeneration = 0;
     private pendingRebuildDoc: vscode.TextDocument | undefined;
     private lastPreviewedDoc_: vscode.TextDocument | undefined;
+    private lastSliceSources_ = new Set<string>();
     private lastTextChangeTime_ = 0;
     private lastCodeLensFunc_: { uri: string; startLine: number; endLine: number } | undefined;
     private errorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -353,6 +354,18 @@ export class PreviewOrchestrator {
 
     get lastDocument(): vscode.TextDocument | undefined {
         return this.lastPreviewedDoc_;
+    }
+
+    /** True if `filePath` is a cross-file source the last preview pulled in. */
+    isPreviewDependency(filePath: string): boolean {
+        return this.lastSliceSources_.has(filePath);
+    }
+
+    /** Re-run the last preview (used when a cross-file dependency is saved). */
+    async repreviewLast(): Promise<void> {
+        if (this.lastPreviewedDoc_) {
+            await this.runPreview(this.lastPreviewedDoc_, true);
+        }
     }
 
     get lastCodeLensFunc(): { uri: string; startLine: number; endLine: number } | undefined {
@@ -591,6 +604,9 @@ export class PreviewOrchestrator {
                     (slice.unresolvedStubs.length ? ` [${slice.unresolvedStubs.join(', ')}]` : ''),
                 );
             }
+            // Track the cross-file sources this preview pulled in (entry excluded)
+            // so saving one of them re-triggers this preview (live dependency reload).
+            this.lastSliceSources_ = new Set(slice.sourcePaths.slice(1));
 
             let result: BuildResult | undefined;
             let usedServerMode = false;

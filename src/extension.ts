@@ -618,6 +618,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Auto-preview on save
     const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
+        // Live dependency reload: if the saved file is a cross-file source the last
+        // preview collected (e.g. a widgets.cpp helper), re-run the active preview so
+        // the edit shows up immediately — even though the saved file isn't itself a
+        // preview target.
+        if (orchestrator?.isPreviewDependency(doc.fileName)) {
+            await orchestrator.repreviewLast();
+            return;
+        }
         if (!isPreviewable(doc)) {
             return;
         }
