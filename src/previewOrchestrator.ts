@@ -568,8 +568,12 @@ export class PreviewOrchestrator {
                 `[Perf]    previewServer: ${this.deps.previewServer ? (this.deps.previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`,
             );
 
-            // Phase 4-2: Parser-first path (~200ms)
-            if (this.parserStrategy.canHandle(this.deps.previewServer)) {
+            // Phase 4-2: Parser-first path (~200ms). Skip for heuristic slices:
+            // the parser would "succeed" on an unresolved project constant like
+            // UiColor(theme::ACCENT) — but the server can't turn "theme::ACCENT"
+            // into a hex value and renders it black. Only the T2 slice compiles
+            // the real namespace constant, so route heuristic slices straight there.
+            if (slice.rung === 'single-fn' && this.parserStrategy.canHandle(this.deps.previewServer)) {
                 log.debug('Build', 'trying parser path', { opId });
                 const stratResult = await this.parserStrategy.execute(
                     instrumented, extraction, this.currentWidth_, this.currentHeight_,
