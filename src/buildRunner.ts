@@ -11,6 +11,9 @@ import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
 import { ensureRuntimeImage } from './pullImageCommand';
 
+/** pkg-config module list shared by every g++ compile command (host, shared, cross-device). */
+const DALI_PKG_MODULES = 'dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0';
+
 export interface BuildResult {
     success: boolean;
     pngPath?: string;
@@ -149,6 +152,72 @@ export class BuildRunner {
         return `Vector4(${r.toFixed(4)}f, ${g.toFixed(4)}f, ${b.toFixed(4)}f, 1.0f)`;
     }
 
+    /** Resolve the DALi background Vector4 literal from an optional #RRGGBB hex or the theme. */
+    private static resolveBgColorVec(bgColor: string | undefined, theme: 'light' | 'dark'): string {
+        return bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
+            ? BuildRunner.hexToVector4(bgColor)
+            : BuildRunner.themeToBackgroundColor(theme);
+    }
+
+    /**
+     * Build the FontClient::AddCustomFontDirectory(...) harness snippet for an
+     * optional custom font. Returns '' when no font is given. The directory is
+     * resolved from `fontDirs` (falling back to the font's own dirname) and
+     * escaped for embedding in a C++ string literal.
+     */
+    private buildFontSetup(font: string | undefined, fontDirs: string[]): string {
+        if (!font) {
+            return '';
+        }
+        const fontDir = fontDirs.find(d => {
+            try {
+                return fs.existsSync(path.join(d, font));
+            } catch (err) {
+                getLogger().trace('Build', 'font dir check failed', { error: String(err) });
+                return false;
+            }
+        }) || path.dirname(font);
+        const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
+    }
+
+    /**
+     * Substitute the shared harness placeholders. The common slots
+     * (includes/globals/code/width/height/background/font) are filled here;
+     * mode-specific slots (OUTPUT_PATH, OUTPUT_DIR, METADATA_PATH, ANIMATION_*)
+     * are passed via `extra`. The user-supplied slots (includes/globals/code)
+     * are substituted first — exactly as the original inline chains did — so the
+     * rendered harness is byte-identical regardless of `extra` ordering.
+     */
+    private renderHarness(
+        template: string,
+        opts: {
+            userCode: string;
+            width: number;
+            height: number;
+            bgColorVec: string;
+            fontSetup: string;
+            includes?: string;
+            globals?: string;
+            extra?: Record<string, string>;
+        },
+    ): string {
+        let out = template
+            .replace(/\{\{USER_INCLUDES\}\}/g, opts.includes ?? '')
+            .replace(/\{\{USER_GLOBALS\}\}/g, opts.globals ?? '')
+            .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
+            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
+            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
+            .replace(/\{\{BACKGROUND_COLOR\}\}/g, opts.bgColorVec)
+            .replace(/\{\{FONT_SETUP\}\}/g, opts.fontSetup);
+        if (opts.extra) {
+            for (const [key, value] of Object.entries(opts.extra)) {
+                out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+            }
+        }
+        return out;
+    }
+
     /**
      * Compile user code into a shared library (.so) for dlopen.
      * When configName is provided, the .so is named preview_plugin_{configName}.so.
@@ -277,38 +346,13 @@ export class BuildRunner {
         const binPath = path.join(this.tmpDir, 'preview_bin');
 
         // 1. Generate harness
-        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
-
-        // Build font setup code for harness template substitution
-        let fontSetup = '';
-        if (font) {
-            const fontDirs = ConfigurationService.getInstance().fontDirectories;
-            // Find the directory containing the font file
-            const fontDir = fontDirs.find(d => {
-                try {
-                    return fs.existsSync(path.join(d, font!));
-                } catch (err) {
-                    getLogger().trace('Build', 'font dir check failed', { error: String(err) });
-                    return false;
-                }
-            }) || path.dirname(font);
-            // Escape backslashes and double-quotes before embedding in C++ string literal
-            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
-        }
-
-        const harness = this.templateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
-            .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
-            .replace(/\{\{USER_CODE\}\}/g, userCode)
-            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
-            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{OUTPUT_PATH\}\}/g, pngPath)
-            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
-            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const fontSetup = this.buildFontSetup(font, ConfigurationService.getInstance().fontDirectories);
+        const harness = this.renderHarness(this.templateContent, {
+            userCode, width, height, bgColorVec, fontSetup,
+            includes: sliceIncludes, globals: sliceGlobals,
+            extra: { OUTPUT_PATH: pngPath, METADATA_PATH: metadataPath },
+        });
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -383,20 +427,12 @@ export class BuildRunner {
         const pngPathHost = path.join(this.tmpDir, 'preview.png');
         const metadataPathHost = path.join(this.tmpDir, 'preview_metadata.json');
 
-        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
-
-        const harness = this.templateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
-            .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
-            .replace(/\{\{USER_CODE\}\}/g, userCode)
-            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
-            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{OUTPUT_PATH\}\}/g, pngPathContainer)
-            .replace(/\{\{METADATA_PATH\}\}/g, metadataPathContainer)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
-            .replace(/\{\{FONT_SETUP\}\}/g, '');
+        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const harness = this.renderHarness(this.templateContent, {
+            userCode, width, height, bgColorVec, fontSetup: '',
+            includes: sliceIncludes, globals: sliceGlobals,
+            extra: { OUTPUT_PATH: pngPathContainer, METADATA_PATH: metadataPathContainer },
+        });
 
         // Remove stale outputs so we never report a previous run's PNG.
         for (const p of [pngPathHost, metadataPathHost]) {
@@ -443,9 +479,9 @@ export class BuildRunner {
         const cmd = [
             `PKG_CONFIG_PATH="${pkgConfigPath}"`,
             `${compiler} -std=c++17 -O0 -shared -fPIC`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags ${DALI_PKG_MODULES})`,
             `"${source}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs ${DALI_PKG_MODULES})`,
             `-L"${this.daliPrefix}/lib" -Wl,-rpath-link,"${this.daliPrefix}/lib"`,
             `-o "${output}"`
         ].join(' ');
@@ -470,9 +506,9 @@ export class BuildRunner {
         const cmd = [
             `PKG_CONFIG_PATH="${pkgConfigPath}"`,
             `${compiler} -std=c++17 -O0`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags ${DALI_PKG_MODULES})`,
             `"${source}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs ${DALI_PKG_MODULES})`,
             `-L"${this.daliPrefix}/lib" -Wl,-rpath-link,"${this.daliPrefix}/lib"`,
             `-o "${output}"`
         ].join(' ');
@@ -559,34 +595,12 @@ export class BuildRunner {
         const harnessPath  = path.join(this.tmpDir, 'preview_interactive.cpp');
         const binPath      = path.join(this.tmpDir, 'preview_interactive_bin');
 
-        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
-
-        let fontSetup = '';
-        if (font) {
-            const fontDirs = ConfigurationService.getInstance().fontDirectories;
-            const fontDir = fontDirs.find(d => {
-                try {
-                    return fs.existsSync(path.join(d, font!));
-                } catch (err) {
-                    getLogger().trace('Build', 'interactive font dir check failed', { error: String(err) });
-                    return false;
-                }
-            }) || path.dirname(font);
-            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
-        }
-
-        const harness = this.interactiveTemplateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
-            .replace(/\{\{USER_CODE\}\}/g, userCode)
-            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
-            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
-            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const fontSetup = this.buildFontSetup(font, ConfigurationService.getInstance().fontDirectories);
+        const harness = this.renderHarness(this.interactiveTemplateContent, {
+            userCode, width, height, bgColorVec, fontSetup,
+            extra: { METADATA_PATH: metadataPath },
+        });
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -659,39 +673,20 @@ export class BuildRunner {
         fs.rmSync(framesDir, { recursive: true, force: true });
         fs.mkdirSync(framesDir, { recursive: true });
 
-        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
-
-        let fontSetup = '';
-        if (font) {
-            const fontDirs = ConfigurationService.getInstance().fontDirectories;
-            const fontDir = fontDirs.find(d => {
-                try {
-                    return fs.existsSync(path.join(d, font!));
-                } catch (err) {
-                    getLogger().trace('Build', 'animation font dir check failed', { error: String(err) });
-                    return false;
-                }
-            }) || path.dirname(font);
-            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
-        }
+        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const fontSetup = this.buildFontSetup(font, ConfigurationService.getInstance().fontDirectories);
 
         const totalFrames = Math.floor(duration * fps / 1000);
 
-        const harness = this.animationTemplateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
-            .replace(/\{\{USER_CODE\}\}/g, userCode)
-            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
-            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{OUTPUT_DIR\}\}/g, framesDir)
-            .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
-            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup)
-            .replace(/\{\{ANIMATION_DURATION\}\}/g, String(duration))
-            .replace(/\{\{ANIMATION_FPS\}\}/g, String(fps));
+        const harness = this.renderHarness(this.animationTemplateContent, {
+            userCode, width, height, bgColorVec, fontSetup,
+            extra: {
+                OUTPUT_DIR: framesDir,
+                METADATA_PATH: metadataPath,
+                ANIMATION_DURATION: String(duration),
+                ANIMATION_FPS: String(fps),
+            },
+        });
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -833,36 +828,14 @@ export class BuildRunner {
         const remotePng    = `${remoteDir}/preview_device.png`;
         const remoteMeta   = `${remoteDir}/preview_device_metadata.json`;
 
-        const bgColorVec = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
-
-        let fontSetup = '';
-        if (font) {
-            const fontDirs = deviceCfg.fontDirectories;
-            const fontDir = fontDirs.find(d => {
-                try {
-                    return fs.existsSync(path.join(d, font!));
-                } catch (err) {
-                    getLogger().trace('Build', 'device font dir check failed', { error: String(err) });
-                    return false;
-                }
-            }) || path.dirname(font);
-            const escapedDir = fontDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            fontSetup = `    FontClient::Get().AddCustomFontDirectory("${escapedDir}");`;
-        }
+        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const fontSetup = this.buildFontSetup(font, deviceCfg.fontDirectories);
 
         // 1. Generate harness (reuse same template, but output paths point to remote)
-        const harness = this.templateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
-            .replace(/\{\{USER_CODE\}\}/g, userCode)
-            .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
-            .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
-            .replace(/\{\{OUTPUT_PATH\}\}/g, remotePng)
-            .replace(/\{\{METADATA_PATH\}\}/g, remoteMeta)
-            .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorVec)
-            .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+        const harness = this.renderHarness(this.templateContent, {
+            userCode, width, height, bgColorVec, fontSetup,
+            extra: { OUTPUT_PATH: remotePng, METADATA_PATH: remoteMeta },
+        });
 
         fs.writeFileSync(harnessPath, harness);
 
@@ -943,9 +916,9 @@ export class BuildRunner {
             `PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}"`,
             `${compiler} -std=c++17 -O0`,
             `--sysroot="${escapedSysroot}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --cflags ${DALI_PKG_MODULES})`,
             `"${source}"`,
-            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --libs dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0)`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" PKG_CONFIG_SYSROOT_DIR="${escapedSysroot}" pkg-config --libs ${DALI_PKG_MODULES})`,
             `-o "${output}"`
         ].join(' ');
 
