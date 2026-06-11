@@ -56,7 +56,7 @@ let dockerAccessPoller: DockerAccessPoller | undefined;
 // unconditionally (e.g. from the access poller before the first real init).
 let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<void> = async () => {};
 
-export async function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
     initLogger(outputChannel);
     const log = getLogger();
@@ -957,7 +957,7 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
     }
 }
 
-export function deactivate() {
+export function deactivate(): void {
     dockerAccessPoller?.stop();
     liveDebouncer?.dispose();
     orchestrator?.dispose();

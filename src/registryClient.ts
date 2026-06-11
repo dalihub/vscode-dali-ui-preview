@@ -1,14 +1,14 @@
 import * as https from 'https';
 
 /** Minimal GET-JSON helper with a single redirect hop and a timeout. */
-function getJson(url: string, headers: Record<string, string> = {}): Promise<any> {
+function getJson<T = unknown>(url: string, headers: Record<string, string> = {}): Promise<T> {
     return new Promise((resolve, reject) => {
         const req = https.get(url, { headers, timeout: 10_000 }, (res) => {
             const status = res.statusCode ?? 0;
             const location = res.headers.location;
             if (status >= 300 && status < 400 && location) {
                 res.resume();
-                resolve(getJson(location, headers));
+                resolve(getJson<T>(location, headers));
                 return;
             }
             let data = '';
@@ -51,7 +51,7 @@ export async function listRemoteTags(imageName: string): Promise<string[]> {
         return [];
     }
 
-    const tokenResp = await getJson(
+    const tokenResp = await getJson<{ token?: string }>(
         `https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`,
     );
     const token = tokenResp?.token;
@@ -59,7 +59,7 @@ export async function listRemoteTags(imageName: string): Promise<string[]> {
         throw new Error('failed to obtain registry token');
     }
 
-    const tagsResp = await getJson(
+    const tagsResp = await getJson<{ tags?: string[] }>(
         `https://ghcr.io/v2/${repoPath}/tags/list`,
         { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     );
