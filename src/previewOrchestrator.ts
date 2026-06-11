@@ -8,7 +8,7 @@ import { XvfbManager } from './xvfbManager';
 import { VncManager } from './vncManager';
 import { SdbManager } from './sdbManager';
 import { StatusBarManager } from './statusBar';
-import { extractPreviewCode, extractFunctionBody, instrumentCode, isPreviewable, ExtractionResult } from './codeExtractor';
+import { extractPreviewCode, extractFunctionBody, instrumentCode, transformVectorChildren, isPreviewable, ExtractionResult } from './codeExtractor';
 import { parseChainExpression, SceneNode } from './cppParser';
 import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
@@ -603,9 +603,12 @@ export class PreviewOrchestrator {
         // Slice the RAW body first to learn which collected helpers return a View,
         // then instrument so those helper CALLS get tagged too (a cross-file
         // MakeSectionHeader(...) → click-to-code), and re-point the slice body at it.
+        // P13: rewrite `.Children(vector)` → an .Add loop before slicing/instrumenting
+        // (View::Children only takes an initializer_list, so a vector won't compile).
+        const transformedCode = transformVectorChildren(extraction.code);
         const extraSources = resolveProjectIncludes(doc);
-        const slice = buildSlice(doc.getText(), doc.fileName, extraction.code, extraSources, extraction.params);
-        const instrumented = instrumentCode(extraction.code, extraction.startLine, new Set(slice.helpers));
+        const slice = buildSlice(doc.getText(), doc.fileName, transformedCode, extraSources, extraction.params);
+        const instrumented = instrumentCode(transformedCode, extraction.startLine, new Set(slice.helpers));
         slice.body = instrumented;
         const instrumentTime = Date.now();
         this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${instrumentTime - startTime}ms`);

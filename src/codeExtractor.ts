@@ -395,6 +395,20 @@ const ACTOR_TYPES = new Set([
  *
  * The original user file is never modified — only the temporary build harness uses this.
  */
+/**
+ * Rewrite `EXPR.Children(vec)` — where vec is a single identifier (a
+ * std::vector<View>), not an `{ init-list }` — into an IIFE that .Add()s each
+ * element. View::Children has only an initializer_list overload, so passing a
+ * vector won't compile; this is the source transform for P13. An `{ ... }`
+ * argument is left untouched (it already compiles).
+ */
+export function transformVectorChildren(code: string): string {
+    return code.replace(
+        /\breturn\s+([\s\S]+?)\.Children\(\s*([A-Za-z_]\w*)\s*\)\s*;/g,
+        (_m, expr, vec) => `return [&]{ auto __cw = ${expr}; for (auto& __ce : ${vec}) { __cw.Add(__ce); } return __cw; }();`,
+    );
+}
+
 export function instrumentCode(code: string, startLine: number, helperNames: Set<string> = new Set()): string {
     const log = getLogger();
     let result = '';
