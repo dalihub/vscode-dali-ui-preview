@@ -10,6 +10,7 @@ import { SdbManager } from './sdbManager';
 import { StatusBarManager } from './statusBar';
 import { extractPreviewCode, extractFunctionBody, instrumentCode, isPreviewable, ExtractionResult } from './codeExtractor';
 import { parseChainExpression, SceneNode } from './cppParser';
+import { buildSlice, SliceResult } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, errorsToDiagnostics } from './errorParser';
 import { PreviewConfig, MultiPreviewResult } from './previewConfig';
@@ -31,6 +32,7 @@ interface PreviewStrategy {
         height: number,
         theme: 'light' | 'dark',
         bgColor?: string,
+        slice?: SliceResult,
     ): Promise<{ result: BuildResult; parserScene?: SceneNode | null }>;
 }
 
@@ -122,6 +124,7 @@ class DlopenStrategy implements PreviewStrategy {
         height: number,
         theme: 'light' | 'dark',
         bgColor?: string,
+        slice?: SliceResult,
     ): Promise<{ result: BuildResult; parserScene?: SceneNode | null }> {
         const log = getLogger();
         const buildRunner = this.getBuildRunner();
@@ -132,7 +135,22 @@ class DlopenStrategy implements PreviewStrategy {
 
         log.debug('Build', 'trying server/dlopen path');
         const compileStart = Date.now();
-        const pluginResult = await buildRunner.compilePlugin(code);
+        // Rung2 slice: inject collected same-file defs + weak stubs into the
+        // globals slot. compile-probe → Rung3 fallback (external-review safety):
+        // if the sliced compile fails, retry WITHOUT globals so the user sees the
+        // honest current-path error against THEIR code, not a confusing error
+        // inside generated stub code they never wrote.
+        const useSlice = slice?.rung === 'heuristic';
+        let pluginResult = await buildRunner.compilePlugin(
+            code, undefined,
+            useSlice ? slice!.globals : '',
+            useSlice ? slice!.includes : '',
+        );
+        if (!pluginResult.success && useSlice) {
+            this.outputChannel.appendLine('[Slice] Rung2 compile failed → Rung3 fallback (no globals)');
+            log.debug('Build', 'slice compile failed, falling back to Rung3');
+            pluginResult = await buildRunner.compilePlugin(code);
+        }
         const compileEnd = Date.now();
         this.outputChannel.appendLine(
             `[Perf]    compilePlugin: ${compileEnd - compileStart}ms (${pluginResult.success ? 'OK' : 'FAIL'})`,
@@ -529,6 +547,18 @@ export class PreviewOrchestrator {
             // file (e.g. boarding-pass at 2520x4480) doesn't leak into the next file.
             this.applyConfigSize(extraction);
 
+            // Rung2 slice for the dlopen path: collect same-file helper/const/type
+            // defs the body references and stub the rest. A self-contained body
+            // yields rung 'single-fn' (empty globals → byte-identical, current
+            // path). Only the dlopen strategy consumes it; parser/harness ignore.
+            const slice = buildSlice(doc.getText(), doc.fileName, instrumented);
+            if (slice.rung === 'heuristic') {
+                this.deps.outputChannel.appendLine(
+                    `[Slice] Rung2 heuristic: globals collected, ${slice.unresolvedStubs.length} stub(s)` +
+                    (slice.unresolvedStubs.length ? ` [${slice.unresolvedStubs.join(', ')}]` : ''),
+                );
+            }
+
             let result: BuildResult | undefined;
             let usedServerMode = false;
             let usedParserMode = false;
@@ -566,6 +596,7 @@ export class PreviewOrchestrator {
                 const stratResult = await this.dlopenStrategy.execute(
                     instrumented, extraction, this.currentWidth_, this.currentHeight_,
                     this.currentTheme_, this.currentBgColor_,
+                    slice,
                 );
 
                 // Discard stale result if a newer build was queued during this compile

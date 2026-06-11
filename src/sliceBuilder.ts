@@ -135,7 +135,12 @@ export function scanRefs(body: string): Set<string> {
     // they must never be collected or stubbed (else `auto txList`/`tx` leak into
     // the globals slot as bogus stubs).
     const locals = new Set<string>();
+    // `auto x` / `auto& x`
     for (const lm of cleaned.matchAll(/\bauto\b[\s&*]+([A-Za-z_]\w*)/g)) { locals.add(lm[1]); }
+    // primitive / std type declarations: `uint32_t colors[]`, `const char* names`, `int i`
+    for (const lm of cleaned.matchAll(/\b(?:const\s+|unsigned\s+|signed\s+)*(?:u?int(?:8|16|32|64)?_t|int|float|double|bool|char|short|long|size_t|std::\w+)\b[\s*&]*([A-Za-z_]\w*)\s*[[=;,)]/g)) { locals.add(lm[1]); }
+    // for-loop variable: `for (int i = …)` / `for (const auto& x : …)`
+    for (const lm of cleaned.matchAll(/\bfor\s*\(\s*(?:const\s+)?[\w:]+\s*[&*]?\s*([A-Za-z_]\w*)\s*[=:]/g)) { locals.add(lm[1]); }
 
     // Match identifiers NOT preceded by '.' (member access) or ':' (scope member).
     // For `Scope::Member` only the scope head is a resolvable ref — `::Member`
@@ -264,8 +269,10 @@ function orderDefs(defs: CollectedDef[]): CollectedDef[] {
  * @param src          full text of the source file
  * @param entrySrcPath path to the file (for #line / sourcePaths)
  */
-export function buildSlice(src: string, entrySrcPath: string): SliceResult {
-    const entry = findPreviewFunction(src);
+export function buildSlice(src: string, entrySrcPath: string, entryBody?: string): SliceResult {
+    // Prefer the already-extracted (and possibly instrumented) preview body the
+    // orchestrator passes in; standalone use / tests locate it in `src` instead.
+    const entry = entryBody !== undefined ? { body: entryBody } : findPreviewFunction(src);
     if (!entry) {
         // Nothing to slice — treat the whole input as the body (Rung3 passthrough).
         return { includes: '', globals: '', body: src, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };

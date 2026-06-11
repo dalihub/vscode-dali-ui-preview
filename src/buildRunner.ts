@@ -154,17 +154,25 @@ export class BuildRunner {
      * When configName is provided, the .so is named preview_plugin_{configName}.so.
      * Returns the path to the .so on success.
      */
-    async compilePlugin(userCode: string, configName?: string): Promise<BuildResult & { soPath?: string }> {
+    async compilePlugin(
+        userCode: string,
+        configName?: string,
+        sliceGlobals = '',
+        sliceIncludes = '',
+    ): Promise<BuildResult & { soPath?: string }> {
         const log = getLogger();
-        log.debug('Build', 'compilePlugin', { configName: configName || 'default' });
+        log.debug('Build', 'compilePlugin', { configName: configName || 'default', sliced: !!sliceGlobals });
 
         const suffix = configName ? `_${BuildRunner.sanitizeConfigName(configName)}` : '';
         const pluginSrc = path.join(this.tmpDir, `preview_plugin${suffix}.cpp`);
         const soPath    = path.join(this.tmpDir, `preview_plugin${suffix}.so`);
 
+        // sliceGlobals/sliceIncludes are '' on the self-contained (Rung3) path →
+        // byte-identical to before. Non-empty only when SliceBuilder collected
+        // same-file defs / stubs for the Rung2 heuristic path.
         const pluginCode = this.pluginTemplateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
+            .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
+            .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             .replace(/\{\{USER_CODE\}\}/g, userCode);
 
         // Docker mode: compile inside the container so the host doesn't need DALi.

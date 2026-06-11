@@ -1,0 +1,1 @@
+{"milestone":"M4","cycles_used":1,"cycles_max":3,"completed":["orchestrator wiring","compile-probe fallback","sample-sweep regression"],"external_review":"CONCERN→addressed (path2-dlopen flip fixed; T3/multi gap recorded)","gap_followups":["T3/multi-config/device slice","errorParser #line dynamic sources"],"milestone_done":true,"verdict":"PASS","tests":"592 passing"}
