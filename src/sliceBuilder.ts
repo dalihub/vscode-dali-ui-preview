@@ -281,6 +281,45 @@ function synthParamStub(type: string, name: string): string {
     return `${bare} ${name}{};`;
 }
 
+/**
+ * Extract class/struct member-field declarations across the given sources, as a
+ * map name → declared type. Used to stub a member referenced by a member-function
+ * preview target with its EXACT type (e.g. `mVm` → `WalletViewModel`), rather than
+ * a fuzzy usage-based guess. Method bodies are stripped so only top-level field
+ * declarations remain; constructors / methods (which have `(`) are ignored.
+ */
+function parseMemberFields(sources: SourceFile[]): Map<string, string> {
+    const fields = new Map<string, string>();
+    for (const s of sources) {
+        const classRe = /\b(?:class|struct)\s+\w+[^{;]*\{/g;
+        let m: RegExpExecArray | null;
+        while ((m = classRe.exec(s.text)) !== null) {
+            const brace = s.text.indexOf('{', m.index);
+            const close = matchBrace(s.text, brace);
+            if (close === -1) { continue; }
+            // Collapse nested braces (method bodies, brace-initializers) repeatedly
+            // so only the class's top-level declarations remain.
+            let body = s.text.slice(brace + 1, close);
+            let prev = '';
+            while (prev !== body) { prev = body; body = body.replace(/\{[^{}]*\}/g, ' '); }
+            // `TYPE name;` (optionally `= init`). No `(` → not a method/ctor.
+            const fieldRe = /(?:^|[;:}])\s*((?:const\s+)?[\w:]+(?:<[^>]*>)?[\s*&]*?)\s+(\w+)\s*(?:=[^;()]*)?;/g;
+            let fm: RegExpExecArray | null;
+            while ((fm = fieldRe.exec(body)) !== null) {
+                if (!fields.has(fm[2])) { fields.set(fm[2], fm[1].trim()); }
+            }
+        }
+    }
+    return fields;
+}
+
+/** Reduce a type string to its base type name (strip const/&/*, template args, scope). */
+function baseTypeName(type: string): string {
+    const cleaned = type.replace(/[&*]/g, ' ').replace(/\bconst\b/g, ' ').trim();
+    const last = cleaned.split(/\s+/).pop() ?? '';
+    return last.replace(/<.*$/, '').split('::').pop() ?? '';
+}
+
 /** Topologically order collected defs (constants/types/namespaces before functions). */
 function orderDefs(defs: CollectedDef[]): CollectedDef[] {
     // Simple ordering: source order is usually correct (defs precede the preview fn);
@@ -318,6 +357,25 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         return { includes: '', globals: '', body: entry.body, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
     }
 
+    // Member fields (for a member-function preview target like Class::Build()):
+    // stub a referenced member with its EXACT declared type from the class
+    // declaration. If that type is a project-local struct/class, add it to refs so
+    // its definition gets collected too. Scalar/string members fall through to the
+    // context-based weak stub (which colours/sizes better than a default value).
+    const allSources: SourceFile[] = [{ path: entrySrcPath, text: src }, ...extraSources];
+    const memberFields = parseMemberFields(allSources);
+    const memberStubs: string[] = [];
+    for (const r of [...refs]) {
+        const mtype = memberFields.get(r);
+        if (!mtype) { continue; }
+        const tn = baseTypeName(mtype);
+        if (tn && !KNOWN_SYMBOLS.has(tn) && !KEYWORDS.has(tn)) {
+            memberStubs.push(`__attribute__((weak)) ${synthParamStub(mtype, r)}`);
+            refs.delete(r);
+            refs.add(tn);   // collect the struct/class definition below
+        }
+    }
+
     let { collected, unresolved } = collectSameFileDefs(src, refs);
     const sourcePaths = [entrySrcPath];
 
@@ -341,7 +399,8 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     const paramStubs = entry.params.map((p) => `__attribute__((weak)) ${synthParamStub(p.type, p.name)}`);
     const stubs = unresolved.map((u) => synthWeakStub(u, entry.body));
     const globalsParts = [
-        ...ordered.map((d) => d.text),
+        ...ordered.map((d) => d.text),   // collected defs (incl. struct types) first
+        ...memberStubs,                  // then member instances of those types
         ...paramStubs,
         ...stubs,
     ];

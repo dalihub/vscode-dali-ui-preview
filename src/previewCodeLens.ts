@@ -11,7 +11,9 @@ const execAsync = promisify(exec);
 //   View CreateUI() {
 //   View CreateUI(int width, const std::string& title) {
 //   FlexLayout BuildCard() {
-const FUNC_RE = /^(\s*)((?:[\w:]+\s+)*?)(View|FlexLayout|Control|Label|TextLabel|ImageView|ScrollView|TableView|Actor)\s+(\w+)\s*\(([^)]*)\)\s*\{?\s*$/;
+// The function name may be qualified (Class::Build) for an out-of-class member
+// function definition — the dominant real-world shape (P5).
+const FUNC_RE = /^(\s*)((?:[\w:]+\s+)*?)(View|FlexLayout|Control|Label|TextLabel|ImageView|ScrollView|TableView|Actor)\s+((?:\w+::)*\w+)\s*\(([^)]*)\)\s*\{?\s*$/;
 
 // DALi-UI component types that have ::New() factory methods.
 // Only functions containing these are considered previewable.
