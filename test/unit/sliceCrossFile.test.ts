@@ -30,4 +30,13 @@ describe('sliceBuilder cross-file (Rung 1 heuristic)', () => {
         expect(slice.unresolvedStubs).to.deep.equal(['MakeBanner']);
         expect(slice.globals).to.match(/__attribute__\(\(weak\)\).*MakeBanner/);
     });
+
+    it('a parameterised helper stubs each param from its EXACT signature type', () => {
+        // Previewing MakeBanner(const char* text) directly: `text` must be stubbed
+        // as a const char* (not a fuzzy std::string, which would fail to compile).
+        const slice = buildSlice(read('widgets.cpp'), 'widgets.cpp');
+        expect(slice.rung).to.equal('heuristic');
+        expect(slice.globals).to.include('const char* text = "Sample"');  // exact type
+        expect(slice.unresolvedStubs).to.deep.equal([]);  // param, not a guessed stub
+    });
 });

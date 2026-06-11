@@ -88,6 +88,16 @@ interface PreviewFn {
     body: string;       // inside the outer braces (no surrounding { })
     bodyLine: number;   // 0-based line where the body starts
     fnName: string;
+    params: { name: string; type: string }[];  // signature params (for precise stubbing)
+}
+
+/** Parse a parameter list ("const char* text, int n") into {type, name} pairs. */
+function parseParams(paramStr: string): { name: string; type: string }[] {
+    return paramStr.split(',').map((p) => p.trim()).filter(Boolean).map((p) => {
+        // The last identifier is the parameter name; everything before it is the type.
+        const m = p.match(/^(.*?)\b([A-Za-z_]\w*)\s*$/);
+        return m ? { type: m[1].trim(), name: m[2] } : null;
+    }).filter((p): p is { name: string; type: string } => p !== null);
 }
 
 /**
@@ -102,9 +112,8 @@ export function findPreviewFunction(src: string): PreviewFn | null {
     const marker = src.search(/\/\/\s*@preview\b/);
     if (marker !== -1) { searchFrom = marker; }
 
-    // From searchFrom, find the next function signature `... name(...) {`.
-    // (returnType is anything ending in a type token; we just need the name + body.)
-    const sigRe = /([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?\{/g;
+    // From searchFrom, find the next function signature `... name(params) {`.
+    const sigRe = /([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*(?:const\s*)?\{/g;
     sigRe.lastIndex = searchFrom;
     let m: RegExpExecArray | null;
     while ((m = sigRe.exec(src)) !== null) {
@@ -115,7 +124,7 @@ export function findPreviewFunction(src: string): PreviewFn | null {
         const close = matchBrace(src, braceIdx);
         if (close === -1) { continue; }
         const body = src.slice(braceIdx + 1, close);
-        return { body, bodyLine: lineOf(src, braceIdx + 1), fnName: name };
+        return { body, bodyLine: lineOf(src, braceIdx + 1), fnName: name, params: parseParams(m[2]) };
     }
     return null;
 }
@@ -256,6 +265,22 @@ export function synthWeakStub(name: string, body: string): string {
     return `__attribute__((weak)) unsigned int ${name} = 0;`;
 }
 
+/**
+ * Synthesise a PRECISE stub for a signature parameter. The declared type is
+ * known, so — unlike synthWeakStub which guesses from usage — this gets the type
+ * exactly right (a `const char* text` stays `const char*`, not a std::string).
+ * Used when the preview target is itself a parameterised helper: it renders with
+ * sample arguments (the automated form of Compose's @PreviewParameter).
+ */
+function synthParamStub(type: string, name: string): string {
+    const bare = type.replace(/&/g, '').trim();  // drop reference qualifier
+    if (/char\s*\*|\bstring\b|String/.test(bare)) { return `${bare} ${name} = "Sample";`; }
+    if (/\bbool\b/.test(bare)) { return `${bare} ${name} = false;`; }
+    if (/\b(?:float|double)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
+    if (/\b(?:u?int\w*|short|long|size_t|unsigned|signed)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
+    return `${bare} ${name}{};`;
+}
+
 /** Topologically order collected defs (constants/types/namespaces before functions). */
 function orderDefs(defs: CollectedDef[]): CollectedDef[] {
     // Simple ordering: source order is usually correct (defs precede the preview fn);
@@ -277,14 +302,19 @@ export interface SourceFile { path: string; text: string; }
 export function buildSlice(src: string, entrySrcPath: string, entryBody?: string, extraSources: SourceFile[] = []): SliceResult {
     // Prefer the already-extracted (and possibly instrumented) preview body the
     // orchestrator passes in; standalone use / tests locate it in `src` instead.
-    const entry = entryBody !== undefined ? { body: entryBody } : findPreviewFunction(src);
+    const entry = entryBody !== undefined
+        ? { body: entryBody, params: findPreviewFunction(src)?.params ?? [] }
+        : findPreviewFunction(src);
     if (!entry) {
         // Nothing to slice — treat the whole input as the body (Rung3 passthrough).
         return { includes: '', globals: '', body: src, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
     }
 
     const refs = scanRefs(entry.body);
-    if (refs.size === 0) {
+    // Signature parameters are stubbed precisely from their declared type — drop
+    // them from the unresolved refs so they don't get a fuzzy (wrong-type) stub.
+    for (const p of entry.params) { refs.delete(p.name); }
+    if (refs.size === 0 && entry.params.length === 0) {
         return { includes: '', globals: '', body: entry.body, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn' };
     }
 
@@ -308,9 +338,11 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     const ordered = orderDefs(collected);
     const includes = ''; // defs inlined into globals rather than mounting headers (ADR-006).
 
+    const paramStubs = entry.params.map((p) => `__attribute__((weak)) ${synthParamStub(p.type, p.name)}`);
     const stubs = unresolved.map((u) => synthWeakStub(u, entry.body));
     const globalsParts = [
         ...ordered.map((d) => d.text),
+        ...paramStubs,
         ...stubs,
     ];
     const globals = globalsParts.length ? '\n' + globalsParts.join('\n\n') + '\n' : '';

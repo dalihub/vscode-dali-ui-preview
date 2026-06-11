@@ -11,7 +11,7 @@ const execAsync = promisify(exec);
 //   View CreateUI() {
 //   View CreateUI(int width, const std::string& title) {
 //   FlexLayout BuildCard() {
-const FUNC_RE = /^(\s*)((?:[\w:]+\s+)*?)(View|FlexLayout|Control|Label|TextLabel|ImageView|ScrollView|TableView|Actor)\s+(\w+)\s*\([^)]*\)\s*\{?\s*$/;
+const FUNC_RE = /^(\s*)((?:[\w:]+\s+)*?)(View|FlexLayout|Control|Label|TextLabel|ImageView|ScrollView|TableView|Actor)\s+(\w+)\s*\(([^)]*)\)\s*\{?\s*$/;
 
 // DALi-UI component types that have ::New() factory methods.
 // Only functions containing these are considered previewable.
@@ -120,9 +120,13 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
                 continue;
             }
 
+            // A parameterised function (a helper, not a zero-arg entry point) is
+            // previewable but only with synthesized sample arguments — label it so
+            // the user knows the args are placeholders, not real data.
+            const hasParams = (match[5] ?? '').trim().length > 0;
             const range = new vscode.Range(i, 0, i, line.length);
             lenses.push(new vscode.CodeLens(range, {
-                title: '▶ Preview',
+                title: hasParams ? '▶ Preview (sample args)' : '▶ Preview',
                 command: 'dali.previewFunction',
                 arguments: [document.uri, funcStartLine, bodyEndLine],
             }));
