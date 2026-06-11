@@ -789,32 +789,10 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
         // Update the orchestrator's previewManager reference
         orchestrator?.updatePreviewManager(previewManager);
 
-        // Handle resize from webview
-        previewManager.onResize((width, height) => {
-            outputChannel.appendLine(`Resize requested: ${width}x${height}`);
-            if (orchestrator) {
-                orchestrator.width = width;
-                orchestrator.height = height;
-                // Re-run preview with new size
-                const editor = vscode.window.activeTextEditor;
-                if (editor && isPreviewable(editor.document)) {
-                    orchestrator.runPreview(editor.document);
-                }
-            }
-        });
-
-        // Handle refresh from webview
-        previewManager.onRefresh(() => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor && isPreviewable(editor.document)) {
-                orchestrator?.runPreview(editor.document);
-            }
-        });
-
         // Resolve the document to rebuild against. activeTextEditor is undefined
-        // while the webview panel itself has focus (which is the typical case
-        // when these UI controls are used), so fall back to the orchestrator's
-        // last previewed doc.
+        // while the webview panel itself has focus (the typical case when these UI
+        // controls — resize, resolution, refresh, theme — are used), so fall back
+        // to the orchestrator's last previewed doc.
         const resolveTargetDoc = (): vscode.TextDocument | undefined => {
             const editor = vscode.window.activeTextEditor;
             if (editor && isPreviewable(editor.document)) {
@@ -823,6 +801,25 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             const last = orchestrator?.lastDocument;
             return last && isPreviewable(last) ? last : undefined;
         };
+
+        // Handle resize from webview (panel drag / resolution dropdown)
+        previewManager.onResize((width, height) => {
+            outputChannel.appendLine(`Resize requested: ${width}x${height}`);
+            if (orchestrator) {
+                orchestrator.width = width;
+                orchestrator.height = height;
+                // The webview has focus → activeTextEditor is undefined → without this
+                // fallback the resize wouldn't apply until the user pressed Ctrl+S.
+                const doc = resolveTargetDoc();
+                if (doc) { orchestrator.runPreview(doc); }
+            }
+        });
+
+        // Handle refresh from webview
+        previewManager.onRefresh(() => {
+            const doc = resolveTargetDoc();
+            if (doc) { orchestrator?.runPreview(doc); }
+        });
 
         // Handle theme toggle from webview
         previewManager.onThemeToggle(() => {
