@@ -247,6 +247,20 @@ function sanitizeForPath(name: string): string {
     return BuildRunner.sanitizeConfigName(name);
 }
 
+/** Walk up from `startDir` to the nearest project root (.git or package.json), used
+ *  for include containment when the file isn't inside an open workspace folder
+ *  (e.g. opened standalone, or its folder isn't added to the workspace). */
+function findProjectRoot(startDir: string): string {
+    let dir = startDir;
+    for (let i = 0; i < 12; i++) {
+        if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) { return dir; }
+        const parent = path.dirname(dir);
+        if (parent === dir) { break; }
+        dir = parent;
+    }
+    return startDir;
+}
+
 /**
  * Rung1 (heuristic cross-file): read the project sources the document #include's
  * by relative path ("...") — each header and, if present, its same-stem .cpp —
@@ -254,14 +268,14 @@ function sanitizeForPath(name: string): string {
  * files. Followed TRANSITIVELY (BFS, header → header) up to MAX_HOPS, so a type
  * two hops away (wallet_screen.h → model/wallet_vm.h) is reachable (P11). Only
  * project-local quoted includes are followed (system <...> come from the
- * template); contained to the workspace root; missing files skipped silently.
+ * template); contained to the workspace/project root; missing files skipped.
  */
 function resolveProjectIncludes(doc: vscode.TextDocument): SourceFile[] {
     const sources: SourceFile[] = [];
     // Security containment: only read files inside the workspace root (or the
     // document's own directory if there's no workspace). An include that escapes
     // it — e.g. #include "/etc/passwd" or "../../../../etc/hostname" — is skipped.
-    const root = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? path.dirname(doc.uri.fsPath);
+    const root = vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? findProjectRoot(path.dirname(doc.uri.fsPath));
     const seen = new Set<string>();
     const MAX_HOPS = 4;
     let frontier: { dir: string; text: string }[] = [{ dir: path.dirname(doc.uri.fsPath), text: doc.getText() }];
