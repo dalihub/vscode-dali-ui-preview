@@ -250,12 +250,11 @@ export async function resetExtensionCommand(
     }
 
     outputChannel.appendLine('[Maintenance] === Done ===');
-    await vscode.window.showInformationMessage(
+    const reloadChoice = await vscode.window.showInformationMessage(
         'DALi Preview docker state has been reset. Reload the window to start over.',
         'Reload Window',
-    ).then((c) => {
-        if (c === 'Reload Window') {
-            vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-    });
+    );
+    if (reloadChoice === 'Reload Window') {
+        vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }
 }

@@ -129,7 +129,7 @@ export class XvfbManager {
                 let exited = false;
 
                 child.on('error', (err) => {
-                    console.error(`Xvfb spawn error on ${display}: ${err.message}`);
+                    log.trace('Xvfb', 'spawn error', { display, error: err.message });
                     exited = true;
                     resolve(false);
                 });
@@ -137,7 +137,7 @@ export class XvfbManager {
                 child.on('exit', (code) => {
                     if (!exited) {
                         exited = true;
-                        console.error(`Xvfb exited immediately on ${display} with code ${code}`);
+                        log.trace('Xvfb', 'exited immediately', { display, code });
                         resolve(false);
                     }
                 });
@@ -156,7 +156,7 @@ export class XvfbManager {
                     }
                 }, STARTUP_WAIT_MS);
             } catch (err: any) {
-                console.error(`Failed to spawn Xvfb on ${display}: ${err.message}`);
+                log.trace('Xvfb', 'failed to spawn', { display, error: err.message });
                 resolve(false);
             }
         });

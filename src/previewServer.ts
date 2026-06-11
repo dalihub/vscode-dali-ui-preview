@@ -468,7 +468,9 @@ export class PreviewServer {
                     // H3: Store handle so stop() can cancel this timer
                     this.restartTimer = setTimeout(() => {
                         this.restartTimer = undefined;
-                        this.spawnServer().catch(() => {});
+                        this.spawnServer().catch((e) =>
+                            this.outputChannel.appendLine(`[PreviewServer] Restart spawn failed: ${String(e)}`)
+                        );
                     }, 500);
                 } else {
                     this.outputChannel.appendLine('[PreviewServer] Max restarts reached, giving up');
