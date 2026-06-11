@@ -798,8 +798,11 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             if (editor && isPreviewable(editor.document)) {
                 return editor.document;
             }
-            const last = orchestrator?.lastDocument;
-            return last && isPreviewable(last) ? last : undefined;
+            // lastDocument was ALREADY previewed (often via a CodeLens on a file with
+            // no // @preview marker, e.g. cards.cpp). Don't re-gate it on isPreviewable
+            // — that returned undefined for CodeLens targets, so resize/resolution from
+            // the webview silently did nothing until the user pressed Ctrl+S.
+            return orchestrator?.lastDocument;
         };
 
         // Handle resize from webview (panel drag / resolution dropdown)
