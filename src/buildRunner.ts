@@ -246,14 +246,16 @@ export class BuildRunner {
         bgColor?: string,
         locale?: string,
         fontScale?: number,
-        font?: string
+        font?: string,
+        sliceGlobals = '',
+        sliceIncludes = ''
     ): Promise<BuildResult> {
         const log = getLogger();
         log.debug('Build', 'buildAndRun start', { width, height, theme });
 
         // Docker runtime: skip native DALi prefix check, dispatch to docker path.
         if (ConfigurationService.getInstance().runtimeMode === 'docker') {
-            return this.buildAndRunDocker(userCode, width, height, theme, bgColor, font);
+            return this.buildAndRunDocker(userCode, width, height, theme, bgColor, font, sliceGlobals, sliceIncludes);
         }
 
         // Ensure DALi prefix is available
@@ -298,8 +300,8 @@ export class BuildRunner {
         }
 
         const harness = this.templateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
+            .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
+            .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -333,6 +335,8 @@ export class BuildRunner {
         theme: 'light' | 'dark',
         bgColor: string | undefined,
         font: string | undefined,
+        sliceGlobals = '',
+        sliceIncludes = '',
     ): Promise<BuildResult> {
         const log = getLogger();
 
@@ -384,8 +388,8 @@ export class BuildRunner {
             : BuildRunner.themeToBackgroundColor(theme);
 
         const harness = this.templateContent
-            .replace(/\{\{USER_INCLUDES\}\}/g, '')
-            .replace(/\{\{USER_GLOBALS\}\}/g, '')
+            .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
+            .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             .replace(/\{\{USER_CODE\}\}/g, userCode)
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)

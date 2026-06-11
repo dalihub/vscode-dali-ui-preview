@@ -204,11 +204,20 @@ class HarnessStrategy implements PreviewStrategy {
         height: number,
         theme: 'light' | 'dark',
         bgColor?: string,
+        slice?: SliceResult,
     ): Promise<{ result: BuildResult; parserScene?: SceneNode | null }> {
         const log = getLogger();
         log.debug('Build', 'trying harness compile+run path');
         const harnessStart = Date.now();
-        const result = await this.getBuildRunner().buildAndRun(code, width, height, theme, bgColor);
+        // Inject the Rung2 slice globals into the FULL HARNESS too, not just the
+        // dlopen path — otherwise a cross-file/member preview (theme, helpers,
+        // model types) fails with "not declared" whenever the preview server is
+        // down and we fall back here.
+        const useSlice = slice?.rung === 'heuristic';
+        const result = await this.getBuildRunner().buildAndRun(
+            code, width, height, theme, bgColor, undefined, undefined, undefined,
+            useSlice ? slice!.globals : '', useSlice ? slice!.includes : '',
+        );
         this.outputChannel.appendLine(
             `[Perf]    buildAndRun (full harness): ${Date.now() - harnessStart}ms`,
         );
@@ -711,7 +720,7 @@ export class PreviewOrchestrator {
                 log.debug('Build', 'trying harness compile+run path', { opId });
                 const stratResult = await this.harnessStrategy.execute(
                     instrumented, extraction, this.currentWidth_, this.currentHeight_,
-                    this.currentTheme_, this.currentBgColor_,
+                    this.currentTheme_, this.currentBgColor_, slice,
                 );
                 result = stratResult.result;
             }
