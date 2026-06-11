@@ -349,10 +349,10 @@
     "test:unit": "c8 mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
     "test:unit:no-coverage": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
     "coverage": "c8 report --reporter=html && echo 'Coverage report: coverage/index.html'",
-    "test:e2e": "node out/test/e2e/goldenTestRunner.js",
-    "test:golden:update": "UPDATE_GOLDENS=1 node out/test/e2e/goldenTestRunner.js",
+    "test:e2e": "xvfb-run -a node out/test/e2e/goldenTestRunner.js",
+    "test:golden:update": "UPDATE_GOLDENS=1 xvfb-run -a node out/test/e2e/goldenTestRunner.js",
     "test:click-to-code": "python3 test/e2e/click_to_code_e2e.py",
-    "test:release": "npm run test:unit && npm run test:click-to-code",
+    "test:release": "npm run test:unit && npm run test:click-to-code && npm run test:e2e",
     "pretest": "npm run compile"
   },
   "devDependencies": {

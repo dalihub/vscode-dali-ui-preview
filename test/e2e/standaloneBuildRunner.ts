@@ -2,7 +2,7 @@
  * Standalone build runner for E2E golden screenshot tests.
  * No vscode dependency — pure Node.js only.
  */
-import { exec, execSync } from 'child_process';
+import { exec, execFile, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -41,8 +41,15 @@ export function detectDaliPrefix(): string | null {
         return null;
     }
 
+    // A prefix is usable only if its pkg-config is actually present — skip a
+    // half-built dali-env that exists but has no .pc files (e.g. dali_backend),
+    // otherwise readdir's first match wins and every compile fails with
+    // "No package 'dali2-ui-foundation'".
+    const hasPc = (p: string): boolean =>
+        fs.existsSync(path.join(p, 'lib', 'pkgconfig', 'dali2-ui-foundation.pc'));
+
     const directPath = path.join(home, 'dali-env', 'opt');
-    if (fs.existsSync(directPath)) {
+    if (hasPc(directPath)) {
         return directPath;
     }
 
@@ -52,7 +59,7 @@ export function detectDaliPrefix(): string | null {
             for (const entry of fs.readdirSync(tizenDir, { withFileTypes: true })) {
                 if (entry.isDirectory()) {
                     const candidate = path.join(tizenDir, entry.name, 'dali-env', 'opt');
-                    if (fs.existsSync(candidate)) {
+                    if (hasPc(candidate)) {
                         return candidate;
                     }
                 }
@@ -129,6 +136,66 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
     }
 
     return execute(binPath, opts.outputPngPath, opts.display, opts.daliPrefix, opts.width, opts.height);
+}
+
+/**
+ * Build + render inside the SAME docker image the live preview uses, so goldens
+ * match real preview exactly — DALi 2.0.0 + DejaVu-only fonts (emoji with no glyph
+ * render as □, just like the real preview, instead of the native machine's emoji
+ * font). Renders to /work/render.png in a mounted tmp dir, then copies to the host.
+ */
+export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image: string): Promise<StandaloneBuildResult> {
+    const WORK = '/tmp/dali_e2e_docker';
+    try { fs.mkdirSync(WORK, { recursive: true }); } catch { /* exists */ }
+
+    let template: string;
+    try { template = fs.readFileSync(opts.templatePath, 'utf-8'); }
+    catch (e) { return { success: false, error: `Failed to read template: ${(e as Error).message}` }; }
+
+    const harness = template
+        .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
+        .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
+        .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
+        .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
+        .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
+        .replace(/\{\{OUTPUT_PATH\}\}/g, '/work/render.png')
+        .replace(/\{\{METADATA_PATH\}\}/g, '/work/meta.json')
+        .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
+        .replace(/\{\{FONT_SETUP\}\}/g, '');
+
+    try {
+        fs.writeFileSync(path.join(WORK, 'harness.cpp'), harness);
+        fs.rmSync(path.join(WORK, 'render.png'), { force: true });
+    } catch (e) { return { success: false, error: `Failed to write harness: ${(e as Error).message}` }; }
+
+    const W = opts.width, H = opts.height;
+    const script = [
+        'export PKG_CONFIG_PATH=/opt/dali/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig',
+        'P="dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0"',
+        'g++ -std=c++17 -O0 /work/harness.cpp $(pkg-config --cflags $P) $(pkg-config --libs $P) -L/opt/dali/lib -Wl,-rpath-link,/opt/dali/lib -o /work/bin 2>/work/err || { sed -n "1,40p" /work/err; exit 2; }',
+        `Xvfb :99 -screen 0 ${W}x${H}x24 >/dev/null 2>&1 & sleep 3`,
+        `DISPLAY=:99 DALI_WINDOW_WIDTH=${W} DALI_WINDOW_HEIGHT=${H} timeout 60 /work/bin`,
+    ].join('\n');
+    // execFile with an args array — no host-shell parsing, so the script's own
+    // quotes (sed "1,40p") and newlines survive intact into the container.
+    const args = ['run', '--rm', '-v', `${WORK}:/work`, '--entrypoint', 'bash', image, '-c', script];
+
+    return new Promise((resolve) => {
+        execFile('docker', args, { timeout: 150000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (!fs.existsSync(path.join(WORK, 'render.png'))) {
+                resolve({ success: false, error: `Docker render failed:\n${stdout}\n${stderr}` });
+                return;
+            }
+            try {
+                fs.copyFileSync(path.join(WORK, 'render.png'), opts.outputPngPath);
+                const meta = path.join(WORK, 'meta.json');
+                if (fs.existsSync(meta)) { fs.copyFileSync(meta, opts.metadataPath); }
+                resolve({ success: true });
+            } catch (e) {
+                resolve({ success: false, error: `Copy failed: ${(e as Error).message}` });
+            }
+        });
+    });
 }
 
 function compile(source: string, output: string, daliPrefix: string): Promise<StandaloneBuildResult> {

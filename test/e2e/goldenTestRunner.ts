@@ -7,7 +7,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildAndCapture, detectDaliPrefix } from './standaloneBuildRunner';
+import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -70,14 +70,41 @@ function extractMarkerCode(filePath: string): string | null {
         .join('\n');
 }
 
+/**
+ * Read width/height from a `// @preview-config: ... width=W, height=H` line.
+ * Falls back to the default preview size when absent — so a 2520×4480 design
+ * (weather-forecast) renders at its real size instead of being clipped at 480×320.
+ */
+function parseConfigSize(filePath: string): { width: number; height: number } {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const line = content.split('\n').find(l => PREVIEW_CONFIG_RE.test(l.trim()));
+    if (line) {
+        const w = line.match(/width\s*=\s*(\d+)/);
+        const h = line.match(/height\s*=\s*(\d+)/);
+        if (w && h) { return { width: parseInt(w[1], 10), height: parseInt(h[1], 10) }; }
+    }
+    return { width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT };
+}
+
+// Mirror the live preview's font sanitize (codeExtractor.sanitizeUnsupportedGlyphs)
+// so docker goldens behave like real preview: emoji with no glyph in the runtime
+// font become □ instead of aborting DALi (free(): invalid pointer). Inlined here
+// because codeExtractor pulls in the vscode module, which this node runner can't load.
+function sanitizeEmoji(code: string): string {
+    return code.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (full, inner) => {
+        const fixed = inner.replace(/[\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{1F000}-\u{1FAFF}]/gu, '□');
+        return fixed !== inner ? '"' + fixed + '"' : full;
+    });
+}
+
 function extractCode(filePath: string): string | null {
+    let code: string | null = null;
     if (filePath.endsWith('.preview.dali.cpp')) {
-        return extractPreviewFileCode(filePath);
+        code = extractPreviewFileCode(filePath);
+    } else if (filePath.endsWith('.cpp') || filePath.endsWith('.h')) {
+        code = extractMarkerCode(filePath);
     }
-    if (filePath.endsWith('.cpp') || filePath.endsWith('.h')) {
-        return extractMarkerCode(filePath);
-    }
-    return null;
+    return code === null ? null : sanitizeEmoji(code);
 }
 
 function sampleName(filePath: string): string {
@@ -96,7 +123,9 @@ async function runSample(
     filePath: string,
     daliPrefix: string,
     display: string,
-    updateGoldens: boolean
+    updateGoldens: boolean,
+    useDocker: boolean,
+    image: string
 ): Promise<TestResult> {
     const name = sampleName(filePath);
     const code = extractCode(filePath);
@@ -110,16 +139,20 @@ async function runSample(
     const diffPng = path.join(DIFF_DIR, `${name}.diff.png`);
     const metadataPath = path.join(ACTUAL_DIR, `${name}.metadata.json`);
 
-    const buildResult = await buildAndCapture({
+    const { width, height } = parseConfigSize(filePath);
+    const opts = {
         userCode: code,
-        width: PREVIEW_WIDTH,
-        height: PREVIEW_HEIGHT,
+        width,
+        height,
         outputPngPath: actualPng,
         metadataPath,
         templatePath: TEMPLATE_PATH,
         daliPrefix,
         display,
-    });
+    };
+    const buildResult = useDocker
+        ? await buildAndCaptureDocker(opts, image)
+        : await buildAndCapture(opts);
 
     if (!buildResult.success) {
         return { name, passed: false, error: buildResult.error };
@@ -166,10 +199,15 @@ async function runSample(
 async function main(): Promise<void> {
     const updateGoldens = process.env.UPDATE_GOLDENS === '1';
     const display = process.env.DISPLAY || ':99';
+    // Default: render in the SAME docker image the live preview uses, so goldens
+    // match real preview exactly (DALi 2.0.0 + DejaVu-only fonts → emoji = □).
+    // GOLDEN_NATIVE=1 falls back to native g++/Xvfb (faster, but native fonts differ).
+    const useDocker = process.env.GOLDEN_NATIVE !== '1';
+    const image = process.env.PREVIEW_IMAGE || 'ghcr.io/lwc0917/dali-preview-runtime:latest';
 
     const daliPrefix = detectDaliPrefix();
-    if (!daliPrefix) {
-        console.error('ERROR: DALi prefix not found. Set DALI_PREFIX or DESKTOP_PREFIX env var.');
+    if (!useDocker && !daliPrefix) {
+        console.error('ERROR: native mode (GOLDEN_NATIVE=1) but no DALi prefix. Set DALI_PREFIX.');
         process.exit(1);
     }
 
@@ -186,7 +224,7 @@ async function main(): Promise<void> {
     }
 
     console.log(updateGoldens ? '=== UPDATE GOLDENS ===' : '=== GOLDEN SCREENSHOT TESTS ===');
-    console.log(`DALi prefix: ${daliPrefix}`);
+    console.log(useDocker ? `Render: docker (${image})` : `Render: native (${daliPrefix})`);
     console.log(`Display: ${display}`);
     console.log(`Samples: ${samples.length}\n`);
 
@@ -195,7 +233,7 @@ async function main(): Promise<void> {
     for (const sample of samples) {
         const name = sampleName(sample);
         process.stdout.write(`  Running: ${name} ... `);
-        const result = await runSample(sample, daliPrefix, display, updateGoldens);
+        const result = await runSample(sample, daliPrefix ?? '', display, updateGoldens, useDocker, image);
         results.push(result);
 
         if (result.skipped) {
