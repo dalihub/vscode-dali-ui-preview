@@ -5,7 +5,7 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.41.1] - 2026-06-12
 
 ### Fixed
 
@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `multi-config-locale` golden updated from `□□□□□?` to `안녕하세요?`). The Serif
   CJK collection is stripped (previews render sans) to keep image growth small
   (+~80 MB). Added a `korean-label` sample + golden as a CJK regression guard.
+
+### Changed
+
+- **Internal code-quality refactor (behavior-preserving).** Deduplicated the
+  `buildRunner` build methods behind shared harness/font/background helpers,
+  decomposed the long `runPreview` and `activate` functions, unified the
+  orchestrator's compiler-error failure paths through a single
+  `diagnoseGccErrors`, routed stray `console.error` / swallowed errors through
+  the logger, fixed a config drift bug (re-hardcoded docker image/tag), and
+  dropped dead types. No user-facing behavior change — verified by 616 unit
+  tests + golden e2e 21/21. Added characterization tests for the preview
+  orchestrator's concurrency guards (previously 0% covered).
 
 ## [0.41.0] - 2026-06-11 — Zero-annotation auto-extract preview
 

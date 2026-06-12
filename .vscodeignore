@@ -25,3 +25,11 @@ install.sh
 *.vsix
 # Internal: ad-hoc research packs — kept on disk but never shipped in the VSIX.
 *.research-pack.json
+# Internal: sibling tools / untracked experiment dirs that live in the working
+# tree but are NOT part of the extension — vsce would otherwise bundle them
+# (e.g. dali-ui-preview-cli was ~46 MB of unrelated CLI source). The tracked
+# samples/flow-wallet + samples/*.preview.dali.cpp ARE shipped (sampleCommand).
+dali-ui-preview-cli/**
+samples/dali-examples/**
+samples/test/**
+hello-dali.preview.dali.cpp
