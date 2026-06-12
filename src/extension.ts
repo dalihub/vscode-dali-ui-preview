@@ -55,6 +55,12 @@ let dockerAccessPoller: DockerAccessPoller | undefined;
 // Reassigned in activate(); the no-op default lets callers invoke it
 // unconditionally (e.g. from the access poller before the first real init).
 let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<void> = async () => {};
+// Tracks whether a preview-server init has already been kicked off this session
+// (so the activation eager-start and the on-focus lazy-start don't both fire,
+// and we don't re-prompt for docker on every file switch). Module-scoped so the
+// onOpen listener can be extracted; reset at the top of activate() so a fresh
+// activation behaves like a fresh session.
+let serverInitTriggered = false;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
@@ -301,10 +307,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             previewServer = undefined;
         }
     };
-    // Tracks whether we've already kicked off a preview-server init in this
-    // session (so the activation eager-start and the on-focus lazy-start below
-    // don't both fire, and we don't re-prompt for docker on every file switch).
-    let serverInitTriggered = false;
+    // Reset per-activation (declared at module scope above) so re-activation
+    // behaves like a fresh session.
+    serverInitTriggered = false;
 
     // Activation is now also driven by onStartupFinished (no preview file needed).
     // Two consequences handled here:
@@ -616,132 +621,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine(`[SDB] Saved target device: ${savedDeviceSerial}`);
     }
 
-    // Auto-preview on save
-    const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
-        // Live dependency reload: if the saved file is a cross-file source the last
-        // preview collected (e.g. a widgets.cpp helper), re-run the active preview so
-        // the edit shows up immediately — even though the saved file isn't itself a
-        // preview target.
-        if (orchestrator?.isPreviewDependency(doc.fileName)) {
-            await orchestrator.repreviewLast();
-            return;
-        }
-        if (!isPreviewable(doc)) {
-            return;
-        }
-        ensurePreviewManager(context);
-        previewManager!.show(true);
-        if (orchestrator) {
-            previewManager!.setTheme(orchestrator.theme);
-            if (orchestrator.bgColor) {
-                previewManager!.setBackgroundColor(orchestrator.bgColor);
-            }
-
-            // VNC mode: hot reload the DALi app
-            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
-                await orchestrator.hotReloadVnc(doc);
-                return;
-            }
-
-            await orchestrator.runPreview(doc);
-        }
-    });
-
-    // Track the active editor: when the preview panel is already open, rebuild
-    // for the newly-focused previewable file so the preview follows the user's
-    // focus instead of going stale. Focusing a file does NOT auto-open a closed
-    // panel — the user opens the preview via Ctrl+S / the Open Preview command /
-    // the CodeLens button, and closing it with (×) keeps it closed.
-    const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (!editor || !isPreviewable(editor.document)) { return; }
-        // First time a previewable file is focused this session, make sure the
-        // preview server is (being) started — and surface docker-setup guidance
-        // if docker isn't ready yet. This is the "I skipped setup, then opened a
-        // DALi file" path: even though the extension already activated (e.g. via
-        // onStartupFinished with no file open), the install prompt still appears.
-        if (!previewServer && !serverInitTriggered) {
-            serverInitTriggered = true;
-            void initPreviewServer().catch((err) =>
-                outputChannel.appendLine(`[PreviewServer] lazy init error: ${err?.message ?? err}`),
-            );
-        }
-        // Don't auto-open the preview on focus. Only follow focus when the panel
-        // is already open; if the user closed it (or never opened it this
-        // session), leave it closed instead of resurrecting it on every switch.
-        if (!previewManager?.isVisible) { return; }
-        previewManager.show(true);
-        if (!orchestrator) { return; }
-        previewManager.setTheme(orchestrator.theme);
-        if (orchestrator.bgColor) {
-            previewManager.setBackgroundColor(orchestrator.bgColor);
-        }
-        // Skip if we're already showing this exact doc to avoid redundant rebuilds
-        // when the user re-focuses the same tab.
-        const lastUri = orchestrator.lastDocument?.uri.toString();
-        if (lastUri !== editor.document.uri.toString()) {
-            // VNC mode: hot reload the DALi app for the new doc
-            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
-                orchestrator.hotReloadVnc(editor.document);
-            } else {
-                orchestrator.runPreview(editor.document);
-            }
-        }
-    });
-
-    // Live preview: auto-refresh on text change with debounce
-    const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
-        if (!orchestrator) { return; }
-        const codeLensFunc = orchestrator.lastCodeLensFunc;
-        const isCodeLensTarget = codeLensFunc && codeLensFunc.uri === event.document.uri.toString();
-        if (!isCodeLensTarget && !isPreviewable(event.document)) {
-            return;
-        }
-        // Live preview only refreshes an already-open panel — it never auto-opens
-        // one. If the user closed the preview, typing won't bring it back.
-        if (!previewManager?.isVisible) {
-            liveDebouncer?.cancel();
-            return;
-        }
-        if (orchestrator.isInteractiveMode) {
-            return;
-        }
-        const liveCfg = ConfigurationService.getInstance();
-        if (!liveCfg.livePreview) {
-            liveDebouncer?.cancel();
-            return;
-        }
-        const debounceMs = liveCfg.livePreviewDebounce;
-        if (!liveDebouncer) {
-            outputChannel.appendLine(`[LivePreview] Debouncer created with debounce=${debounceMs}ms`);
-            liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
-                // The panel may have been closed during the debounce window — if
-                // so, don't resurrect it.
-                if (!previewManager?.isVisible) { return; }
-                const debounceElapsed = Date.now() - (orchestrator!.lastTextChangeTime || 0);
-                outputChannel.appendLine(`[Perf] T1 debounce fired — ${debounceElapsed}ms since last text change`);
-                previewManager.show(true);
-                orchestrator!.runPreview(doc, true);
-            });
-        }
-        liveDebouncer.setDebounceMs(debounceMs);
-        orchestrator.setLastTextChangeTime(Date.now());
-        liveDebouncer.schedule(event.document);
-    });
-
-    // Recreate debouncer if live preview settings change
-    const onConfigChange = vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('daliPreview.livePreviewDebounce') ||
-            e.affectsConfiguration('daliPreview.livePreview')) {
-            liveDebouncer?.dispose();
-            liveDebouncer = undefined;
-            const updatedCfg = ConfigurationService.getInstance();
-            const newDebounceMs = updatedCfg.livePreviewDebounce;
-            const liveEnabled = updatedCfg.livePreview;
-            outputChannel.appendLine(
-                `[LivePreview] Settings updated — livePreview=${liveEnabled}, debounce=${newDebounceMs}ms`
-            );
-        }
-    });
+    // Document/editor event listeners that drive auto-preview (save, focus,
+    // live text change, config change). All state they touch is module-scoped.
+    registerDocumentListeners(context);
 
     // CodeLens provider: show "Preview" buttons above DALi View-returning functions
     const codeLensProvider = new PreviewCodeLensProvider();
@@ -777,7 +659,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     context.subscriptions.push(previewFunctionCmd);
 
-    context.subscriptions.push(toggleThemeCmd, openCmd, onSave, onOpen, onTextChange, onConfigChange, outputChannel);
+    context.subscriptions.push(toggleThemeCmd, openCmd, outputChannel);
 
     outputChannel.appendLine('DALi Preview extension activated.');
 }
@@ -955,6 +837,144 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             })
         );
     }
+}
+
+/**
+ * Register the document/editor event listeners that drive auto-preview: save,
+ * focus change, debounced live text change, and config change. Every piece of
+ * state they touch (orchestrator, previewManager, liveDebouncer, previewServer,
+ * serverInitTriggered, ...) is module-scoped, so this is a pure relocation out
+ * of activate().
+ */
+function registerDocumentListeners(context: vscode.ExtensionContext): void {
+    // Auto-preview on save
+    const onSave = vscode.workspace.onDidSaveTextDocument(async (doc) => {
+        // Live dependency reload: if the saved file is a cross-file source the last
+        // preview collected (e.g. a widgets.cpp helper), re-run the active preview so
+        // the edit shows up immediately — even though the saved file isn't itself a
+        // preview target.
+        if (orchestrator?.isPreviewDependency(doc.fileName)) {
+            await orchestrator.repreviewLast();
+            return;
+        }
+        if (!isPreviewable(doc)) {
+            return;
+        }
+        ensurePreviewManager(context);
+        previewManager!.show(true);
+        if (orchestrator) {
+            previewManager!.setTheme(orchestrator.theme);
+            if (orchestrator.bgColor) {
+                previewManager!.setBackgroundColor(orchestrator.bgColor);
+            }
+
+            // VNC mode: hot reload the DALi app
+            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
+                await orchestrator.hotReloadVnc(doc);
+                return;
+            }
+
+            await orchestrator.runPreview(doc);
+        }
+    });
+
+    // Track the active editor: when the preview panel is already open, rebuild
+    // for the newly-focused previewable file so the preview follows the user's
+    // focus instead of going stale. Focusing a file does NOT auto-open a closed
+    // panel — the user opens the preview via Ctrl+S / the Open Preview command /
+    // the CodeLens button, and closing it with (×) keeps it closed.
+    const onOpen = vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (!editor || !isPreviewable(editor.document)) { return; }
+        // First time a previewable file is focused this session, make sure the
+        // preview server is (being) started — and surface docker-setup guidance
+        // if docker isn't ready yet. This is the "I skipped setup, then opened a
+        // DALi file" path: even though the extension already activated (e.g. via
+        // onStartupFinished with no file open), the install prompt still appears.
+        if (!previewServer && !serverInitTriggered) {
+            serverInitTriggered = true;
+            void initPreviewServer().catch((err) =>
+                outputChannel.appendLine(`[PreviewServer] lazy init error: ${err?.message ?? err}`),
+            );
+        }
+        // Don't auto-open the preview on focus. Only follow focus when the panel
+        // is already open; if the user closed it (or never opened it this
+        // session), leave it closed instead of resurrecting it on every switch.
+        if (!previewManager?.isVisible) { return; }
+        previewManager.show(true);
+        if (!orchestrator) { return; }
+        previewManager.setTheme(orchestrator.theme);
+        if (orchestrator.bgColor) {
+            previewManager.setBackgroundColor(orchestrator.bgColor);
+        }
+        // Skip if we're already showing this exact doc to avoid redundant rebuilds
+        // when the user re-focuses the same tab.
+        const lastUri = orchestrator.lastDocument?.uri.toString();
+        if (lastUri !== editor.document.uri.toString()) {
+            // VNC mode: hot reload the DALi app for the new doc
+            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
+                orchestrator.hotReloadVnc(editor.document);
+            } else {
+                orchestrator.runPreview(editor.document);
+            }
+        }
+    });
+
+    // Live preview: auto-refresh on text change with debounce
+    const onTextChange = vscode.workspace.onDidChangeTextDocument((event) => {
+        if (!orchestrator) { return; }
+        const codeLensFunc = orchestrator.lastCodeLensFunc;
+        const isCodeLensTarget = codeLensFunc && codeLensFunc.uri === event.document.uri.toString();
+        if (!isCodeLensTarget && !isPreviewable(event.document)) {
+            return;
+        }
+        // Live preview only refreshes an already-open panel — it never auto-opens
+        // one. If the user closed the preview, typing won't bring it back.
+        if (!previewManager?.isVisible) {
+            liveDebouncer?.cancel();
+            return;
+        }
+        if (orchestrator.isInteractiveMode) {
+            return;
+        }
+        const liveCfg = ConfigurationService.getInstance();
+        if (!liveCfg.livePreview) {
+            liveDebouncer?.cancel();
+            return;
+        }
+        const debounceMs = liveCfg.livePreviewDebounce;
+        if (!liveDebouncer) {
+            outputChannel.appendLine(`[LivePreview] Debouncer created with debounce=${debounceMs}ms`);
+            liveDebouncer = new LivePreviewDebouncer<vscode.TextDocument>(debounceMs, (doc) => {
+                // The panel may have been closed during the debounce window — if
+                // so, don't resurrect it.
+                if (!previewManager?.isVisible) { return; }
+                const debounceElapsed = Date.now() - (orchestrator!.lastTextChangeTime || 0);
+                outputChannel.appendLine(`[Perf] T1 debounce fired — ${debounceElapsed}ms since last text change`);
+                previewManager.show(true);
+                orchestrator!.runPreview(doc, true);
+            });
+        }
+        liveDebouncer.setDebounceMs(debounceMs);
+        orchestrator.setLastTextChangeTime(Date.now());
+        liveDebouncer.schedule(event.document);
+    });
+
+    // Recreate debouncer if live preview settings change
+    const onConfigChange = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('daliPreview.livePreviewDebounce') ||
+            e.affectsConfiguration('daliPreview.livePreview')) {
+            liveDebouncer?.dispose();
+            liveDebouncer = undefined;
+            const updatedCfg = ConfigurationService.getInstance();
+            const newDebounceMs = updatedCfg.livePreviewDebounce;
+            const liveEnabled = updatedCfg.livePreview;
+            outputChannel.appendLine(
+                `[LivePreview] Settings updated — livePreview=${liveEnabled}, debounce=${newDebounceMs}ms`
+            );
+        }
+    });
+
+    context.subscriptions.push(onSave, onOpen, onTextChange, onConfigChange);
 }
 
 export function deactivate(): void {
