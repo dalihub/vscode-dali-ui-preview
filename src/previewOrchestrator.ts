@@ -485,6 +485,210 @@ export class PreviewOrchestrator {
         }
     }
 
+    /**
+     * Sanitize → transform → slice → instrument the extracted code. Returns the
+     * SliceResult (its `body` re-pointed at the instrumented code) plus the
+     * instrumented string the strategies consume. Extracted from runPreview so
+     * the build pipeline reads as discrete stages.
+     */
+    private prepareSlice(
+        doc: vscode.TextDocument,
+        extraction: ExtractionResult,
+    ): { slice: SliceResult; instrumented: string } {
+        // Strip emoji/pictographs the preview font lacks (they abort DALi when
+        // spread across separate Labels); warn so the user knows □ is a stand-in.
+        const sanitized = sanitizeUnsupportedGlyphs(extraction.code);
+        if (sanitized.replaced) {
+            this.deps.outputChannel.appendLine('[Preview] Emoji with no glyph in the preview font are shown as □ (they render fine on a real device).');
+        }
+        // P13: rewrite `.Children(vector)` → an .Add loop before slicing/instrumenting
+        // (View::Children only takes an initializer_list, so a vector won't compile).
+        const transformedCode = transformVectorChildren(sanitized.code);
+        const extraSources = resolveProjectIncludes(doc);
+        const slice = buildSlice(doc.getText(), doc.fileName, transformedCode, extraSources, extraction.params);
+        const instrumented = instrumentCode(transformedCode, extraction.startLine, new Set(slice.helpers));
+        slice.body = instrumented;
+        return { slice, instrumented };
+    }
+
+    /**
+     * Apply a successful build: read + enrich the scene metadata, push the image
+     * to the webview, and update the status bar / perf log.
+     */
+    private applySuccessfulBuild(args: {
+        result: BuildResult;
+        parserScene: SceneNode | null;
+        usedServerMode: boolean;
+        usedParserMode: boolean;
+        buildTimeMs: number;
+        startTime: number;
+        previewManager: PreviewManager;
+    }): void {
+        const { result, parserScene, usedServerMode, usedParserMode, buildTimeMs, startTime, previewManager } = args;
+        const log = getLogger();
+        // Load scene graph metadata for click-to-code overlay
+        const metaStart = Date.now();
+        let metadata: object | null = null;
+        if (result.metadataPath) {
+            try {
+                metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
+            } catch (err) { log.trace('Extension', 'metadata read skipped', { error: String(err) }); }
+        }
+        // Enrich metadata with FlexLayout properties from the parser tree
+        if (metadata && parserScene) {
+            enrichMetadataWithFlexProps(metadata, parserScene);
+        }
+        this.deps.outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
+        this.cancelErrorDebounce();
+        previewManager.updateImage(result.pngPath!, buildTimeMs, metadata);
+        const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
+        this.deps.statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
+        this.deps.statusBar?.showSuccess(buildTimeMs);
+        const totalElapsed = Date.now() - (this.lastTextChangeTime_ || startTime);
+        this.deps.outputChannel.appendLine(`[Perf] T5 postMessage sent — total pipeline: ${buildTimeMs}ms (build), ${totalElapsed}ms (text change → update)`);
+        this.deps.outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${this.currentWidth_}x${this.currentHeight_})`);
+    }
+
+    /**
+     * Report a full-harness build failure: parse g++ errors against the harness
+     * template, set editor diagnostics (or a raw fallback), and update status.
+     */
+    private reportHarnessFailure(
+        result: BuildResult,
+        doc: vscode.TextDocument,
+        startLine: number,
+        buildRunner: BuildRunner,
+    ): void {
+        const log = getLogger();
+        const templatePath = path.join(
+            buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
+        let template = '';
+        try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'harness template read failed', { error: String(err) }); }
+        const offset = getHarnessCodeOffset(template);
+        const diag = diagnoseGccErrors(result.error || '', offset, doc, startLine, false);
+        if (diag) {
+            this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+            this.scheduleShowError(diag.displayMessage);
+        } else {
+            this.scheduleShowError(formatRawError(result.error || ''));
+        }
+        this.deps.statusBar?.showError(result.error?.split('\n')[0] || 'Build failed');
+        this.deps.outputChannel.appendLine(`Preview failed: ${result.error?.substring(0, 200)}`);
+    }
+
+    /**
+     * Run the build strategies in priority order (parser → dlopen → harness),
+     * honoring the buildGeneration stale guard between awaits. Returns:
+     *  - {kind:'stale'}        a newer build superseded this one → caller returns
+     *  - {kind:'pluginFailed'} the dlopen .so compile failed and diagnostics were
+     *                          already shown → caller returns
+     *  - {kind:'built'}        the result plus which path produced it
+     */
+    private async runBuildStrategies(args: {
+        doc: vscode.TextDocument;
+        extraction: ExtractionResult;
+        instrumented: string;
+        slice: SliceResult;
+        myGeneration: number;
+        startTime: number;
+        opId: string;
+    }): Promise<
+        | { kind: 'stale' }
+        | { kind: 'pluginFailed' }
+        | { kind: 'built'; result: BuildResult; usedServerMode: boolean; usedParserMode: boolean; parserScene: SceneNode | null }
+    > {
+        const { doc, extraction, instrumented, slice, myGeneration, startTime, opId } = args;
+        const log = getLogger();
+        const buildRunner = this.deps.buildRunner;
+
+        let result: BuildResult | undefined;
+        let usedServerMode = false;
+        let usedParserMode = false;
+        let parserScene: SceneNode | null = null;
+
+        this.deps.outputChannel.appendLine(
+            `[Perf]    previewServer: ${this.deps.previewServer ? (this.deps.previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`,
+        );
+
+        // Phase 4-2: Parser-first path (~200ms). Skip for heuristic slices:
+        // the parser would "succeed" on an unresolved project constant like
+        // UiColor(theme::ACCENT) — but the server can't turn "theme::ACCENT"
+        // into a hex value and renders it black. Only the T2 slice compiles
+        // the real namespace constant, so route heuristic slices straight there.
+        if (slice.rung === 'single-fn' && this.parserStrategy.canHandle(this.deps.previewServer)) {
+            log.debug('Build', 'trying parser path', { opId });
+            const stratResult = await this.parserStrategy.execute(
+                instrumented, extraction, this.currentWidth_, this.currentHeight_,
+                this.currentTheme_, this.currentBgColor_,
+            );
+
+            if (myGeneration !== this.buildGeneration) { return { kind: 'stale' }; }
+
+            if (stratResult.result.success) {
+                result = stratResult.result;
+                usedServerMode = true;
+                usedParserMode = true;
+                parserScene = stratResult.parserScene ?? null;
+            } else {
+                // Fall through to next strategy
+                result = undefined;
+                if (myGeneration !== this.buildGeneration) { return { kind: 'stale' }; }
+            }
+        }
+
+        // Phase 2: dlopen server mode
+        if (!usedServerMode && this.dlopenStrategy.canHandle(this.deps.previewServer)) {
+            log.debug('Build', 'trying server/dlopen path', { opId });
+            const stratResult = await this.dlopenStrategy.execute(
+                instrumented, extraction, this.currentWidth_, this.currentHeight_,
+                this.currentTheme_, this.currentBgColor_,
+                slice,
+            );
+
+            // Discard stale result if a newer build was queued during this compile
+            if (myGeneration !== this.buildGeneration) {
+                return { kind: 'stale' };
+            }
+
+            if (stratResult.result.success) {
+                result = stratResult.result;
+                usedServerMode = true;
+            } else {
+                // .so compile failed -- parse errors against plugin template
+                const pluginTemplate = buildRunner.getPluginTemplateContent();
+                const offset = getPluginCodeOffset(pluginTemplate);
+                const buildTimeMs = Date.now() - startTime;
+                const diag = diagnoseGccErrors(stratResult.result.error || '', offset, doc, extraction.startLine, true);
+                if (diag) {
+                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
+                    this.scheduleShowError(diag.displayMessage);
+                } else {
+                    this.scheduleShowError(formatRawError(stratResult.result.error || ''));
+                }
+                this.deps.statusBar?.showError(stratResult.result.error?.split('\n')[0] || 'Build failed');
+                this.deps.outputChannel.appendLine(`Plugin compile failed in ${(buildTimeMs / 1000).toFixed(1)}s`);
+                return { kind: 'pluginFailed' };
+            }
+        }
+
+        // Phase 1 fallback: full harness compile + run
+        if (!usedServerMode) {
+            log.debug('Build', 'trying harness compile+run path', { opId });
+            const stratResult = await this.harnessStrategy.execute(
+                instrumented, extraction, this.currentWidth_, this.currentHeight_,
+                this.currentTheme_, this.currentBgColor_, slice,
+            );
+            result = stratResult.result;
+        }
+
+        // Discard stale result if a newer build was queued
+        if (myGeneration !== this.buildGeneration) {
+            return { kind: 'stale' };
+        }
+
+        return { kind: 'built', result: result!, usedServerMode, usedParserMode, parserScene };
+    }
+
     setLastTextChangeTime(t: number): void {
         this.lastTextChangeTime_ = t;
     }
@@ -603,21 +807,8 @@ export class PreviewOrchestrator {
         // Slice the RAW body first to learn which collected helpers return a View,
         // then instrument so those helper CALLS get tagged too (a cross-file
         // MakeSectionHeader(...) → click-to-code), and re-point the slice body at it.
-        // Strip emoji/pictographs the preview font lacks (they abort DALi when
-        // spread across separate Labels); warn so the user knows □ is a stand-in.
-        const sanitized = sanitizeUnsupportedGlyphs(extraction.code);
-        if (sanitized.replaced) {
-            this.deps.outputChannel.appendLine('[Preview] Emoji with no glyph in the preview font are shown as □ (they render fine on a real device).');
-        }
-        // P13: rewrite `.Children(vector)` → an .Add loop before slicing/instrumenting
-        // (View::Children only takes an initializer_list, so a vector won't compile).
-        const transformedCode = transformVectorChildren(sanitized.code);
-        const extraSources = resolveProjectIncludes(doc);
-        const slice = buildSlice(doc.getText(), doc.fileName, transformedCode, extraSources, extraction.params);
-        const instrumented = instrumentCode(transformedCode, extraction.startLine, new Set(slice.helpers));
-        slice.body = instrumented;
-        const instrumentTime = Date.now();
-        this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${instrumentTime - startTime}ms`);
+        const { slice, instrumented } = this.prepareSlice(doc, extraction);
+        this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${Date.now() - startTime}ms`);
 
         try {
             // Animation path: any config with animation=true triggers GIF capture
@@ -654,132 +845,23 @@ export class PreviewOrchestrator {
             // so saving one of them re-triggers this preview (live dependency reload).
             this.lastSliceSources_ = new Set(slice.sourcePaths.slice(1));
 
-            let result: BuildResult | undefined;
-            let usedServerMode = false;
-            let usedParserMode = false;
-            let parserScene: SceneNode | null = null;
-
-            this.deps.outputChannel.appendLine(
-                `[Perf]    previewServer: ${this.deps.previewServer ? (this.deps.previewServer.isRunning ? 'running' : 'NOT running') : 'null'}`,
-            );
-
-            // Phase 4-2: Parser-first path (~200ms). Skip for heuristic slices:
-            // the parser would "succeed" on an unresolved project constant like
-            // UiColor(theme::ACCENT) — but the server can't turn "theme::ACCENT"
-            // into a hex value and renders it black. Only the T2 slice compiles
-            // the real namespace constant, so route heuristic slices straight there.
-            if (slice.rung === 'single-fn' && this.parserStrategy.canHandle(this.deps.previewServer)) {
-                log.debug('Build', 'trying parser path', { opId });
-                const stratResult = await this.parserStrategy.execute(
-                    instrumented, extraction, this.currentWidth_, this.currentHeight_,
-                    this.currentTheme_, this.currentBgColor_,
-                );
-
-                if (myGeneration !== this.buildGeneration) { return; }
-
-                if (stratResult.result.success) {
-                    result = stratResult.result;
-                    usedServerMode = true;
-                    usedParserMode = true;
-                    parserScene = stratResult.parserScene ?? null;
-                } else {
-                    // Fall through to next strategy
-                    result = undefined;
-                    if (myGeneration !== this.buildGeneration) { return; }
-                }
-            }
-
-            // Phase 2: dlopen server mode
-            if (!usedServerMode && this.dlopenStrategy.canHandle(this.deps.previewServer)) {
-                log.debug('Build', 'trying server/dlopen path', { opId });
-                const stratResult = await this.dlopenStrategy.execute(
-                    instrumented, extraction, this.currentWidth_, this.currentHeight_,
-                    this.currentTheme_, this.currentBgColor_,
-                    slice,
-                );
-
-                // Discard stale result if a newer build was queued during this compile
-                if (myGeneration !== this.buildGeneration) {
-                    return;
-                }
-
-                if (stratResult.result.success) {
-                    result = stratResult.result;
-                    usedServerMode = true;
-                } else {
-                    // .so compile failed -- parse errors against plugin template
-                    const pluginTemplate = buildRunner.getPluginTemplateContent();
-                    const offset = getPluginCodeOffset(pluginTemplate);
-                    const buildTimeMs = Date.now() - startTime;
-                    const diag = diagnoseGccErrors(stratResult.result.error || '', offset, doc, extraction.startLine, true);
-                    if (diag) {
-                        this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
-                        this.scheduleShowError(diag.displayMessage);
-                    } else {
-                        this.scheduleShowError(formatRawError(stratResult.result.error || ''));
-                    }
-                    this.deps.statusBar?.showError(stratResult.result.error?.split('\n')[0] || 'Build failed');
-                    this.deps.outputChannel.appendLine(`Plugin compile failed in ${(buildTimeMs / 1000).toFixed(1)}s`);
-                    return;
-                }
-            }
-
-            // Phase 1 fallback: full harness compile + run
-            if (!usedServerMode) {
-                log.debug('Build', 'trying harness compile+run path', { opId });
-                const stratResult = await this.harnessStrategy.execute(
-                    instrumented, extraction, this.currentWidth_, this.currentHeight_,
-                    this.currentTheme_, this.currentBgColor_, slice,
-                );
-                result = stratResult.result;
-            }
-
-            // Discard stale result if a newer build was queued
-            if (myGeneration !== this.buildGeneration) {
+            const outcome = await this.runBuildStrategies({
+                doc, extraction, instrumented, slice, myGeneration, startTime, opId,
+            });
+            if (outcome.kind === 'stale' || outcome.kind === 'pluginFailed') {
                 return;
             }
+            const { result, usedServerMode, usedParserMode, parserScene } = outcome;
 
             const buildTimeMs = Date.now() - startTime;
 
-            if (result!.success && result!.pngPath) {
-                // Load scene graph metadata for click-to-code overlay
-                const metaStart = Date.now();
-                let metadata: object | null = null;
-                if (result!.metadataPath) {
-                    try {
-                        metadata = JSON.parse(fs.readFileSync(result!.metadataPath, 'utf-8'));
-                    } catch (err) { log.trace('Extension', 'metadata read skipped', { error: String(err) }); }
-                }
-                // Enrich metadata with FlexLayout properties from the parser tree
-                if (metadata && parserScene) {
-                    enrichMetadataWithFlexProps(metadata, parserScene);
-                }
-                this.deps.outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
-                this.cancelErrorDebounce();
-                previewManager.updateImage(result!.pngPath, buildTimeMs, metadata);
-                const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
-                this.deps.statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
-                this.deps.statusBar?.showSuccess(buildTimeMs);
-                const totalElapsed = Date.now() - (this.lastTextChangeTime_ || startTime);
-                this.deps.outputChannel.appendLine(`[Perf] T5 postMessage sent — total pipeline: ${buildTimeMs}ms (build), ${totalElapsed}ms (text change → update)`);
-                this.deps.outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${this.currentWidth_}x${this.currentHeight_})`);
+            if (result.success && result.pngPath) {
+                this.applySuccessfulBuild({
+                    result, parserScene, usedServerMode, usedParserMode,
+                    buildTimeMs, startTime, previewManager,
+                });
             } else {
-                // Parse errors and show in editor
-                const templatePath = path.join(
-                    buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
-                let template = '';
-                try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'harness template read failed', { error: String(err) }); }
-                const offset = getHarnessCodeOffset(template);
-                const diag = diagnoseGccErrors(result!.error || '', offset, doc, extraction.startLine, false);
-                if (diag) {
-                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
-                    this.scheduleShowError(diag.displayMessage);
-                } else {
-                    this.scheduleShowError(formatRawError(result!.error || ''));
-                }
-
-                this.deps.statusBar?.showError(result!.error?.split('\n')[0] || 'Build failed');
-                this.deps.outputChannel.appendLine(`Preview failed: ${result!.error?.substring(0, 200)}`);
+                this.reportHarnessFailure(result, doc, extraction.startLine, buildRunner);
             }
         } catch (err: any) {
             if (myGeneration === this.buildGeneration) {
