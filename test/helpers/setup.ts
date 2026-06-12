@@ -17,6 +17,7 @@ const vscodeMock = {
             update: (_key: string, _value: any, _target?: any) => Promise.resolve(),
         }),
         workspaceFolders: undefined,
+        getWorkspaceFolder: (_uri: any) => undefined,
         applyEdit: (_edit: any) => Promise.resolve(true),
         onDidChangeConfiguration: (_listener: any) => ({ dispose: () => {} }),
     },
