@@ -5,6 +5,20 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Korean / CJK text now renders in the docker preview.** The runtime image
+  shipped only DejaVu fonts (no CJK glyphs), so Hangul / Chinese / Japanese
+  rendered as tofu (□). Baked **Noto Sans CJK** into the runtime image so the
+  preview font resolves CJK codepoints — matching real Tizen devices, which
+  have CJK fonts. Latin text still resolves to DejaVu first, so existing
+  previews are pixel-identical (19/20 goldens byte-unchanged; the
+  `multi-config-locale` golden updated from `□□□□□?` to `안녕하세요?`). The Serif
+  CJK collection is stripped (previews render sans) to keep image growth small
+  (+~80 MB). Added a `korean-label` sample + golden as a CJK regression guard.
+
 ## [0.41.0] - 2026-06-11 — Zero-annotation auto-extract preview
 
 Preview real app code — helpers, member functions, MVVM models, cross-file

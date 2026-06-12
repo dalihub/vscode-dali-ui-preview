@@ -192,6 +192,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtiff5 libexif12 \
     # text / fonts (runtime libs only)
     libfribidi0 libharfbuzz0b libfontconfig1 libfreetype6 \
+    # CJK font (Korean / Chinese / Japanese). The base image ships only DejaVu,
+    # which has NO CJK glyphs, so Hangul/Kanji/Hanzi rendered as tofu (□).
+    # Noto Sans CJK gives fontconfig a fallback for those codepoints — real
+    # Tizen devices have CJK fonts, so this matches device behaviour. Latin
+    # still resolves to DejaVu first, so existing (Latin) goldens are unchanged.
+    # The Serif variant is stripped below (previews use sans) to halve the cost.
+    fonts-noto-cjk \
     # 2D / xml / event (runtime libs only)
     libcairo2 libxml2 libuv1 \
     libxcb-xkb1 libxkbcommon0 \
@@ -217,7 +224,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
               /usr/share/icons/Humanity* /usr/share/icons/ubuntu-mono* \
               /usr/share/icons/hicolor /usr/share/icons/Adwaita \
     && rm -f /usr/lib/x86_64-linux-gnu/libheif.so* \
-             /usr/lib/x86_64-linux-gnu/libx265.so*
+             /usr/lib/x86_64-linux-gnu/libx265.so* \
+    # Keep Noto Sans CJK; drop the Serif CJK collection (previews render sans;
+    # the Serif .ttc is ~60MB the preview never uses). Sans stays the matched
+    # family for all CJK codepoints, so Korean/CJK still renders.
+    && rm -f /usr/share/fonts/opentype/noto/NotoSerifCJK*.ttc
 
 # Copy DALi install from build stage, then strip + cleanup to shave ~50MB
 COPY --from=build-dali /opt/dali /opt/dali
