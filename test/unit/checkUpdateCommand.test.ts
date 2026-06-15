@@ -38,8 +38,6 @@ describe('maybeAutoCheckRuntimeUpdate', () => {
     let cb: { onUpdateAvailable: sinon.SinonStub; onUpdated: sinon.SinonStub };
 
     beforeEach(() => {
-        // mock config defaults runtimeMode to 'native'; force docker mode.
-        sinon.stub(ConfigurationService.prototype, 'runtimeMode').get(() => 'docker');
         cb = { onUpdateAvailable: sinon.stub(), onUpdated: sinon.stub().resolves() };
     });
     afterEach(() => sinon.restore());

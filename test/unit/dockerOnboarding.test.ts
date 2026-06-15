@@ -7,23 +7,18 @@ import {
 } from '../../src/dockerOnboarding';
 
 describe('classifyOnboarding', () => {
-    it('returns not-docker-mode for native runtime', () => {
-        expect(classifyOnboarding({ runtimeMode: 'native', dockerAccessOk: false, hasImage: false }))
-            .to.equal('not-docker-mode');
-    });
-
     it('returns need-docker when docker is unreachable', () => {
-        expect(classifyOnboarding({ runtimeMode: 'docker', dockerAccessOk: false, hasImage: false }))
+        expect(classifyOnboarding({ dockerAccessOk: false, hasImage: false }))
             .to.equal('need-docker');
     });
 
     it('returns need-image when docker is ok but the image is missing', () => {
-        expect(classifyOnboarding({ runtimeMode: 'docker', dockerAccessOk: true, hasImage: false }))
+        expect(classifyOnboarding({ dockerAccessOk: true, hasImage: false }))
             .to.equal('need-image');
     });
 
     it('returns already-set-up when docker and image are both present', () => {
-        expect(classifyOnboarding({ runtimeMode: 'docker', dockerAccessOk: true, hasImage: true }))
+        expect(classifyOnboarding({ dockerAccessOk: true, hasImage: true }))
             .to.equal('already-set-up');
     });
 });
@@ -31,7 +26,6 @@ describe('classifyOnboarding', () => {
 describe('maybeRunFirstRunDockerSetup', () => {
     function makeDeps(over: Partial<FirstRunDockerSetupDeps> = {}): FirstRunDockerSetupDeps {
         return {
-            runtimeMode: 'docker',
             daliVersionTag: 'latest',
             alreadyShown: false,
             checkAccess: sinon.stub().resolves({ state: 'docker-not-installed' }),
@@ -51,13 +45,6 @@ describe('maybeRunFirstRunDockerSetup', () => {
         expect(state).to.equal('already-shown');
         expect((deps.checkAccess as sinon.SinonStub).called).to.equal(false);
         expect((deps.markShown as sinon.SinonStub).called).to.equal(false);
-    });
-
-    it('skips docker work entirely in native mode', async () => {
-        const deps = makeDeps({ runtimeMode: 'native' });
-        const state = await maybeRunFirstRunDockerSetup(deps);
-        expect(state).to.equal('not-docker-mode');
-        expect((deps.checkAccess as sinon.SinonStub).called).to.equal(false);
     });
 
     it('prompts and installs when docker is missing and the user consents', async () => {

@@ -36,22 +36,18 @@ function makeOrch() {
         updateImage: (...args: any[]) => { updateImageCalls.push(args); },
         showLoading: () => {},
         showError: () => {},
-        updateAnimation: () => {},
         clearError: () => {},
     } as any;
     const buildRunner = {
         getTmpDir: () => '/tmp/dali_test',
         getExtensionPath: () => '/ext',
         getPluginTemplateContent: () => '',
-        getInteractiveTemplateContent: () => '',
     } as any;
     const deps: OrchestratorDeps = {
         buildRunner,
         previewManager,
         previewServer: undefined,
         xvfbManager: undefined,
-        vncManager: undefined,
-        sdbManager: undefined,
         statusBar: undefined,
         outputChannel: { appendLine: () => {} } as any,
         diagnosticCollection: { delete: () => {}, set: () => {} } as any,
@@ -150,5 +146,69 @@ describe('PreviewOrchestrator — concurrency guards (characterization)', () => 
         await p1;
         expect(updateImageCalls.length).to.equal(1);
         expect(updateImageCalls[0][0]).to.equal('/a.png');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// scrubAnimation epoch guard — prevents a previous preview's in-flight/background
+// frames from leaking into the current one (the two reported animation bugs).
+// ---------------------------------------------------------------------------
+
+describe('PreviewOrchestrator — scrubAnimation epoch guard', () => {
+    function makeScrubOrch() {
+        const updateImageCalls: any[][] = [];
+        const renderAtCalls: any[][] = [];
+        const previewManager = {
+            updateImage: (...args: any[]) => { updateImageCalls.push(args); },
+            showLoading: () => {}, showError: () => {}, clearError: () => {},
+            showAnimationControls: () => {}, hideAnimationControls: () => {},
+            notifyScrubDropped: () => {},
+        } as any;
+        const previewServer = {
+            isRunning: true,
+            renderAt: (...args: any[]) => {
+                renderAtCalls.push(args);
+                return Promise.resolve({ success: true, pngPath: '/tmp/scrub.png' });
+            },
+        } as any;
+        const buildRunner = { getTmpDir: () => '/tmp/dali_test' } as any;
+        const deps: OrchestratorDeps = {
+            buildRunner, previewManager, previewServer,
+            xvfbManager: undefined, statusBar: undefined,
+            outputChannel: { appendLine: () => {} } as any,
+            diagnosticCollection: { delete: () => {}, set: () => {} } as any,
+        };
+        const orch = new PreviewOrchestrator(deps, { width: 360, height: 360, theme: 'dark' });
+        return { orch, updateImageCalls, renderAtCalls };
+    }
+
+    it('renders + updates the image when the scrub epoch matches the active preview', async () => {
+        const { orch, updateImageCalls, renderAtCalls } = makeScrubOrch();
+        (orch as any).activeEpoch_ = 7;
+        (orch as any).building = false;
+        await orch.scrubAnimation(0.5, 7);
+        expect(renderAtCalls.length).to.equal(1);
+        expect(updateImageCalls.length).to.equal(1);
+        // updateImage(pngPath, 0, metadata, isScrub=true, epoch=7)
+        expect(updateImageCalls[0][3]).to.equal(true);
+        expect(updateImageCalls[0][4]).to.equal(7);
+    });
+
+    it('ignores a scrub for a stale epoch (previous preview) — no render, no update', async () => {
+        const { orch, updateImageCalls, renderAtCalls } = makeScrubOrch();
+        (orch as any).activeEpoch_ = 7;
+        (orch as any).building = false;
+        await orch.scrubAnimation(0.5, 3); // stale epoch
+        expect(renderAtCalls.length).to.equal(0);
+        expect(updateImageCalls.length).to.equal(0);
+    });
+
+    it('ignores a scrub while a fresh render is in progress (building)', async () => {
+        const { orch, updateImageCalls, renderAtCalls } = makeScrubOrch();
+        (orch as any).activeEpoch_ = 7;
+        (orch as any).building = true;
+        await orch.scrubAnimation(0.5, 7);
+        expect(renderAtCalls.length).to.equal(0);
+        expect(updateImageCalls.length).to.equal(0);
     });
 });

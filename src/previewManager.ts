@@ -12,11 +12,7 @@ export class PreviewManager {
     private themeToggleCallbacks: Array<() => void> = [];
     private bgChangeCallbacks: Array<(color: string) => void> = [];
     private inspectorToggleCallbacks: Array<(visible: boolean) => void> = [];
-    private startVncCallbacks: Array<() => void> = [];
-    private stopVncCallbacks: Array<() => void> = [];
-    private vncConnectedCallbacks: Array<() => void> = [];
-    private vncDisconnectedCallbacks: Array<(reason: string) => void> = [];
-    private animationSpeedChangeCallbacks: Array<(speed: number) => void> = [];
+    private scrubCallbacks: Array<(progress: number, epoch: number) => void> = [];
     private _inspectorVisible = false;
     private disposables: vscode.Disposable[] = [];
 
@@ -40,7 +36,6 @@ export class PreviewManager {
                 localResourceRoots: [
                     vscode.Uri.file(this.tmpDir),
                     vscode.Uri.file(mediaPath),
-                    vscode.Uri.file(path.join(mediaPath, 'vendor', 'noVNC')),
                 ],
             }
         );
@@ -65,7 +60,7 @@ export class PreviewManager {
         return this.panel !== undefined;
     }
 
-    updateImage(pngPath: string, buildTimeMs: number, metadata?: object | null): void {
+    updateImage(pngPath: string, buildTimeMs: number, metadata?: object | null, isScrub = false, epoch = 0): void {
         if (!this.panel) {
             return;
         }
@@ -77,29 +72,8 @@ export class PreviewManager {
             uri: pngUri.toString(),
             buildTime: buildTimeMs,
             metadata: metadata || null,
-        });
-    }
-
-    updateAnimation(
-        gifOrPngPath: string,
-        buildTimeMs: number,
-        frameCount: number,
-        metadata?: object | null
-    ): void {
-        if (!this.panel) {
-            return;
-        }
-
-        const isGif = gifOrPngPath.endsWith('.gif');
-        const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(gifOrPngPath));
-
-        this.panel.webview.postMessage({
-            command: 'updateAnimation',
-            uri: uri.toString(),
-            buildTime: buildTimeMs,
-            frameCount,
-            isGif,
-            metadata: metadata || null,
+            isScrub,
+            epoch,
         });
     }
 
@@ -216,96 +190,6 @@ export class PreviewManager {
         this.panel.webview.postMessage({ command: 'highlightElement', line });
     }
 
-    /** Show the VNC toggle button in the webview toolbar. */
-    notifyVncAvailable(): void {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.webview.postMessage({ command: 'vncAvailable' });
-    }
-
-    /** Tell webview to switch to VNC mode and connect to wsUrl. */
-    startVncMode(wsUrl: string): void {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.webview.postMessage({ command: 'startVnc', wsUrl });
-    }
-
-    /** Tell webview to switch back to static PNG mode. */
-    stopVncMode(): void {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.webview.postMessage({ command: 'stopVnc' });
-    }
-
-    /** Tell webview that the DALi app is reloading (hot reload). */
-    notifyVncReloading(): void {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.webview.postMessage({ command: 'vncReloading' });
-    }
-
-    /** Tell webview that hot reload is done — reconnect VNC. */
-    notifyVncReloaded(wsUrl: string): void {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.webview.postMessage({ command: 'vncReloaded', wsUrl });
-    }
-
-    onStartVnc(callback: () => void): vscode.Disposable {
-        this.startVncCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const idx = this.startVncCallbacks.indexOf(callback);
-            if (idx >= 0) {
-                this.startVncCallbacks.splice(idx, 1);
-            }
-        });
-    }
-
-    onStopVnc(callback: () => void): vscode.Disposable {
-        this.stopVncCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const idx = this.stopVncCallbacks.indexOf(callback);
-            if (idx >= 0) {
-                this.stopVncCallbacks.splice(idx, 1);
-            }
-        });
-    }
-
-    onVncConnected(callback: () => void): vscode.Disposable {
-        this.vncConnectedCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const idx = this.vncConnectedCallbacks.indexOf(callback);
-            if (idx >= 0) {
-                this.vncConnectedCallbacks.splice(idx, 1);
-            }
-        });
-    }
-
-    onVncDisconnected(callback: (reason: string) => void): vscode.Disposable {
-        this.vncDisconnectedCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const idx = this.vncDisconnectedCallbacks.indexOf(callback);
-            if (idx >= 0) {
-                this.vncDisconnectedCallbacks.splice(idx, 1);
-            }
-        });
-    }
-
-    onAnimationSpeedChange(callback: (speed: number) => void): vscode.Disposable {
-        this.animationSpeedChangeCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const idx = this.animationSpeedChangeCallbacks.indexOf(callback);
-            if (idx >= 0) {
-                this.animationSpeedChangeCallbacks.splice(idx, 1);
-            }
-        });
-    }
-
     setInspectorVisible(visible: boolean): void {
         this._inspectorVisible = visible;
         if (!this.panel) {
@@ -354,6 +238,32 @@ export class PreviewManager {
         });
     }
 
+    onScrub(callback: (progress: number, epoch: number) => void): vscode.Disposable {
+        this.scrubCallbacks.push(callback);
+        return new vscode.Disposable(() => {
+            const idx = this.scrubCallbacks.indexOf(callback);
+            if (idx >= 0) {
+                this.scrubCallbacks.splice(idx, 1);
+            }
+        });
+    }
+
+    /** Show the animation scrubber/play controls (preview has scrubbable animations). */
+    showAnimationControls(durationMs: number, epoch = 0): void {
+        this.panel?.webview.postMessage({ command: 'showAnimation', durationMs, epoch });
+    }
+
+    /** Hide the animation controls (preview has no animations). */
+    hideAnimationControls(): void {
+        this.panel?.webview.postMessage({ command: 'hideAnimation' });
+    }
+
+    /** Tell the webview a scrub request couldn't be served, so it releases its
+     * in-flight slot immediately instead of waiting on its watchdog. */
+    notifyScrubDropped(epoch: number): void {
+        this.panel?.webview.postMessage({ command: 'scrubDropped', epoch });
+    }
+
     dispose(): void {
         this.panel?.dispose();
         this.panel = undefined;
@@ -368,11 +278,7 @@ export class PreviewManager {
         this.themeToggleCallbacks = [];
         this.bgChangeCallbacks = [];
         this.inspectorToggleCallbacks = [];
-        this.startVncCallbacks = [];
-        this.stopVncCallbacks = [];
-        this.vncConnectedCallbacks = [];
-        this.vncDisconnectedCallbacks = [];
-        this.animationSpeedChangeCallbacks = [];
+        this.scrubCallbacks = [];
     }
 
     private handleMessage(message: { command: string; [key: string]: unknown }): void {
@@ -428,43 +334,19 @@ export class PreviewManager {
                 }
                 break;
             }
+            case 'scrubAnimation': {
+                const progress = message.progress as number;
+                const epoch = (message.epoch as number) ?? 0;
+                if (typeof progress === 'number') {
+                    for (const cb of this.scrubCallbacks) {
+                        cb(progress, epoch);
+                    }
+                }
+                break;
+            }
             case 'webviewReady': {
                 if (this._inspectorVisible) {
                     this.panel?.webview.postMessage({ command: 'setInspectorVisible', visible: true });
-                }
-                break;
-            }
-            case 'startVnc': {
-                for (const cb of this.startVncCallbacks) {
-                    cb();
-                }
-                break;
-            }
-            case 'stopVnc': {
-                for (const cb of this.stopVncCallbacks) {
-                    cb();
-                }
-                break;
-            }
-            case 'vncConnected': {
-                for (const cb of this.vncConnectedCallbacks) {
-                    cb();
-                }
-                break;
-            }
-            case 'vncDisconnected': {
-                const reason = (message.reason as string) || '';
-                for (const cb of this.vncDisconnectedCallbacks) {
-                    cb(reason);
-                }
-                break;
-            }
-            case 'animationSpeedChange': {
-                const speed = message.speed as number;
-                if (typeof speed === 'number' && speed > 0) {
-                    for (const cb of this.animationSpeedChangeCallbacks) {
-                        cb(speed);
-                    }
                 }
                 break;
             }
@@ -487,9 +369,6 @@ export class PreviewManager {
 
         if (this.panel) {
             html = html.replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource);
-            const rfbPath = path.join(this.context.extensionPath, 'media', 'vendor', 'noVNC', 'rfb.js');
-            const rfbUri = this.panel.webview.asWebviewUri(vscode.Uri.file(rfbPath));
-            html = html.replace(/\{\{rfbScriptUri\}\}/g, rfbUri.toString());
         }
 
         return html;

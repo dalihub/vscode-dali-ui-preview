@@ -18,8 +18,6 @@ export const DOCKER_ONBOARDING_KEY = 'daliPreview.dockerOnboarding.v1';
 export type OnboardingState =
     /** Prompt already shown on this machine — never re-prompt automatically. */
     | 'already-shown'
-    /** runtimeMode is native — host DALi install, no container needed. */
-    | 'not-docker-mode'
     /** Docker isn't reachable — must prompt the user to install it. */
     | 'need-docker'
     /** Docker is ready but the runtime image is missing (auto-pull elsewhere). */
@@ -32,13 +30,9 @@ export type OnboardingState =
  * onboarding flow should do. Kept side-effect-free for straightforward testing.
  */
 export function classifyOnboarding(args: {
-    runtimeMode: 'native' | 'docker';
     dockerAccessOk: boolean;
     hasImage: boolean;
 }): Exclude<OnboardingState, 'already-shown'> {
-    if (args.runtimeMode !== 'docker') {
-        return 'not-docker-mode';
-    }
     if (!args.dockerAccessOk) {
         return 'need-docker';
     }
@@ -49,7 +43,6 @@ export function classifyOnboarding(args: {
 }
 
 export interface FirstRunDockerSetupDeps {
-    runtimeMode: 'native' | 'docker';
     daliVersionTag: string;
     /** Whether the once-per-machine prompt has already been shown. */
     alreadyShown: boolean;
@@ -86,17 +79,12 @@ export async function maybeRunFirstRunDockerSetup(
     if (deps.alreadyShown) {
         return 'already-shown';
     }
-    if (deps.runtimeMode !== 'docker') {
-        // Native users are guided by the setup walkthrough instead.
-        return 'not-docker-mode';
-    }
 
     const access = await deps.checkAccess();
     const hasImage = access.state === 'ok'
         ? await deps.hasImage(deps.daliVersionTag)
         : false;
     const state = classifyOnboarding({
-        runtimeMode: 'docker',
         dockerAccessOk: access.state === 'ok',
         hasImage,
     });

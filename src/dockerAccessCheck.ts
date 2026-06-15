@@ -243,7 +243,6 @@ export async function verifyDockerCommand(
  * render may proceed; when it cannot and we are not in a silent (live-preview)
  * render, shows the actionable setup guidance as a side effect via `showGuidance`.
  *
- *   - native mode             → true  (nothing to gate)
  *   - dlopen server running   → true  (docker is by definition reachable)
  *   - a setup poll is running → false (install in flight — don't render, and
  *                                      don't re-prompt on top of it)
@@ -251,14 +250,12 @@ export async function verifyDockerCommand(
  *   - access not ok           → false; guidance shown unless silent
  */
 export async function decidePreviewDockerGate(deps: {
-    runtimeMode: 'native' | 'docker';
     serverRunning: boolean;
     pollerRunning: boolean;
     silent: boolean;
     checkAccess: () => Promise<DockerAccessResult>;
     showGuidance: (a: DockerAccessResult) => Promise<void>;
 }): Promise<boolean> {
-    if (deps.runtimeMode !== 'docker') { return true; }
     if (deps.serverRunning) { return true; }
     if (deps.pollerRunning) { return false; }
     const access = await deps.checkAccess();

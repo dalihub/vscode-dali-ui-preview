@@ -3,13 +3,9 @@ import { PreviewManager } from './previewManager';
 import { BuildRunner } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { XvfbManager } from './xvfbManager';
-import { VncManager } from './vncManager';
-import { SdbManager } from './sdbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
 import { extractFunctionBody, isPreviewable } from './codeExtractor';
 import { PreviewCodeLensProvider } from './previewCodeLens';
-import { runSetupWizard, isDaliConfigured } from './setupWizard';
-import { validateEnvironment, findDaliPrefix } from './daliEnvironment';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { initLogger, getLogger } from './logger';
 import { ConfigurationService } from './configurationService';
@@ -18,8 +14,8 @@ import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand, decide
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
 import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
-import { openSampleCommand, openExamplesCommand, useDockerRuntimeCommand, useNativeRuntimeCommand, showReadmeCommand } from './sampleCommand';
-import { isFirstLaunch, maybeOpenWalkthrough, openWalkthrough } from './walkthroughController';
+import { openSampleCommand, openExamplesCommand, showReadmeCommand } from './sampleCommand';
+import { openWalkthrough } from './walkthroughController';
 import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
@@ -29,11 +25,8 @@ let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
 let previewServer: PreviewServer | undefined;
 let xvfbManager: XvfbManager | undefined;
-let vncManager: VncManager | undefined;
-let sdbManager: SdbManager | undefined;
 let statusBar: StatusBarManager | undefined;
 let themeStatusBar: ThemeStatusBarItem | undefined;
-let currentDeviceSerial: string | undefined;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let outputChannel: vscode.OutputChannel;
 let liveDebouncer: LivePreviewDebouncer<vscode.TextDocument> | undefined;
@@ -107,75 +100,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
     }
 
-    // Suppress all legacy first-run popups when:
-    //   - this machine has never seen the walkthrough (firstLaunch) — the
-    //     walkthrough alone drives the initial UX, no competing modals; OR
-    //   - runtimeMode is docker — the runtime lives in the container image,
-    //     host DALi prefix and host g++/Xvfb don't apply.
-    // Only an existing-user-on-native-mode-without-prefix combination still
-    // surfaces the legacy setup wizard / env validation toasts.
-    const isDockerMode = ConfigurationService.getInstance().runtimeMode === 'docker';
-    const suppressLegacyFirstRun = isDockerMode || isFirstLaunch(context);
-
-    try {
-        if (!suppressLegacyFirstRun && !isDaliConfigured(context)) {
-            const daliPath = await runSetupWizard(context);
-            if (!daliPath) {
-                outputChannel.appendLine('DALi not configured. Preview will not work until configured.');
-            }
-        }
-    } catch (err: any) {
-        outputChannel.appendLine(`Setup wizard error: ${err.message || err}`);
-    }
-
-    // Validate runtime environment and show actionable messages for missing
-    // deps. Skipped in docker mode (the docker image carries its own
-    // toolchain — host doesn't need g++/Xvfb/etc.) and on first launch
-    // (walkthrough handles guidance; no competing toasts).
-    if (suppressLegacyFirstRun) {
-        outputChannel.appendLine(`[Environment] Validation skipped (${isDockerMode ? 'runtimeMode=docker' : 'first-launch — walkthrough drives'})`);
-    } else try {
-        const daliPrefixForCheck = await findDaliPrefix();
-        const envIssues = await validateEnvironment(daliPrefixForCheck);
-        if (envIssues.length > 0) {
-            for (const issue of envIssues) {
-                outputChannel.appendLine(`[Environment warning] ${issue.message} → ${issue.action}`);
-            }
-            const criticalDeps = envIssues.filter(i => i.kind === 'missing_dep');
-            if (criticalDeps.length > 0) {
-                const lines = criticalDeps.map(i => `• ${i.message}\n  Action: ${i.action}`).join('\n');
-                const choice = await vscode.window.showWarningMessage(
-                    `DALi Preview: Required dependencies are missing. Preview may not work.\n${lines}`,
-                    'View Output'
-                );
-                if (choice === 'View Output') {
-                    outputChannel.show();
-                }
-            }
-        }
-    } catch (err: any) {
-        outputChannel.appendLine(`[Environment validation] Error: ${err?.message ?? err}`);
-    }
-
-    // Docker runtime (used when daliPreview.runtimeMode === 'docker')
+    // Docker runtime — the DALi UI is always rendered inside the container image.
     dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
 
     // Build runner
     buildRunner = new BuildRunner(context, xvfbManager, outputChannel, dockerRuntime);
-
-    // SDB manager
-    sdbManager = new SdbManager(outputChannel);
-
-    // VNC manager
-    vncManager = new VncManager(outputChannel);
-    vncManager.onDaliAppExitCallback = () => {
-        if (orchestrator?.isInteractiveMode) {
-            orchestrator.setVncModeOff();
-            previewManager?.stopVncMode();
-            statusBar?.showReady();
-            outputChannel.appendLine('[VNC] DALi app exited unexpectedly — interactive mode stopped');
-        }
-    };
 
     // Create the orchestrator (previewManager will be set later via ensurePreviewManager)
     // We pass a dummy previewManager initially; ensurePreviewManager will update it
@@ -185,8 +114,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             previewManager: undefined as any,
             previewServer: undefined,
             xvfbManager,
-            vncManager,
-            sdbManager,
             statusBar,
             outputChannel,
             diagnosticCollection,
@@ -236,70 +163,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         const cfg = ConfigurationService.getInstance();
-        const isDocker = cfg.runtimeMode === 'docker';
-        let daliPrefix = '';
-        if (isDocker) {
-            // Probe docker access before trying to spawn the server. The
-            // common failure mode is "permission denied" right after install,
-            // when the docker group hasn't propagated to this VS Code session
-            // — give the user actionable guidance instead of a cryptic
-            // PreviewServer timeout.
-            const access = await checkDockerAccess();
-            if (access.state !== 'ok') {
-                outputChannel.appendLine(
-                    `[PreviewServer] Skipped — docker access state: ${access.state}`,
-                );
-                statusBar?.showMode('compile');
-                if (promptOnDockerIssue) {
-                    await maybeShowDockerGuidance(access);
-                }
-                return;
+        // Probe docker access before trying to spawn the server. The
+        // common failure mode is "permission denied" right after install,
+        // when the docker group hasn't propagated to this VS Code session
+        // — give the user actionable guidance instead of a cryptic
+        // PreviewServer timeout.
+        const access = await checkDockerAccess();
+        if (access.state !== 'ok') {
+            outputChannel.appendLine(
+                `[PreviewServer] Skipped — docker access state: ${access.state}`,
+            );
+            statusBar?.showMode('compile');
+            if (promptOnDockerIssue) {
+                await maybeShowDockerGuidance(access);
             }
-            // Ensure the runtime image is present BEFORE launching the
-            // container. Otherwise `docker run` cold-pulls ~290 MB, blows past
-            // the 15s READY timeout, and silently fails (then retries).
-            if (dockerRuntime) {
-                const imageReady = await ensureRuntimeImage(dockerRuntime, outputChannel);
-                if (!imageReady) {
-                    outputChannel.appendLine('[PreviewServer] Skipped — runtime image unavailable.');
-                    statusBar?.showMode('compile');
-                    return;
-                }
-            }
-        } else {
-            const found = await buildRunner!.getDaliPrefix();
-            if (!found) {
-                return;
-            }
-            daliPrefix = found;
+            return;
         }
-        const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
+        // Ensure the runtime image is present BEFORE launching the
+        // container. Otherwise `docker run` cold-pulls ~290 MB, blows past
+        // the 15s READY timeout, and silently fails (then retries).
+        if (dockerRuntime) {
+            const imageReady = await ensureRuntimeImage(dockerRuntime, outputChannel);
+            if (!imageReady) {
+                outputChannel.appendLine('[PreviewServer] Skipped — runtime image unavailable.');
+                statusBar?.showMode('compile');
+                return;
+            }
+        }
         // Bind-mount workspace folders (read-only) into the container so
         // user code that references absolute asset paths (images, fonts)
         // can resolve them. Also include configured fontDirectories.
         const dockerExtraMounts: string[] = [];
-        if (isDocker) {
-            for (const folder of vscode.workspace.workspaceFolders ?? []) {
-                dockerExtraMounts.push(folder.uri.fsPath);
-            }
-            for (const fontDir of cfg.fontDirectories) {
-                if (fontDir) dockerExtraMounts.push(fontDir);
-            }
+        for (const folder of vscode.workspace.workspaceFolders ?? []) {
+            dockerExtraMounts.push(folder.uri.fsPath);
+        }
+        for (const fontDir of cfg.fontDirectories) {
+            if (fontDir) dockerExtraMounts.push(fontDir);
         }
         previewServer = new PreviewServer(
             context.extensionPath,
-            daliPrefix,
-            display,
             outputChannel,
             BuildRunner.getWorkspaceTmpDir(),
-            isDocker ? dockerRuntime : undefined,
-            isDocker ? cfg.daliVersionTag : undefined,
+            dockerRuntime,
+            cfg.daliVersionTag,
             dockerExtraMounts,
         );
         const started = await previewServer.start();
         if (started) {
-            const where = isDocker ? 'inside docker container' : '(Phase 2 mode)';
-            outputChannel.appendLine(`[PreviewServer] dlopen server started ${where}`);
+            outputChannel.appendLine('[PreviewServer] dlopen server started inside docker container');
             statusBar?.showMode('server');
             orchestrator?.updatePreviewServer(previewServer);
         } else {
@@ -322,7 +233,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     //      modal is the only prompt. Otherwise (already onboarded, or docker is
     //      fine) let this init surface docker-setup guidance on demand.
     const onboardingMayPrompt =
-        ConfigurationService.getInstance().runtimeMode === 'docker' &&
         !context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY);
     const hasPreviewableContext =
         (!!vscode.window.activeTextEditor && isPreviewable(vscode.window.activeTextEditor.document)) ||
@@ -388,7 +298,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // reflects the current runtime state.
     const ensureDockerReadyForPreview = (opts: { silent: boolean }): Promise<boolean> =>
         decidePreviewDockerGate({
-            runtimeMode: ConfigurationService.getInstance().runtimeMode,
             serverRunning: !!previewServer?.isRunning,
             pollerRunning: !!dockerAccessPoller?.isRunning,
             silent: opts.silent,
@@ -434,28 +343,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
     });
 
-    // Command: DALi: Toggle Interactive Mode (VNC)
-    const toggleInteractiveCmd = vscode.commands.registerCommand('dali.toggleInteractiveMode', async () => {
-        if (!orchestrator || !buildRunner || !previewManager || !vncManager) {
-            return;
-        }
-        if (orchestrator.isInteractiveMode) {
-            await orchestrator.stopVncMode();
-        } else {
-            await orchestrator.startVncMode();
-        }
-    });
-
-    context.subscriptions.push(toggleInteractiveCmd);
-
     // Command: DALi Preview: Open Settings
     const openSettingsCmd = vscode.commands.registerCommand('dali.openSettings', () => {
         vscode.commands.executeCommand('workbench.action.openSettings', 'daliPreview');
     });
     context.subscriptions.push(openSettingsCmd);
 
-    // Docker maintenance commands (no-op in native mode but always registered
-    // so the user can recover from a broken docker setup at any time).
+    // Docker maintenance commands — always registered so the user can recover
+    // from a broken docker setup at any time.
     context.subscriptions.push(
         vscode.commands.registerCommand('dali.verifyDocker', () =>
             verifyDockerCommand(outputChannel, startDockerSetupWatch),
@@ -490,22 +385,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('dali.openExamples', () =>
             openExamplesCommand(context),
         ),
-        vscode.commands.registerCommand('dali.useDockerRuntime', () =>
-            useDockerRuntimeCommand(async () => {
-                const access = await checkDockerAccess();
-                if (access.state !== 'ok') {
-                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
-                    return;
-                }
-                if (dockerRuntime) {
-                    await ensureRuntimeImage(dockerRuntime, outputChannel);
-                }
-                await initPreviewServer();
-            }),
-        ),
-        vscode.commands.registerCommand('dali.useNativeRuntime', () =>
-            useNativeRuntimeCommand(),
-        ),
         vscode.commands.registerCommand('dali.showReadme', () =>
             showReadmeCommand(context),
         ),
@@ -515,111 +394,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     // First-launch onboarding — shown once per machine via globalState flag.
-    // In docker mode (the default) we proactively offer to install Docker +
-    // download the runtime image, so the user no longer has to open a
-    // `.preview.dali.cpp` file first to discover setup. Native users get the
-    // setup walkthrough instead. Both are idempotent: rerun via
-    // "DALi Preview: Run Setup Walkthrough".
+    // We proactively offer to install Docker + download the runtime image, so
+    // the user no longer has to open a `.preview.dali.cpp` file first to
+    // discover setup. Idempotent: rerun via "DALi Preview: Run Setup Walkthrough".
     const onboardingCfg = ConfigurationService.getInstance();
-    if (onboardingCfg.runtimeMode === 'docker') {
-        context.globalState.setKeysForSync([DOCKER_ONBOARDING_KEY]);
-        maybeRunFirstRunDockerSetup({
-            runtimeMode: 'docker',
-            daliVersionTag: onboardingCfg.daliVersionTag,
-            alreadyShown: !!context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY),
-            checkAccess: () => checkDockerAccess(),
-            hasImage: (tag) => dockerRuntime ? dockerRuntime.hasImage(tag) : Promise.resolve(false),
-            markShown: () => Promise.resolve(context.globalState.update(DOCKER_ONBOARDING_KEY, true)),
-            confirmInstall: async () => {
-                const choice = await vscode.window.showInformationMessage(
-                    'DALi Preview renders your UI inside a Docker container. Set it up now? ' +
-                    'This installs Docker (one password), then downloads the runtime image ' +
-                    '(~290 MB) automatically — no reboot or reload needed.',
-                    { modal: true },
-                    'Set Up Now',
-                );
-                return choice === 'Set Up Now';
-            },
-            installDocker: async () => {
-                // Re-probe so we run the right action: a fresh install vs. just a
-                // socket-permission / daemon fix (both wired to start the access
-                // poller, which auto-pulls the image and starts the server next).
-                const access = await checkDockerAccess();
-                if (access.state === 'docker-not-installed') {
-                    await installDockerCommand(startDockerSetupWatch);
-                } else {
-                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
-                }
-            },
-            log: (msg) => outputChannel.appendLine(msg),
-        }).catch((err) =>
-            outputChannel.appendLine(`[Onboarding] init error: ${err?.message ?? err}`),
-        );
-    } else {
-        maybeOpenWalkthrough(context).catch((err) =>
-            outputChannel.appendLine(`[Walkthrough] init error: ${err?.message ?? err}`),
-        );
-    }
-
-    // Command: DALi: Select Target Device
-    const selectDeviceCmd = vscode.commands.registerCommand('dali.selectDevice', async () => {
-        if (!sdbManager) {
-            return;
-        }
-        const missingDep = SdbManager.checkDependencies();
-        if (missingDep) {
-            vscode.window.showErrorMessage(`DALi Device Preview: ${missingDep}`);
-            return;
-        }
-        const serial = await sdbManager.selectDevice();
-        if (serial) {
-            currentDeviceSerial = serial;
-            const config = vscode.workspace.getConfiguration('daliPreview');
-            await config.update('targetDevice', serial, vscode.ConfigurationTarget.Workspace);
-            statusBar?.showMode('device');
-            outputChannel.appendLine(`[SDB] Target device selected: ${serial}`);
-            vscode.window.showInformationMessage(`DALi: Device selected — ${serial}`);
-        }
-    });
-    context.subscriptions.push(selectDeviceCmd);
-
-    // Command: DALi: Device Preview
-    const devicePreviewCmd = vscode.commands.registerCommand('dali.devicePreview', async () => {
-        const missingDep = SdbManager.checkDependencies();
-        if (missingDep) {
-            vscode.window.showErrorMessage(`DALi Device Preview: ${missingDep}`);
-            return;
-        }
-        if (!currentDeviceSerial) {
-            // Auto-select if only one device connected
-            if (sdbManager) {
-                const serial = await sdbManager.selectDevice();
-                if (!serial) {
-                    return;
-                }
-                currentDeviceSerial = serial;
+    context.globalState.setKeysForSync([DOCKER_ONBOARDING_KEY]);
+    maybeRunFirstRunDockerSetup({
+        daliVersionTag: onboardingCfg.daliVersionTag,
+        alreadyShown: !!context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY),
+        checkAccess: () => checkDockerAccess(),
+        hasImage: (tag) => dockerRuntime ? dockerRuntime.hasImage(tag) : Promise.resolve(false),
+        markShown: () => Promise.resolve(context.globalState.update(DOCKER_ONBOARDING_KEY, true)),
+        confirmInstall: async () => {
+            const choice = await vscode.window.showInformationMessage(
+                'DALi Preview renders your UI inside a Docker container. Set it up now? ' +
+                'This installs Docker (one password), then downloads the runtime image ' +
+                '(~290 MB) automatically — no reboot or reload needed.',
+                { modal: true },
+                'Set Up Now',
+            );
+            return choice === 'Set Up Now';
+        },
+        installDocker: async () => {
+            // Re-probe so we run the right action: a fresh install vs. just a
+            // socket-permission / daemon fix (both wired to start the access
+            // poller, which auto-pulls the image and starts the server next).
+            const access = await checkDockerAccess();
+            if (access.state === 'docker-not-installed') {
+                await installDockerCommand(startDockerSetupWatch);
             } else {
-                return;
+                await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
             }
-        }
-        const editor = vscode.window.activeTextEditor;
-        const doc = editor && isPreviewable(editor.document) ? editor.document : orchestrator?.lastDocument;
-        if (!doc) {
-            vscode.window.showWarningMessage('DALi: No previewable file found. Please open a .preview.dali.cpp file.');
-            return;
-        }
-        ensurePreviewManager(context);
-        previewManager!.show();
-        await orchestrator?.runDevicePreview(doc);
-    });
-    context.subscriptions.push(devicePreviewCmd);
-
-    // Restore persisted device serial from settings (same storage as selectDevice write path)
-    const savedDeviceSerial = vscode.workspace.getConfiguration('daliPreview').get<string>('targetDevice', '') || undefined;
-    if (savedDeviceSerial) {
-        currentDeviceSerial = savedDeviceSerial;
-        outputChannel.appendLine(`[SDB] Saved target device: ${savedDeviceSerial}`);
-    }
+        },
+        log: (msg) => outputChannel.appendLine(msg),
+    }).catch((err) =>
+        outputChannel.appendLine(`[Onboarding] init error: ${err?.message ?? err}`),
+    );
 
     // Document/editor event listeners that drive auto-preview (save, focus,
     // live text change, config change). All state they touch is module-scoped.
@@ -706,6 +516,11 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             if (doc) { orchestrator?.runPreview(doc); }
         });
 
+        // Handle animation scrub from webview (RENDER_AT on the resident plugin)
+        previewManager.onScrub((progress: number, epoch: number) => {
+            orchestrator?.scrubAnimation(progress, epoch);
+        });
+
         // Handle theme toggle from webview
         previewManager.onThemeToggle(() => {
             if (!orchestrator) { return; }
@@ -779,37 +594,6 @@ function ensurePreviewManager(context: vscode.ExtensionContext) {
             previewManager.setInspectorVisible(savedInspectorVisible);
         }
 
-        // VNC: webview requests start/stop
-        context.subscriptions.push(
-            previewManager.onStartVnc(async () => {
-                if (orchestrator && !orchestrator.isInteractiveMode) {
-                    await orchestrator.startVncMode();
-                }
-            })
-        );
-        context.subscriptions.push(
-            previewManager.onStopVnc(async () => {
-                if (orchestrator?.isInteractiveMode) {
-                    await orchestrator.stopVncMode();
-                }
-            })
-        );
-        context.subscriptions.push(
-            previewManager.onVncConnected(() => {
-                outputChannel.appendLine('[VNC] Client connected');
-            })
-        );
-        context.subscriptions.push(
-            previewManager.onVncDisconnected((reason) => {
-                outputChannel.appendLine(`[VNC] Client disconnected: ${reason}`);
-            })
-        );
-
-        // Show VNC toggle if dependencies are present
-        if (VncManager.checkDependencies() === null) {
-            previewManager.notifyVncAvailable();
-        }
-
         // Code-to-Preview: editor cursor -> highlight element in preview + Inspector tree
         context.subscriptions.push(
             vscode.window.onDidChangeTextEditorSelection((e) => {
@@ -868,12 +652,6 @@ function registerDocumentListeners(context: vscode.ExtensionContext): void {
                 previewManager!.setBackgroundColor(orchestrator.bgColor);
             }
 
-            // VNC mode: hot reload the DALi app
-            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
-                await orchestrator.hotReloadVnc(doc);
-                return;
-            }
-
             await orchestrator.runPreview(doc);
         }
     });
@@ -910,12 +688,7 @@ function registerDocumentListeners(context: vscode.ExtensionContext): void {
         // when the user re-focuses the same tab.
         const lastUri = orchestrator.lastDocument?.uri.toString();
         if (lastUri !== editor.document.uri.toString()) {
-            // VNC mode: hot reload the DALi app for the new doc
-            if (orchestrator.isInteractiveMode && vncManager?.isRunning) {
-                orchestrator.hotReloadVnc(editor.document);
-            } else {
-                orchestrator.runPreview(editor.document);
-            }
+            orchestrator.runPreview(editor.document);
         }
     });
 
@@ -931,9 +704,6 @@ function registerDocumentListeners(context: vscode.ExtensionContext): void {
         // one. If the user closed the preview, typing won't bring it back.
         if (!previewManager?.isVisible) {
             liveDebouncer?.cancel();
-            return;
-        }
-        if (orchestrator.isInteractiveMode) {
             return;
         }
         const liveCfg = ConfigurationService.getInstance();
@@ -982,8 +752,6 @@ export function deactivate(): void {
     liveDebouncer?.dispose();
     orchestrator?.dispose();
     previewServer?.stop();
-    vncManager?.dispose();
-    sdbManager?.dispose();
     previewManager?.dispose();
     buildRunner?.dispose();
     xvfbManager?.stop();

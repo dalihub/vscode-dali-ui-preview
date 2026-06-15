@@ -78,7 +78,6 @@ export async function maybeAutoCheckRuntimeUpdate(
         const cfg = ConfigurationService.getInstance();
         const policy = cfg.runtimeUpdatePolicy;
         if (policy === 'off') return;
-        if (cfg.runtimeMode !== 'docker') return;
 
         const last = context.globalState.get<number>(LAST_UPDATE_CHECK_KEY, 0);
         if (Date.now() - last < ONE_DAY_MS) return;

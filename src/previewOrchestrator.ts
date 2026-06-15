@@ -5,8 +5,6 @@ import { BuildRunner, BuildResult } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { PreviewManager } from './previewManager';
 import { XvfbManager } from './xvfbManager';
-import { VncManager } from './vncManager';
-import { SdbManager } from './sdbManager';
 import { StatusBarManager } from './statusBar';
 import { extractPreviewCode, extractFunctionBody, instrumentCode, transformVectorChildren, sanitizeUnsupportedGlyphs, isPreviewable, ExtractionResult } from './codeExtractor';
 import { parseChainExpression, SceneNode } from './cppParser';
@@ -215,7 +213,7 @@ class HarnessStrategy implements PreviewStrategy {
         // down and we fall back here.
         const useSlice = slice?.rung === 'heuristic';
         const result = await this.getBuildRunner().buildAndRun(
-            code, width, height, theme, bgColor, undefined, undefined, undefined,
+            code, width, height, theme, bgColor, undefined,
             useSlice ? slice!.globals : '', useSlice ? slice!.includes : '',
         );
         this.outputChannel.appendLine(
@@ -234,8 +232,6 @@ export interface OrchestratorDeps {
     previewManager: PreviewManager;
     previewServer: PreviewServer | undefined;
     xvfbManager: XvfbManager | undefined;
-    vncManager: VncManager | undefined;
-    sdbManager: SdbManager | undefined;
     statusBar: StatusBarManager | undefined;
     outputChannel: vscode.OutputChannel;
     diagnosticCollection: vscode.DiagnosticCollection;
@@ -318,10 +314,6 @@ function resolveProjectIncludes(doc: vscode.TextDocument): SourceFile[] {
 export class PreviewOrchestrator {
     // Module-level state migrated from extension.ts
     private building = false;
-    private isVncMode_ = false;
-    private vncStarting = false;
-    private hotReloading_ = false;
-    private devicePreviewRunning = false;
     private buildGeneration = 0;
     private pendingRebuildDoc: vscode.TextDocument | undefined;
     private lastPreviewedDoc_: vscode.TextDocument | undefined;
@@ -333,6 +325,7 @@ export class PreviewOrchestrator {
     private currentHeight_: number;
     private currentTheme_: 'light' | 'dark';
     private currentBgColor_: string | undefined;
+    private activeEpoch_ = 0;  // buildGeneration of the currently displayed preview
 
     // Tracks the width/height most recently supplied by a @preview-config directive
     // (undefined when the previewed file had none). Used to detect transitions
@@ -383,10 +376,6 @@ export class PreviewOrchestrator {
     // -----------------------------------------------------------------------
     // Getters
     // -----------------------------------------------------------------------
-
-    get isInteractiveMode(): boolean {
-        return this.isVncMode_;
-    }
 
     get lastDocument(): vscode.TextDocument | undefined {
         return this.lastPreviewedDoc_;
@@ -540,13 +529,77 @@ export class PreviewOrchestrator {
         }
         this.deps.outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
         this.cancelErrorDebounce();
-        previewManager.updateImage(result.pngPath!, buildTimeMs, metadata);
+        // Stamp this render with the current build generation — scrub frames for
+        // older epochs are rejected (orchestrator) and discarded (webview), so a
+        // previous preview's in-flight frames never leak into this one.
+        this.activeEpoch_ = this.buildGeneration;
+        previewManager.updateImage(result.pngPath!, buildTimeMs, metadata, false, this.activeEpoch_);
+        // Animation scrubber: show controls when the resident plugin registered
+        // animations (server/dlopen path only); hide otherwise.
+        if (usedServerMode && result.animationCount && result.animationCount > 0) {
+            previewManager.showAnimationControls(result.animationDurationMs ?? 0, this.activeEpoch_);
+        } else {
+            previewManager.hideAnimationControls();
+        }
         const modeLabel = usedParserMode ? '⚡ parser' : usedServerMode ? '⚡ server' : '🔨 compile';
         this.deps.statusBar?.showMode(usedParserMode ? 'parser' : usedServerMode ? 'server' : 'compile');
         this.deps.statusBar?.showSuccess(buildTimeMs);
         const totalElapsed = Date.now() - (this.lastTextChangeTime_ || startTime);
         this.deps.outputChannel.appendLine(`[Perf] T5 postMessage sent — total pipeline: ${buildTimeMs}ms (build), ${totalElapsed}ms (text change → update)`);
         this.deps.outputChannel.appendLine(`Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s [${modeLabel}] (${this.currentWidth_}x${this.currentHeight_})`);
+    }
+
+    /**
+     * Animation scrub: re-render the resident plugin at normalized progress [0,1]
+     * via RENDER_AT (no recompile/reload) and push the frame to the webview.
+     * Rotates output filenames so the webview always gets a fresh resource URI.
+     */
+    async scrubAnimation(progress: number, epoch: number): Promise<void> {
+        const server = this.deps.previewServer;
+        if (!server?.isRunning) {
+            return;
+        }
+        // Reject scrubs for a stale preview (epoch mismatch) or while a fresh
+        // render is in progress. This is the core fix for the previous preview's
+        // background/in-flight frames leaking into the current one, and for a
+        // scrub colliding with a reload at the single-in-flight server.
+        if (this.building || epoch !== this.activeEpoch_) {
+            getLogger().trace('Extension', 'scrub rejected', {
+                reqEpoch: epoch, activeEpoch: this.activeEpoch_, building: this.building,
+            });
+            // NACK so the webview frees its in-flight slot now instead of stalling
+            // on its watchdog (the scrub will simply not be served).
+            this.deps.previewManager.notifyScrubDropped(epoch);
+            return;
+        }
+        const tmpDir = this.deps.buildRunner.getTmpDir();
+        // Name the frame by its progress so each cached frame has a STABLE backing
+        // file. A rotating mod-N name aliases distinct cached frames onto one file,
+        // so a re-read after browser eviction would surface the wrong frame.
+        const pngPath = path.join(tmpDir, `preview_scrub_${Math.round(progress * 100000)}.png`);
+        const metadataPath = path.join(tmpDir, 'preview_scrub_metadata.json');
+        const result = await server.renderAt(
+            progress, pngPath, metadataPath,
+            this.currentWidth_, this.currentHeight_, this.currentTheme_, this.currentBgColor_,
+        );
+        // Re-check: a new preview may have loaded while we awaited the render, in
+        // which case this frame is now stale — drop it instead of showing it.
+        if (!result.success || !result.pngPath || epoch !== this.activeEpoch_) {
+            getLogger().trace('Extension', 'scrub frame dropped', {
+                ok: result.success, reqEpoch: epoch, activeEpoch: this.activeEpoch_,
+            });
+            this.deps.previewManager.notifyScrubDropped(epoch);
+            return;
+        }
+        let metadata: object | null = null;
+        if (result.metadataPath) {
+            try {
+                metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
+            } catch (err) {
+                getLogger().trace('Extension', 'scrub metadata read skipped', { error: String(err) });
+            }
+        }
+        this.deps.previewManager.updateImage(result.pngPath, 0, metadata, true, this.activeEpoch_);
     }
 
     /**
@@ -615,7 +668,11 @@ export class PreviewOrchestrator {
         // UiColor(theme::ACCENT) — but the server can't turn "theme::ACCENT"
         // into a hex value and renders it black. Only the T2 slice compiles
         // the real namespace constant, so route heuristic slices straight there.
-        if (slice.rung === 'single-fn' && this.parserStrategy.canHandle(this.deps.previewServer)) {
+        // Also skip when the code has an animation (.Play(): the parser builds
+        // only the static scene tree and emits no >>>ANIM, so the scrubber would
+        // never appear — route to the dlopen path which loads + scrubs it.
+        const hasAnimation = /\.\s*Play\s*\(/.test(instrumented);
+        if (slice.rung === 'single-fn' && !hasAnimation && this.parserStrategy.canHandle(this.deps.previewServer)) {
             log.debug('Build', 'trying parser path', { opId });
             const stratResult = await this.parserStrategy.execute(
                 instrumented, extraction, this.currentWidth_, this.currentHeight_,
@@ -811,15 +868,6 @@ export class PreviewOrchestrator {
         this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${Date.now() - startTime}ms`);
 
         try {
-            // Animation path: any config with animation=true triggers GIF capture
-            const animConfig = extraction.configs?.find(c => c.animation === true);
-            if (animConfig) {
-                await this.runAnimationPreview(
-                    doc, animConfig, instrumented, myGeneration, startTime, extraction.startLine,
-                );
-                return;
-            }
-
             // Multi-config path: build each config independently (2+ configs)
             if (extraction.configs && extraction.configs.length > 1) {
                 await this.runMultiPreview(
@@ -877,86 +925,6 @@ export class PreviewOrchestrator {
                 this.pendingRebuildDoc = undefined;
                 setImmediate(() => this.runPreview(nextDoc, true));
             }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Public: runAnimationPreview
-    // -----------------------------------------------------------------------
-
-    async runAnimationPreview(
-        doc: vscode.TextDocument,
-        animConfig: PreviewConfig,
-        instrumented: string,
-        myGeneration: number,
-        startTime: number,
-        startLine: number = 0,
-    ): Promise<void> {
-        const log = getLogger();
-        log.debug('Extension', 'runAnimationPreview start', { configName: animConfig.name, duration: animConfig.duration, fps: animConfig.fps });
-        const { buildRunner, previewManager } = this.deps;
-        if (!buildRunner || !previewManager) {
-            return;
-        }
-
-        const width = animConfig.width || this.currentWidth_;
-        const height = animConfig.height || this.currentHeight_;
-        const theme = animConfig.theme || this.currentTheme_;
-        const duration = animConfig.duration ?? 2000;
-        const fps = animConfig.fps ?? 10;
-
-        this.deps.outputChannel.appendLine(
-            `[Animation] Starting capture: ${duration}ms @ ${fps}fps (${Math.floor(duration * fps / 1000)} frames)`,
-        );
-
-        const result = await buildRunner.buildAndRunAnimation(
-            instrumented, width, height, theme, this.currentBgColor_,
-            duration, fps, animConfig.locale, animConfig.fontScale, animConfig.font,
-        );
-
-        if (myGeneration !== this.buildGeneration) {
-            return;
-        }
-
-        const buildTimeMs = Date.now() - startTime;
-
-        if (result.success) {
-            let metadata: object | null = null;
-            if (result.metadataPath) {
-                try {
-                    metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
-                } catch (err) { log.trace('Extension', 'animation metadata read skipped', { error: String(err) }); }
-            }
-
-            const displayPath = result.gifPath || result.pngPath || '';
-            if (!displayPath) {
-                this.scheduleShowError('Animation build succeeded but produced no output file.');
-                this.deps.outputChannel.appendLine('[Animation] Error: result.success=true but no gifPath/pngPath returned.');
-                return;
-            }
-            this.cancelErrorDebounce();
-            previewManager.updateAnimation(displayPath, buildTimeMs, result.frameCount || 0, metadata);
-            this.deps.statusBar?.showMode('compile');
-            this.deps.statusBar?.showSuccess(buildTimeMs);
-            this.deps.outputChannel.appendLine(
-                `[Animation] Preview updated in ${(buildTimeMs / 1000).toFixed(1)}s ` +
-                `(${result.frameCount} frames, ${result.gifPath ? 'GIF' : 'PNG fallback'})`,
-            );
-        } else {
-            const templatePath = path.join(
-                buildRunner.getExtensionPath(), 'server', 'preview_animation.cpp.template');
-            let template = '';
-            try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'animation template read failed', { error: String(err) }); }
-            const offset = getHarnessCodeOffset(template);
-            const diag = diagnoseGccErrors(result.error || '', offset, doc, startLine, false);
-            if (diag) {
-                this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
-                this.scheduleShowError(diag.displayMessage);
-            } else {
-                this.scheduleShowError(formatRawError(result.error || ''));
-            }
-            this.deps.statusBar?.showError(result.error?.split('\n')[0] || 'Animation build failed');
-            this.deps.outputChannel.appendLine(`[Animation] Failed: ${result.error?.substring(0, 200)}`);
         }
     }
 
@@ -1046,7 +1014,6 @@ export class PreviewOrchestrator {
                     // Phase 1 fallback
                     const result = await buildRunner.buildAndRun(
                         instrumented, width, height, theme, this.currentBgColor_,
-                        locale, fontScale, font,
                     );
                     results.push({
                         config,
@@ -1075,251 +1042,6 @@ export class PreviewOrchestrator {
             `Multi-preview: ${successCount}/${results.length} succeeded in ${(totalMs / 1000).toFixed(1)}s`,
         );
     }
-
-    // -----------------------------------------------------------------------
-    // Public: VNC mode
-    // -----------------------------------------------------------------------
-
-    async startVncMode(): Promise<void> {
-        const log = getLogger();
-        log.debug('VNC', 'startVncMode entry');
-        const { buildRunner, previewManager, vncManager, xvfbManager } = this.deps;
-        if (!buildRunner || !previewManager || !vncManager) {
-            return;
-        }
-        if (this.vncStarting) {
-            return;
-        }
-        this.vncStarting = true;
-        try {
-            const editor = vscode.window.activeTextEditor;
-            const doc = editor && isPreviewable(editor.document) ? editor.document : this.lastPreviewedDoc_;
-            if (!doc) {
-                vscode.window.showWarningMessage('DALi: No previewable file found. Please open a .preview.dali.cpp file first.');
-                return;
-            }
-
-            const extraction = extractPreviewCode(doc);
-            if (!extraction) {
-                return;
-            }
-
-            this.applyConfigSize(extraction);
-
-            this.deps.statusBar?.showBuilding();
-            previewManager.showLoading();
-
-            const instrumented = instrumentCode(extraction.code, extraction.startLine);
-            const buildResult = await buildRunner.buildInteractive(
-                instrumented, this.currentWidth_, this.currentHeight_, this.currentTheme_, this.currentBgColor_,
-            );
-
-            if (!buildResult.success || !buildResult.binPath) {
-                this.deps.statusBar?.showError('VNC build failed');
-                const interactiveTemplate = buildRunner.getInteractiveTemplateContent();
-                const offset = getHarnessCodeOffset(interactiveTemplate);
-                const diag = diagnoseGccErrors(buildResult.error || '', offset, doc, extraction.startLine, false, true);
-                if (diag) {
-                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
-                    this.scheduleShowError(diag.displayMessage);
-                } else {
-                    this.scheduleShowError(buildResult.error || 'Interactive build failed');
-                }
-                return;
-            }
-
-            const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
-            const env = {
-                ...buildRunner.buildEnv(display),
-                DALI_WINDOW_WIDTH: String(this.currentWidth_),
-                DALI_WINDOW_HEIGHT: String(this.currentHeight_),
-            };
-
-            const vncResult = await vncManager.startInteractiveMode({
-                daliBinaryPath: buildResult.binPath,
-                display,
-                width: this.currentWidth_,
-                height: this.currentHeight_,
-                env,
-            });
-
-            if (!vncResult.success || !vncResult.wsUrl) {
-                this.deps.statusBar?.showError('VNC start failed');
-                this.scheduleShowError(vncResult.error || 'Failed to start VNC');
-                return;
-            }
-
-            this.isVncMode_ = true;
-            previewManager.startVncMode(vncResult.wsUrl);
-            this.deps.statusBar?.showMode('vnc');
-            this.deps.outputChannel.appendLine(`[VNC] Interactive mode started: ${vncResult.wsUrl}`);
-            log.debug('VNC', 'startVncMode done', { wsUrl: vncResult.wsUrl });
-        } finally {
-            this.vncStarting = false;
-        }
-    }
-
-    async stopVncMode(): Promise<void> {
-        const { vncManager, previewManager } = this.deps;
-        if (!vncManager || !previewManager) {
-            return;
-        }
-        await vncManager.stopInteractiveMode();
-        this.isVncMode_ = false;
-        previewManager.stopVncMode();
-        this.deps.statusBar?.showReady();
-        this.deps.outputChannel.appendLine('[VNC] Interactive mode stopped');
-    }
-
-    async hotReloadVnc(doc: vscode.TextDocument): Promise<void> {
-        const log = getLogger();
-        log.debug('VNC', 'hotReloadVnc entry');
-        const { buildRunner, previewManager, vncManager, xvfbManager } = this.deps;
-        if (!buildRunner || !previewManager || !vncManager) {
-            return;
-        }
-        if (this.hotReloading_) {
-            return;
-        }
-        this.hotReloading_ = true;
-        try {
-            const extraction = extractPreviewCode(doc);
-            if (!extraction) {
-                return;
-            }
-
-            this.applyConfigSize(extraction);
-
-            previewManager.notifyVncReloading();
-            const instrumented = instrumentCode(extraction.code, extraction.startLine);
-            const buildResult = await buildRunner.buildInteractive(
-                instrumented, this.currentWidth_, this.currentHeight_, this.currentTheme_, this.currentBgColor_,
-            );
-
-            if (!buildResult.success || !buildResult.binPath) {
-                this.deps.outputChannel.appendLine('[VNC] Hot reload build failed');
-                return;
-            }
-
-            const display = xvfbManager?.getDisplay() || process.env.DISPLAY || ':0';
-            const env = {
-                ...buildRunner.buildEnv(display),
-                DALI_WINDOW_WIDTH: String(this.currentWidth_),
-                DALI_WINDOW_HEIGHT: String(this.currentHeight_),
-            };
-
-            const ok = await vncManager.restartDaliApp(buildResult.binPath, {
-                display,
-                width: this.currentWidth_,
-                height: this.currentHeight_,
-                env,
-            });
-
-            if (ok) {
-                previewManager.notifyVncReloaded(vncManager.getWebSocketUrl());
-                this.deps.outputChannel.appendLine('[VNC] Hot reload succeeded');
-            } else {
-                this.deps.outputChannel.appendLine('[VNC] Hot reload: DALi app restart failed');
-            }
-            log.debug('VNC', 'hotReloadVnc done', { success: ok });
-        } finally {
-            this.hotReloading_ = false;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Public: Device preview
-    // -----------------------------------------------------------------------
-
-    async runDevicePreview(doc: vscode.TextDocument): Promise<void> {
-        const log = getLogger();
-        log.debug('SDB', 'runDevicePreview entry', { serial: this.getCurrentDeviceSerial() });
-        const { buildRunner, previewManager, sdbManager } = this.deps;
-        const currentDeviceSerial = this.getCurrentDeviceSerial();
-        if (!buildRunner || !previewManager || !sdbManager || !currentDeviceSerial) {
-            return;
-        }
-        if (this.devicePreviewRunning) {
-            return;
-        }
-        this.devicePreviewRunning = true;
-
-        const extraction = extractPreviewCode(doc);
-        if (!extraction) {
-            this.devicePreviewRunning = false;
-            return;
-        }
-
-        this.lastPreviewedDoc_ = doc;
-
-        this.deps.statusBar?.showBuilding();
-        previewManager.showLoading();
-        this.deps.diagnosticCollection.delete(doc.uri);
-
-        const startTime = Date.now();
-        const instrumented = instrumentCode(extraction.code, extraction.startLine);
-
-        try {
-            this.deps.outputChannel.appendLine(`[SDB] Device preview starting: ${currentDeviceSerial}`);
-
-            const result = await buildRunner.buildAndRunOnDevice(
-                instrumented,
-                sdbManager,
-                currentDeviceSerial,
-                this.currentWidth_,
-                this.currentHeight_,
-                this.currentTheme_,
-                this.currentBgColor_,
-            );
-
-            const buildTimeMs = Date.now() - startTime;
-
-            if (result.success && result.pngPath) {
-                let metadata: object | null = null;
-                if (result.metadataPath) {
-                    try {
-                        metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
-                    } catch (err) { log.trace('SDB', 'device metadata read skipped', { error: String(err) }); }
-                }
-                previewManager.updateImage(result.pngPath, buildTimeMs, metadata);
-                this.deps.statusBar?.showMode('device');
-                this.deps.statusBar?.showSuccess(buildTimeMs);
-                this.deps.outputChannel.appendLine(
-                    `[SDB] Device preview completed: ${(buildTimeMs / 1000).toFixed(1)}s (${currentDeviceSerial})`,
-                );
-            } else {
-                const templatePath = path.join(
-                    buildRunner.getExtensionPath(), 'server', 'preview_harness.cpp.template');
-                let template = '';
-                try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('SDB', 'device template read failed', { error: String(err) }); }
-                const offset = getHarnessCodeOffset(template);
-                const diag = diagnoseGccErrors(result.error || '', offset, doc, extraction.startLine, false);
-                if (diag) {
-                    this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
-                    this.scheduleShowError(diag.displayMessage);
-                } else {
-                    this.scheduleShowError(formatRawError(result.error || ''));
-                }
-                this.deps.statusBar?.showError(result.error?.split('\n')[0] || 'Device preview failed');
-                this.deps.outputChannel.appendLine(`[SDB] Device preview failed: ${result.error?.substring(0, 200)}`);
-            }
-        } catch (err: any) {
-            this.scheduleShowError(`Device preview error: ${err.message || err}`);
-            this.deps.statusBar?.showError(err.message || 'Error');
-        } finally {
-            this.devicePreviewRunning = false;
-            log.debug('SDB', 'runDevicePreview done');
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Public: VNC mode state (for external callbacks)
-    // -----------------------------------------------------------------------
-
-    setVncModeOff(): void {
-        this.isVncMode_ = false;
-    }
-
     // -----------------------------------------------------------------------
     // Dispose
     // -----------------------------------------------------------------------
@@ -1329,14 +1051,6 @@ export class PreviewOrchestrator {
             clearTimeout(this.errorDebounceTimer);
             this.errorDebounceTimer = undefined;
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // Private: get current device serial from workspace config
-    // -----------------------------------------------------------------------
-
-    private getCurrentDeviceSerial(): string | undefined {
-        return ConfigurationService.getInstance().targetDevice || undefined;
     }
 }
 

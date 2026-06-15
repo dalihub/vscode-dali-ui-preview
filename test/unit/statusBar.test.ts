@@ -60,12 +60,6 @@ describe('StatusBarManager — showMode()', () => {
         mgr.showMode('compile');
         expect(item.text).to.include('DALi');
     });
-
-    it('showMode("vnc") sets Interactive text and does not include Parser/Server/Compile labels', () => {
-        const { mgr, item } = makeManagerWithSpy();
-        mgr.showMode('vnc');
-        expect(item.text).to.include('Interactive');
-    });
 });
 
 describe('StatusBarManager — showUpdateAvailable()', () => {

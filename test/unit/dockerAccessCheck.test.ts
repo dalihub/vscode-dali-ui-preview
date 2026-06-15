@@ -81,7 +81,6 @@ describe('decidePreviewDockerGate', () => {
     const missingAccess = { state: 'docker-not-installed' } as any;
 
     function makeDeps(over: {
-        runtimeMode?: 'native' | 'docker';
         serverRunning?: boolean;
         pollerRunning?: boolean;
         silent?: boolean;
@@ -90,7 +89,6 @@ describe('decidePreviewDockerGate', () => {
         const checkAccess = sinon.stub().resolves(over.accessResult ?? missingAccess);
         const showGuidance = sinon.stub().resolves();
         const deps = {
-            runtimeMode: over.runtimeMode ?? ('docker' as const),
             serverRunning: over.serverRunning ?? false,
             pollerRunning: over.pollerRunning ?? false,
             silent: over.silent ?? false,
@@ -99,13 +97,6 @@ describe('decidePreviewDockerGate', () => {
         };
         return { deps, checkAccess, showGuidance };
     }
-
-    it('native mode → proceeds without probing docker', async () => {
-        const { deps, checkAccess, showGuidance } = makeDeps({ runtimeMode: 'native' });
-        expect(await decidePreviewDockerGate(deps)).to.equal(true);
-        expect(checkAccess.called).to.equal(false);
-        expect(showGuidance.called).to.equal(false);
-    });
 
     it('dlopen server running → proceeds without probing docker', async () => {
         const { deps, checkAccess } = makeDeps({ serverRunning: true });

@@ -975,6 +975,42 @@
     border-radius: 3px;
     margin-left: 4px;
   }
+  /* Animation scrubber */
+  .anim-bar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 16px;
+    background: var(--vscode-editorWidget-background, rgba(0,0,0,0.25));
+    border-top: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.12));
+  }
+  .anim-bar.hidden { display: none; }
+  .anim-caption {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+  .anim-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .anim-btn {
+    flex: 0 0 auto;
+    width: 28px; height: 28px;
+    border: none; border-radius: 4px;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    cursor: pointer; font-size: 12px; line-height: 1;
+  }
+  .anim-btn:hover { background: var(--vscode-button-hoverBackground); }
+  .anim-slider { flex: 1 1 auto; cursor: pointer; accent-color: var(--vscode-button-background); }
+  .anim-time {
+    flex: 0 0 auto; min-width: 52px; text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+  }
 </style>
 </head>
 <body>
@@ -1020,9 +1056,6 @@
 
     <div class="toolbar-separator" id="flexSeparator" style="display:none;"></div>
     <button id="btnFlexExplorer" class="btn-flex-explorer" title="Toggle FlexLayout Explorer" style="display:none;">&#x25A6;</button>
-
-    <div class="toolbar-separator" id="vncSeparator" style="display:none;"></div>
-    <button id="btnVnc" class="btn-vnc" title="Toggle interactive mode (VNC)" style="display:none;">&#x1F5A5;</button>
   </div>
 
   <!-- Background color picker popup -->
@@ -1059,26 +1092,8 @@
         <div class="preview-container bg-dark" id="previewContainer">
           <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
 
-          <!-- Animation container (shown when GIF is available) -->
-          <div id="animationContainer" class="animation-container hidden">
-            <img id="animationImage" alt="DALi Animation" draggable="false">
-            <div class="animation-controls" id="animationControls">
-              <button id="animPlayPause" title="Play/Pause">&#x23F8;</button>
-              <button id="animRestart" title="Restart">&#x23EE;</button>
-              <label for="animSpeedSlider" style="font-size:11px;color:#999;">Speed:</label>
-              <input type="range" id="animSpeedSlider" min="0.25" max="3" step="0.25" value="1">
-              <span class="animation-speed-label" id="animSpeedLabel">1x</span>
-              <span class="animation-badge" id="animBadge">GIF</span>
-            </div>
-          </div>
-
           <div id="elementOverlay" class="element-overlay"></div>
           <div class="dimensions-label hidden" id="dimensionsLabel"></div>
-        </div>
-
-        <!-- VNC container (shown in interactive mode) -->
-        <div id="vncContainer" class="vnc-container hidden">
-          <div id="vncStatus" class="vnc-status">Connecting...</div>
         </div>
 
         <!-- Overlays -->
@@ -1098,6 +1113,17 @@
             <h2>DALi Preview</h2>
             <p>Save a <code>.preview.dali.cpp</code> file to see preview</p>
           </div>
+        </div>
+      </div>
+
+      <!-- Animation scrubber: a bottom bar, shown only when the preview has animations -->
+      <div class="anim-bar hidden" id="animBar">
+        <div class="anim-caption">🎬 Animation — drag the slider to scrub to any frame, or press play</div>
+        <div class="anim-controls">
+          <button class="anim-btn" id="animPlayBtn" title="Play / Pause">&#9654;</button>
+          <input type="range" id="animSlider" class="anim-slider" min="0" max="1000" value="0" step="1"
+                 title="Drag to scrub the animation timeline">
+          <span class="anim-time" id="animTime">0.00 / 0.00s</span>
         </div>
       </div>
 
@@ -1129,7 +1155,6 @@
     <span id="timestampText"></span>
   </div>
 
-<script src="{{rfbScriptUri}}"></script>
 <script>
 (function () {
   var vscode = acquireVsCodeApi();
@@ -1143,13 +1168,130 @@
   var previewArea = document.getElementById('previewArea');
   var previewContainer = document.getElementById('previewContainer');
   var previewImage = document.getElementById('previewImage');
-  var animationContainer = document.getElementById('animationContainer');
-  var animationImage = document.getElementById('animationImage');
-  var animPlayPause = document.getElementById('animPlayPause');
-  var animRestart = document.getElementById('animRestart');
-  var animSpeedSlider = document.getElementById('animSpeedSlider');
-  var animSpeedLabel = document.getElementById('animSpeedLabel');
-  var animBadge = document.getElementById('animBadge');
+
+  // === Animation scrubber + smooth playback (frame cache) ===
+  // Frames are rendered lazily on demand and cached by index, then reused so
+  // playback / re-scrubbing run at 60fps from cache. We never pre-capture
+  // before the preview shows — a bounded set (FRAME_COUNT, independent of the
+  // animation's length) is warmed in the background after the preview appears
+  // and always yields to the frame the user is currently asking for.
+  var animBar = document.getElementById('animBar');
+  var animSlider = document.getElementById('animSlider');
+  var animPlayBtn = document.getElementById('animPlayBtn');
+  var animTime = document.getElementById('animTime');
+  var animDurationMs = 0;
+  var animPlaying = false;
+  var playRafId = null, playStartWall = 0, playStartProgress = 0;
+
+  var FRAME_COUNT = 24;        // bounded frame budget; recomputed per animation
+  var frameCache = {};         // idx -> rendered image URI
+  var renderInFlight = false;  // a RENDER_AT is awaiting its PNG
+  var inFlightIdx = -1;        // frame idx currently being rendered
+  var wantIdx = -1;            // frame idx the UI wants shown now (latest-wins)
+  var prefetchOn = false;      // background cache warming active
+  var renderTimeout = null;    // watchdog for a dropped render
+  var currentEpoch = -1;       // preview generation; scrub frames from older epochs are discarded
+
+  function idxToProgress(i) { return FRAME_COUNT > 1 ? i / (FRAME_COUNT - 1) : 0; }
+  function progressToIdx(p) {
+    var i = Math.round(p * (FRAME_COUNT - 1));
+    return i < 0 ? 0 : (i > FRAME_COUNT - 1 ? FRAME_COUNT - 1 : i);
+  }
+  function updateAnimTime(progress) {
+    var cur = (progress * animDurationMs / 1000).toFixed(2);
+    var tot = (animDurationMs / 1000).toFixed(2);
+    animTime.textContent = cur + ' / ' + tot + 's';
+  }
+  // Show the frame nearest `progress`: instant from cache, else request a render.
+  function showFrameAt(progress) {
+    var idx = progressToIdx(progress);
+    if (frameCache[idx]) {
+      previewImage.src = frameCache[idx];   // cached → instant
+      wantIdx = -1;
+    } else {
+      wantIdx = idx;
+      pumpRender();
+    }
+  }
+  // Issue the next render: the wanted frame first, else a background prefetch frame.
+  function pumpRender() {
+    if (renderInFlight) { return; }
+    var idx = -1;
+    if (wantIdx >= 0 && !frameCache[wantIdx]) {
+      idx = wantIdx;
+    } else if (prefetchOn) {
+      var k = 0;
+      while (k < FRAME_COUNT && frameCache[k]) { k++; }
+      if (k < FRAME_COUNT) { idx = k; } else { prefetchOn = false; }
+    }
+    if (idx < 0) { return; }
+    renderInFlight = true;
+    inFlightIdx = idx;
+    if (renderTimeout) { clearTimeout(renderTimeout); }
+    renderTimeout = setTimeout(function () {  // recover if a render is dropped
+      renderInFlight = false; inFlightIdx = -1; pumpRender();
+    }, 5000);
+    vscode.postMessage({ command: 'scrubAnimation', progress: idxToProgress(idx), epoch: currentEpoch });
+  }
+  // Called from the updateImage handler when a scrub/prefetch frame (isScrub) arrives.
+  function onScrubFrame(uri) {
+    if (renderTimeout) { clearTimeout(renderTimeout); renderTimeout = null; }
+    if (inFlightIdx >= 0) {
+      frameCache[inFlightIdx] = uri;
+      var warm = new Image(); warm.src = uri;   // decode ahead for smooth swaps
+      if (inFlightIdx === wantIdx) { previewImage.src = uri; wantIdx = -1; }
+    }
+    renderInFlight = false;
+    inFlightIdx = -1;
+    pumpRender();
+  }
+  function resetFrameCache() {
+    if (renderTimeout) { clearTimeout(renderTimeout); renderTimeout = null; }
+    frameCache = {};
+    wantIdx = -1;
+    renderInFlight = false;
+    inFlightIdx = -1;
+    prefetchOn = false;
+  }
+  function setPlaying(playing) {
+    animPlaying = playing;
+    animPlayBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;'; // pause : play
+    if (playing) {
+      playStartWall = Date.now();
+      playStartProgress = parseInt(animSlider.value, 10) / 1000;
+      if (playStartProgress >= 1) { playStartProgress = 0; }
+      playStep();
+    } else if (playRafId !== null) {
+      cancelAnimationFrame(playRafId);
+      playRafId = null;
+    }
+  }
+  function playStep() {
+    if (!animPlaying) { return; }
+    var dur = animDurationMs > 0 ? animDurationMs : 1000;
+    var elapsed = Date.now() - playStartWall;
+    var progress = playStartProgress + elapsed / dur;
+    if (progress >= 1) {                       // loop
+      progress = 0;
+      playStartWall = Date.now();
+      playStartProgress = 0;
+    }
+    animSlider.value = String(Math.round(progress * 1000));
+    updateAnimTime(progress);
+    showFrameAt(progress);                      // cached → instant; else render-paced
+    playRafId = requestAnimationFrame(playStep);
+  }
+  if (animSlider) {
+    animSlider.addEventListener('input', function () {
+      if (animPlaying) { setPlaying(false); }   // manual scrub interrupts playback
+      var progress = parseInt(animSlider.value, 10) / 1000;
+      updateAnimTime(progress);
+      showFrameAt(progress);
+    });
+  }
+  if (animPlayBtn) {
+    animPlayBtn.addEventListener('click', function () { setPlaying(!animPlaying); });
+  }
   var dimensionsLabel = document.getElementById('dimensionsLabel');
   var overlayLoading = document.getElementById('overlayLoading');
   var overlayError = document.getElementById('overlayError');
@@ -1160,10 +1302,6 @@
   var previewGrid = document.getElementById('previewGrid');
   var btnBgColor = document.getElementById('btnBgColor');
   var colorPickerPopup = document.getElementById('colorPickerPopup');
-  var btnVnc = document.getElementById('btnVnc');
-  var vncSeparator = document.getElementById('vncSeparator');
-  var vncContainer = document.getElementById('vncContainer');
-  var vncStatus = document.getElementById('vncStatus');
   var cpNative = document.getElementById('cpNative');
   var cpHex = document.getElementById('cpHex');
   var cpR = document.getElementById('cpR');
@@ -1179,16 +1317,6 @@
   var currentWidth = 1024;
   var currentHeight = 600;
 
-  // VNC state
-  var rfbClient = null;
-  var vncMode = false;
-
-  // Animation state
-  var animMode = false;
-  var animPaused = false;
-  var animOrigSrc = '';
-  var animSpeedRequestTimer = null;
-
   // ── Presets ──
   var presets = {
     '1024x600': [1024, 600],
@@ -1197,36 +1325,6 @@
     '1920x1080': [1920, 1080],
     '480x800': [480, 800]
   };
-
-  // ── Animation controls ──
-  animPlayPause.addEventListener('click', function () {
-    animPaused = !animPaused;
-    if (animPaused) {
-      // Freeze: replace src with a blank to stop GIF, store original
-      animPlayPause.textContent = '\u25B6';
-      animationImage.src = '';
-    } else {
-      // Resume: reload GIF from start
-      animPlayPause.textContent = '\u23F8';
-      animationImage.src = animOrigSrc + '?t=' + Date.now();
-    }
-  });
-
-  animRestart.addEventListener('click', function () {
-    animPaused = false;
-    animPlayPause.textContent = '\u23F8';
-    animationImage.src = animOrigSrc + '?t=' + Date.now();
-  });
-
-  animSpeedSlider.addEventListener('input', function () {
-    var speed = parseFloat(animSpeedSlider.value);
-    animSpeedLabel.textContent = speed + 'x';
-    // Debounce: request new GIF at different speed from extension
-    clearTimeout(animSpeedRequestTimer);
-    animSpeedRequestTimer = setTimeout(function () {
-      vscode.postMessage({ command: 'animationSpeedChange', speed: speed });
-    }, 500);
-  });
 
   function applyPreset() {
     var val = preset.value;
@@ -1273,50 +1371,6 @@
   btnRefresh.addEventListener('click', function () {
     vscode.postMessage({ command: 'refresh' });
   });
-
-  // ── VNC toggle ──
-  btnVnc.addEventListener('click', function () {
-    if (vncMode) {
-      vscode.postMessage({ command: 'stopVnc' });
-    } else {
-      vscode.postMessage({ command: 'startVnc' });
-    }
-  });
-
-  function startVncClient(wsUrl) {
-    if (rfbClient) {
-      rfbClient.disconnect();
-      rfbClient = null;
-    }
-    vncStatus.textContent = 'Connecting...';
-    vncStatus.style.display = '';
-    if (typeof RFB === 'undefined') {
-      vncStatus.textContent = 'Failed to load RFB client';
-      return;
-    }
-    if (!/^ws:\/\/localhost:[0-9]{4,5}$/.test(wsUrl)) {
-      vncStatus.textContent = 'Invalid WebSocket URL';
-      return;
-    }
-    rfbClient = new RFB(vncContainer, wsUrl);
-    rfbClient.scaleViewport = true;
-    rfbClient.addEventListener('connect', function () {
-      vncStatus.style.display = 'none';
-      vscode.postMessage({ command: 'vncConnected' });
-    });
-    rfbClient.addEventListener('disconnect', function (e) {
-      vncStatus.textContent = 'Disconnected: ' + (e.detail && e.detail.reason ? e.detail.reason : 'unknown reason');
-      vncStatus.style.display = '';
-      vscode.postMessage({ command: 'vncDisconnected', reason: (e.detail && e.detail.reason) || '' });
-    });
-  }
-
-  function stopVncClient() {
-    if (rfbClient) {
-      rfbClient.disconnect();
-      rfbClient = null;
-    }
-  }
 
   // ── Background color picker ──
   var DEFAULT_BG_COLOR = '#1a1a2e';
@@ -2101,38 +2155,6 @@
   window.addEventListener('message', function (event) {
     var msg = event.data;
     switch (msg.command) {
-      case 'updateAnimation': {
-        overlayWelcome.classList.add('hidden');
-        overlayError.classList.add('hidden');
-        overlayLoading.classList.add('hidden');
-        previewGrid.classList.add('hidden');
-        previewArea.classList.remove('hidden');
-        previewImage.classList.add('hidden');
-        animationContainer.classList.remove('hidden');
-        setInspectorAvailable(true);
-        animMode = true;
-        animPaused = false;
-        animPlayPause.textContent = '\u23F8';
-        animSpeedSlider.value = '1';
-        animSpeedLabel.textContent = '1x';
-        animOrigSrc = msg.uri;
-        animBadge.textContent = msg.isGif ? 'GIF' : 'PNG';
-        animationImage.src = msg.uri + '?t=' + Date.now();
-        animationImage.onload = function () {
-          dimensionsLabel.textContent = animationImage.naturalWidth + ' x ' + animationImage.naturalHeight;
-          dimensionsLabel.classList.remove('hidden');
-          if (msg.metadata) {
-            renderMetadataOverlay(msg.metadata);
-            if (inspectorVisible) {
-              renderTreeView(msg.metadata);
-            }
-          }
-        };
-        var buildSec = (msg.buildTime / 1000).toFixed(1);
-        buildTimeText.textContent = 'Built in ' + buildSec + 's (' + (msg.frameCount || 0) + ' frames)';
-        timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
-        break;
-      }
 
       case 'updateImage':
         overlayWelcome.classList.add('hidden');
@@ -2141,27 +2163,39 @@
         previewGrid.classList.add('hidden');
         previewArea.classList.remove('hidden');
         setInspectorAvailable(true);
-        // Hide animation container when switching back to static mode
-        animationContainer.classList.add('hidden');
-        animMode = false;
         previewImage.classList.remove('hidden');
         dimensionsLabel.classList.remove('hidden');
-        previewImage.src = msg.uri + '?t=' + Date.now();
-        previewImage.onload = function () {
-          dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
-          if (msg.metadata) {
-            renderMetadataOverlay(msg.metadata);
-            if (inspectorVisible) {
-              renderTreeView(msg.metadata);
-            }
+        if (msg.isScrub) {
+          // Animation scrub/prefetch frame → cache it, but only if it belongs to
+          // the CURRENT preview (epoch). Stale frames from a previous preview are
+          // ignored so they can't flash or pollute this preview's frame cache.
+          if (msg.epoch === currentEpoch) {
+            onScrubFrame(msg.uri + '?t=' + Date.now());
           } else {
-            elementOverlay.innerHTML = '';
-            treeViewEl.innerHTML = '';
+            console.debug('[anim] discarded stale scrub frame epoch=' + msg.epoch + ' current=' + currentEpoch);
           }
-        };
-        var buildSec = (msg.buildTime / 1000).toFixed(1);
-        buildTimeText.textContent = 'Built in ' + buildSec + 's';
-        timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        } else {
+          // Fresh preview render (first load / code change) → adopt its epoch,
+          // reset the cache, show it.
+          currentEpoch = msg.epoch;
+          resetFrameCache();
+          previewImage.src = msg.uri + '?t=' + Date.now();
+          previewImage.onload = function () {
+            dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
+            if (msg.metadata) {
+              renderMetadataOverlay(msg.metadata);
+              if (inspectorVisible) {
+                renderTreeView(msg.metadata);
+              }
+            } else {
+              elementOverlay.innerHTML = '';
+              treeViewEl.innerHTML = '';
+            }
+          };
+          var buildSec = (msg.buildTime / 1000).toFixed(1);
+          buildTimeText.textContent = 'Built in ' + buildSec + 's';
+          timestampText.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        }
         break;
 
       case 'showLoading':
@@ -2180,6 +2214,36 @@
 
       case 'clearError':
         overlayError.classList.add('hidden');
+        break;
+
+      case 'showAnimation':
+        currentEpoch = msg.epoch;
+        animDurationMs = msg.durationMs || 0;
+        FRAME_COUNT = Math.max(16, Math.min(48, Math.round(animDurationMs / 40)));
+        resetFrameCache();
+        animBar.classList.remove('hidden');
+        animSlider.value = '0';
+        updateAnimTime(0);
+        setPlaying(false);
+        prefetchOn = true;   // warm the frame cache in the background
+        pumpRender();
+        break;
+
+      case 'hideAnimation':
+        setPlaying(false);
+        prefetchOn = false;
+        animBar.classList.add('hidden');
+        break;
+
+      case 'scrubDropped':
+        // Extension couldn't serve this scrub (epoch mismatch / mid-render).
+        // Release the in-flight slot now so scrubbing/play don't stall ~5s on the
+        // watchdog. Only act if it concerns the current preview's in-flight request.
+        if (msg.epoch === currentEpoch && renderInFlight) {
+          if (renderTimeout) { clearTimeout(renderTimeout); renderTimeout = null; }
+          renderInFlight = false; inFlightIdx = -1;
+          pumpRender();
+        }
         break;
 
       case 'updateMultiImage':
@@ -2248,8 +2312,6 @@
         overlayLoading.classList.add('hidden');
         overlayError.classList.add('hidden');
         previewImage.classList.add('hidden');
-        animationContainer.classList.add('hidden');
-        animMode = false;
         dimensionsLabel.classList.add('hidden');
         overlayWelcome.classList.remove('hidden');
         previewArea.classList.remove('hidden');
@@ -2291,63 +2353,6 @@
           setInspectorVisible(msg.visible);
         }
         break;
-
-      case 'vncAvailable':
-        // Show the VNC toggle button
-        btnVnc.style.display = '';
-        vncSeparator.style.display = '';
-        break;
-
-      case 'startVnc': {
-        // Switch to VNC mode: hide static preview, show VNC canvas
-        previewContainer.style.display = 'none';
-        vncContainer.classList.remove('hidden');
-        overlayWelcome.classList.add('hidden');
-        overlayError.classList.add('hidden');
-        overlayLoading.classList.add('hidden');
-        btnVnc.classList.add('active');
-        btnVnc.title = 'Switch to static mode';
-        vncMode = true;
-        startVncClient(msg.wsUrl);
-        timestampText.textContent = 'Interactive mode';
-        break;
-      }
-
-      case 'stopVnc': {
-        // Switch back to static PNG mode
-        stopVncClient();
-        vncContainer.classList.add('hidden');
-        previewContainer.style.display = '';
-        btnVnc.classList.remove('active');
-        btnVnc.title = 'Toggle interactive mode (VNC)';
-        vncMode = false;
-        timestampText.textContent = '';
-        break;
-      }
-
-      case 'vncReloading': {
-        // Show overlay while DALi app restarts
-        if (vncMode) {
-          var overlay = document.createElement('div');
-          overlay.className = 'vnc-reload-overlay';
-          overlay.id = 'vncReloadOverlay';
-          overlay.textContent = 'Reloading...';
-          vncContainer.appendChild(overlay);
-        }
-        break;
-      }
-
-      case 'vncReloaded': {
-        var oldOverlay = document.getElementById('vncReloadOverlay');
-        if (oldOverlay) {
-          oldOverlay.remove();
-        }
-        if (msg.wsUrl && rfbClient) {
-          // Reconnect to updated app
-          startVncClient(msg.wsUrl);
-        }
-        break;
-      }
     }
   });
 

@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.41.1",
+  "version": "0.42.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -48,23 +48,8 @@
         "category": "DALi Preview"
       },
       {
-        "command": "dali.toggleInteractiveMode",
-        "title": "Toggle Interactive Mode (VNC)",
-        "category": "DALi Preview"
-      },
-      {
         "command": "dali.openSettings",
         "title": "Open Settings",
-        "category": "DALi Preview"
-      },
-      {
-        "command": "dali.selectDevice",
-        "title": "Select Target Device",
-        "category": "DALi Preview"
-      },
-      {
-        "command": "dali.devicePreview",
-        "title": "Device Preview",
         "category": "DALi Preview"
       },
       {
@@ -94,16 +79,6 @@
       {
         "command": "dali.openExamples",
         "title": "Open Examples",
-        "category": "DALi Preview"
-      },
-      {
-        "command": "dali.useDockerRuntime",
-        "title": "Use Docker Runtime (Recommended)",
-        "category": "DALi Preview"
-      },
-      {
-        "command": "dali.useNativeRuntime",
-        "title": "Use Native DALi Runtime",
         "category": "DALi Preview"
       },
       {
@@ -140,13 +115,9 @@
     "menus": {
       "commandPalette": [
         { "command": "dali.previewFunction", "when": "false" },
-        { "command": "dali.selectDevice", "when": "false" },
-        { "command": "dali.devicePreview", "when": "false" },
         { "command": "dali.verifyDocker", "when": "false" },
         { "command": "dali.cleanRuntimeImages", "when": "false" },
         { "command": "dali.resetExtension", "when": "false" },
-        { "command": "dali.useDockerRuntime", "when": "false" },
-        { "command": "dali.useNativeRuntime", "when": "false" },
         { "command": "dali.installDocker", "when": "false" },
         { "command": "dali.pullRuntimeImage", "when": "false" },
         { "command": "dali.checkRuntimeUpdate", "when": "false" },
@@ -169,32 +140,18 @@
             "completionEvents": ["onCommand:dali.showReadme"]
           },
           {
-            "id": "pick-runtime",
-            "title": "Choose Your Runtime",
-            "description": "Pick **Docker (Recommended)** if you don't have DALi installed — the runtime ships as a pre-built container image. Pick **Native** if you already have DALi at /opt/dali or similar.\n[Use Docker (Recommended)](command:dali.useDockerRuntime)\n[Use Native DALi](command:dali.useNativeRuntime)",
-            "media": { "markdown": "media/walkthrough/02-pick-runtime.md" },
-            "completionEvents": ["onCommand:dali.useDockerRuntime", "onCommand:dali.useNativeRuntime"]
-          },
-          {
             "id": "install-docker",
-            "title": "Install Docker (Recommended path)",
-            "description": "Skip if you picked Native in step 2. Pre-fills the install command in a terminal — sudo password once. Grants this session access immediately (setfacl) — **no reboot or reload needed**.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
+            "title": "Install Docker",
+            "description": "Pre-fills the install command in a terminal — sudo password once. Grants this session access immediately (setfacl) — **no reboot or reload needed**.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
             "media": { "markdown": "media/walkthrough/03-install-docker.md" },
             "completionEvents": ["onCommand:dali.verifyDocker"]
           },
           {
             "id": "download-runtime",
             "title": "Download DALi Runtime Image",
-            "description": "Pulls the ~290 MB runtime image from GHCR with a progress bar. Verify Docker (step 3) auto-prompts this — or run it directly here. Subsequent previews use the cached image, so this happens only once per version.\n[Download Runtime Image](command:dali.pullRuntimeImage)",
+            "description": "Pulls the ~290 MB runtime image from GHCR with a progress bar. Verify Docker auto-prompts this — or run it directly here. Subsequent previews use the cached image, so this happens only once per version.\n[Download Runtime Image](command:dali.pullRuntimeImage)",
             "media": { "markdown": "media/walkthrough/04-download-runtime.md" },
             "completionEvents": ["onCommand:dali.pullRuntimeImage"]
-          },
-          {
-            "id": "configure-native",
-            "title": "Configure Native DALi (alternative path)",
-            "description": "Skip if you picked Docker in step 2. Point the extension at your DALi install prefix (the directory containing `lib/libdali2-core.so`).\n[Configure Native DALi](command:dali.useNativeRuntime)",
-            "media": { "markdown": "media/walkthrough/05-configure-native.md" },
-            "completionEvents": ["onSettingChanged:daliPreview.daliPrefix"]
           },
           {
             "id": "first-preview",
@@ -209,20 +166,6 @@
     "configuration": {
       "title": "DALi Preview",
       "properties": {
-        "daliPreview.daliPrefix": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the DALi installation prefix directory (containing lib/ and include/). Leave empty to use the system default."
-        },
-        "daliPreview.runtimeMode": {
-          "type": "string",
-          "enum": [
-            "native",
-            "docker"
-          ],
-          "default": "docker",
-          "description": "Where preview builds run. 'docker' (default) uses a containerized DALi runtime — no host install needed, just Docker. 'native' uses the host DALi install (manual setup); only choose this if you already have DALi at /opt/dali or similar."
-        },
         "daliPreview.dockerImage": {
           "type": "string",
           "default": "ghcr.io/lwc0917/dali-preview-runtime",
@@ -231,7 +174,7 @@
         "daliPreview.daliVersionTag": {
           "type": "string",
           "default": "latest",
-          "description": "Image tag selecting the DALi version. Use 'latest' to follow the rolling tag, or pin a specific tag (e.g. 'tizen_10.0_release'). Only used when runtimeMode is 'docker'."
+          "description": "Image tag selecting the DALi version. Use 'latest' to follow the rolling tag, or pin a specific tag (e.g. 'tizen_10.0_release')."
         },
         "daliPreview.runtimeUpdatePolicy": {
           "type": "string",
@@ -283,43 +226,6 @@
           "default": [],
           "description": "Directories containing custom TTF/OTF font files. Fonts in these directories are registered via FontClient::AddCustomFontDirectory and can be referenced by filename in @preview-config (e.g. font=NotoSansKR.ttf)."
         },
-        "daliPreview.vncPort": {
-          "type": "number",
-          "default": 5900,
-          "minimum": 1024,
-          "maximum": 65535,
-          "description": "Starting TCP port for x11vnc (VNC server) in interactive mode. Auto-increments if port is in use. (default: 5900)"
-        },
-        "daliPreview.websocketPort": {
-          "type": "number",
-          "default": 6080,
-          "minimum": 1024,
-          "maximum": 65535,
-          "description": "Starting WebSocket port for websockify proxy in interactive mode. Auto-increments if port is in use. (default: 6080)"
-        },
-        "daliPreview.sdbPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the sdb (Smart Development Bridge) executable. Leave empty to use 'sdb' from PATH."
-        },
-        "daliPreview.tizenSysroot": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the Tizen sysroot for cross-compilation. Required for ARM device builds. Leave empty to use the host compiler."
-        },
-        "daliPreview.targetDevice": {
-          "type": "string",
-          "default": "",
-          "description": "Default SDB device serial. Set automatically when you run 'DALi Preview: Select Target Device'."
-        },
-        "daliPreview.fontDirectories": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "List of directories containing custom font files for preview rendering."
-        },
         "daliPreview.logLevel": {
           "type": "string",
           "enum": [
@@ -356,7 +262,6 @@
     "pretest": "npm run compile"
   },
   "devDependencies": {
-    "@novnc/novnc": "^1.6.0",
     "@types/chai": "^4.3.0",
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",

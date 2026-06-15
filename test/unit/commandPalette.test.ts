@@ -12,7 +12,6 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 const PALETTE_VISIBLE = [
     'dali.openPreview',
     'dali.toggleTheme',
-    'dali.toggleInteractiveMode',
     'dali.openSettings',
     'dali.openSample',
     'dali.openExamples',
@@ -20,16 +19,12 @@ const PALETTE_VISIBLE = [
 ];
 
 // Hidden from the palette: CodeLens-only (previewFunction needs args), the
-// walkthrough-button commands, and the device/maintenance/runtime actions.
+// walkthrough-button commands, and the maintenance/runtime actions.
 const PALETTE_HIDDEN = [
     'dali.previewFunction',
-    'dali.selectDevice',
-    'dali.devicePreview',
     'dali.verifyDocker',
     'dali.cleanRuntimeImages',
     'dali.resetExtension',
-    'dali.useDockerRuntime',
-    'dali.useNativeRuntime',
     'dali.installDocker',
     'dali.pullRuntimeImage',
     'dali.checkRuntimeUpdate',

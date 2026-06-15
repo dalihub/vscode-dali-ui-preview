@@ -22,15 +22,6 @@ export class ConfigurationService {
         return vscode.workspace.getConfiguration('daliPreview');
     }
 
-    get daliPrefix(): string {
-        return this.getConfig().get<string>('daliPrefix', '');
-    }
-
-    get runtimeMode(): 'native' | 'docker' {
-        const v = this.getConfig().get<string>('runtimeMode', 'native');
-        return v === 'docker' ? 'docker' : 'native';
-    }
-
     get dockerImage(): string {
         return this.getConfig().get<string>('dockerImage', DEFAULT_DOCKER_IMAGE);
     }
@@ -62,26 +53,6 @@ export class ConfigurationService {
 
     get background(): string {
         return this.getConfig().get<string>('background', 'dark');
-    }
-
-    get vncPort(): number {
-        return this.getConfig().get<number>('vncPort', 5900);
-    }
-
-    get websocketPort(): number {
-        return this.getConfig().get<number>('websocketPort', 6080);
-    }
-
-    get sdbPath(): string {
-        return this.getConfig().get<string>('sdbPath', '');
-    }
-
-    get tizenSysroot(): string {
-        return this.getConfig().get<string>('tizenSysroot', '');
-    }
-
-    get targetDevice(): string {
-        return this.getConfig().get<string>('targetDevice', '');
     }
 
     get fontDirectories(): string[] {

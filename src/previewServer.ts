@@ -1,6 +1,5 @@
-import { ChildProcess, spawn, exec } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -8,8 +7,6 @@ import { BuildResult } from './buildRunner';
 import { SceneNode } from './cppParser';
 import { DockerRuntime } from './dockerRuntime';
 import { getLogger } from './logger';
-
-const execAsync = promisify(exec);
 
 const MAX_RESTARTS = 3;
 const READY_TIMEOUT_MS = 15000;
@@ -24,33 +21,28 @@ export class PreviewServer {
     private ready = false;
     private restartCount = 0;
     private pendingRequest: PendingRequest | undefined;
+    private pendingAnimInfo: { count: number; durationMs: number } | undefined;
     private stdoutBuffer = '';
     private restartTimer: NodeJS.Timeout | undefined;
-    private readonly serverBin: string;
 
     constructor(
         private readonly extensionPath: string,
-        private readonly daliPrefix: string,
-        private readonly display: string,
         private readonly outputChannel: vscode.OutputChannel,
         private readonly tmpDir: string = '/tmp/dali_preview',
-        // Docker mode: when both are set, the server runs inside a long-running
-        // container instead of as a native host process. The container ships
-        // /opt/dali/bin/preview_server pre-built, so ensureServerBinary becomes
-        // a no-op and spawnServer launches `docker run -i ...` instead.
+        // The server always runs inside a long-running container. The container
+        // ships /opt/dali/bin/preview_server pre-built, so ensureServerBinary is
+        // a no-op and spawnServer launches `docker run -i ...`.
         private readonly dockerRuntime?: DockerRuntime,
         private readonly dockerImageTag?: string,
         // Extra host paths to bind-mount into the docker container at the
         // same path. Use this to make user assets (images, fonts) referenced
         // by absolute path in user code visible inside the container.
         private readonly dockerExtraMounts: readonly string[] = [],
-    ) {
-        this.serverBin = path.join(this.tmpDir, 'preview_server');
-    }
+    ) {}
 
-    /** True iff this server is configured to run inside a Docker container. */
+    /** Docker-only build: the server always runs inside a container. */
     get isDockerMode(): boolean {
-        return !!(this.dockerRuntime && this.dockerImageTag);
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -62,58 +54,11 @@ export class PreviewServer {
     }
 
     /**
-     * Ensure the server binary is compiled. Compiles if missing, or if the
-     * source file (server/preview_server.cpp) is newer than the existing
-     * binary — this protects against stale binaries after extension updates
-     * that change the IPC protocol or scene builder.
+     * No-op: the preview_server binary is pre-built inside the docker image at
+     * /opt/dali/bin/preview_server, so there is nothing to compile on the host.
      */
     async ensureServerBinary(): Promise<void> {
-        if (this.isDockerMode) {
-            // The preview_server binary is pre-built inside the docker image
-            // at /opt/dali/bin/preview_server. Nothing to compile on the host.
-            return;
-        }
-
-        const srcPath = path.join(this.extensionPath, 'server', 'preview_server.cpp');
-        const binExists = fs.existsSync(this.serverBin);
-        const srcExists = fs.existsSync(srcPath);
-
-        if (binExists && srcExists) {
-            const binMtime = fs.statSync(this.serverBin).mtimeMs;
-            const srcMtime = fs.statSync(srcPath).mtimeMs;
-            if (binMtime >= srcMtime) {
-                return; // up-to-date
-            }
-            this.outputChannel.appendLine(
-                '[PreviewServer] Source newer than binary — rebuilding to avoid IPC protocol drift.'
-            );
-        } else if (binExists) {
-            return; // source not bundled (e.g. installed .vsix) — trust the existing binary
-        }
-
-        const buildScript = path.join(this.extensionPath, 'server', 'build_server.sh');
-        if (!fs.existsSync(buildScript)) {
-            throw new Error(`build_server.sh not found at ${buildScript}`);
-        }
-
-        if (!fs.existsSync(this.tmpDir)) {
-            fs.mkdirSync(this.tmpDir, { recursive: true });
-        }
-
-        this.outputChannel.appendLine('[PreviewServer] Compiling server binary...');
-        try {
-            await execAsync(`bash "${buildScript}" "${this.daliPrefix}" "${this.tmpDir}"`, {
-                timeout: 60000,
-                env: {
-                    ...process.env,
-                    LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
-                },
-            });
-            this.outputChannel.appendLine('[PreviewServer] Server binary compiled.');
-        } catch (err: any) {
-            const msg = err.stderr?.toString() || err.message || 'unknown';
-            throw new Error(`Failed to compile preview server: ${msg}`);
-        }
+        return;
     }
 
     /**
@@ -159,6 +104,7 @@ export class PreviewServer {
                 this.pendingRequest.resolve({ success: false, error: 'reload already in progress' });
                 this.pendingRequest = undefined;
             }
+            this.pendingAnimInfo = undefined; // a queued ANIM line must not attach to this reload's OK
 
             // H5: Store metadataPath in pendingRequest to avoid .png → _metadata.json derivation
             this.pendingRequest = { resolve, metadataPath };
@@ -168,6 +114,37 @@ export class PreviewServer {
             const fontScaleField = fontScale !== undefined ? String(fontScale) : '-';
             const fontField = font || '-';
             const cmd = `RELOAD ${soPath} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField} ${localeField} ${fontScaleField} ${fontField}\n`;
+            this.serverProcess.stdin!.write(cmd);
+        });
+    }
+
+    /**
+     * Send a RENDER_AT command: re-render the already-loaded plugin at a normalized
+     * animation progress [0,1] and capture. Used for animation scrubbing — no recompile
+     * and no reload, just SetCurrentProgress + capture on the resident plugin.
+     */
+    renderAt(progress: number, pngPath: string, metadataPath: string,
+             width: number, height: number, theme: 'light' | 'dark' = 'dark',
+             bgColor?: string): Promise<BuildResult> {
+        return new Promise((resolve) => {
+            if (!this.isRunning || !this.serverProcess) {
+                resolve({ success: false, error: 'Preview server is not running' });
+                return;
+            }
+            if (/[\s\n]/.test(pngPath) || /[\s\n]/.test(metadataPath)) {
+                resolve({ success: false, error: 'path contains invalid characters' });
+                return;
+            }
+            if (this.pendingRequest) {
+                this.pendingRequest.resolve({ success: false, error: 'render already in progress' });
+                this.pendingRequest = undefined;
+            }
+            this.pendingAnimInfo = undefined;
+            this.pendingRequest = { resolve, metadataPath };
+
+            const p = Math.max(0, Math.min(1, progress));
+            const colorField = bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor) ? bgColor : '-';
+            const cmd = `RENDER_AT ${p} ${pngPath} ${metadataPath} ${width} ${height} ${theme} ${colorField}\n`;
             this.serverProcess.stdin!.write(cmd);
         });
     }
@@ -191,6 +168,7 @@ export class PreviewServer {
             this.pendingRequest.resolve({ success: false, error: 'reload already in progress' });
             this.pendingRequest = undefined;
         }
+        this.pendingAnimInfo = undefined;
 
         // Use a unique temp file per request to avoid race conditions on concurrent calls
         const jsonPath = path.join(this.tmpDir, `scene-${Date.now()}.json`);
@@ -271,46 +249,43 @@ export class PreviewServer {
     }
 
     private buildSpawnCommand(): [string, string[]] {
-        if (this.isDockerMode) {
-            const imageRef = this.dockerRuntime!.imageRef(this.dockerImageTag!);
-            const containerName = this.dockerContainerName();
-            // Build the -v flags for the workspace and any extra mounts so
-            // absolute paths in user code (image assets, fonts) resolve
-            // identically inside the container.
-            const extraMountFlags: string[] = [];
-            for (const mountPath of this.dockerExtraMounts) {
-                if (mountPath && mountPath !== this.tmpDir) {
-                    extraMountFlags.push('-v', `${mountPath}:${mountPath}:ro`);
-                }
+        const imageRef = this.dockerRuntime!.imageRef(this.dockerImageTag!);
+        const containerName = this.dockerContainerName();
+        // Build the -v flags for the workspace and any extra mounts so
+        // absolute paths in user code (image assets, fonts) resolve
+        // identically inside the container.
+        const extraMountFlags: string[] = [];
+        for (const mountPath of this.dockerExtraMounts) {
+            if (mountPath && mountPath !== this.tmpDir) {
+                extraMountFlags.push('-v', `${mountPath}:${mountPath}:ro`);
             }
-            const args = [
-                'run', '-i', '--rm',
-                '--init',
-                '--name', containerName,
-                '-v', `${this.tmpDir}:${this.tmpDir}`,
-                '-v', 'dali-preview-shader-cache:/root/.cache/dali_common_caches',
-                '-v', 'dali-preview-ccache:/cache',
-                ...extraMountFlags,
-                '-e', 'DALI_WINDOW_WIDTH=1024',
-                '-e', 'DALI_WINDOW_HEIGHT=600',
-                // Silence the EFL/eldbus stderr deluge. Without these env vars,
-                // every failed D-Bus connect (which happens many times per
-                // render in headless containers) emits a 30-line eina_btlog
-                // backtrace and floods the Output channel.
-                '-e', 'EINA_LOG_BACKTRACE=disabled',
-                '-e', 'EINA_LOG_LEVELS=eldbus:0,eina_safety:0,eina_log:0',
-                // Force mesa software path multi-threaded — without this,
-                // llvmpipe defaults can leave most cores idle on big renders
-                // (e.g. 2520x4480 phone-style preview drops from ~500ms to
-                // ~100ms when all CPU cores are used).
-                '-e', 'LP_NUM_THREADS=0',
-                '-e', 'GALLIUM_DRIVER=llvmpipe',
-                '--entrypoint', '/usr/local/bin/dali-preview-serve',
-                imageRef,
-            ];
-            return ['docker', args];
         }
-        return [this.serverBin, []];
+        const args = [
+            'run', '-i', '--rm',
+            '--init',
+            '--name', containerName,
+            '-v', `${this.tmpDir}:${this.tmpDir}`,
+            '-v', 'dali-preview-shader-cache:/root/.cache/dali_common_caches',
+            '-v', 'dali-preview-ccache:/cache',
+            ...extraMountFlags,
+            '-e', 'DALI_WINDOW_WIDTH=1024',
+            '-e', 'DALI_WINDOW_HEIGHT=600',
+            // Silence the EFL/eldbus stderr deluge. Without these env vars,
+            // every failed D-Bus connect (which happens many times per
+            // render in headless containers) emits a 30-line eina_btlog
+            // backtrace and floods the Output channel.
+            '-e', 'EINA_LOG_BACKTRACE=disabled',
+            '-e', 'EINA_LOG_LEVELS=eldbus:0,eina_safety:0,eina_log:0',
+            // Force mesa software path multi-threaded — without this,
+            // llvmpipe defaults can leave most cores idle on big renders
+            // (e.g. 2520x4480 phone-style preview drops from ~500ms to
+            // ~100ms when all CPU cores are used).
+            '-e', 'LP_NUM_THREADS=0',
+            '-e', 'GALLIUM_DRIVER=llvmpipe',
+            '--entrypoint', '/usr/local/bin/dali-preview-serve',
+            imageRef,
+        ];
+        return ['docker', args];
     }
 
     /**
@@ -359,26 +334,23 @@ export class PreviewServer {
         return false;
     }
 
+    /**
+     * Remove any stale container left over from a previous session that crashed
+     * before `--rm` could clean it up. Overridable in tests so the IPC suite
+     * never shells out to a real docker daemon.
+     */
+    protected _killStaleContainer(): void {
+        const containerName = this.dockerContainerName();
+        try {
+            require('child_process').execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
+        } catch { /* container may not exist; ignore */ }
+    }
+
     private spawnServer(): Promise<boolean> {
         return new Promise((resolve) => {
-            const env: NodeJS.ProcessEnv = this.isDockerMode
-                ? { ...process.env }  // docker run carries its own env via -e flags
-                : {
-                    ...process.env,
-                    DISPLAY: this.display,
-                    LD_LIBRARY_PATH: `${this.daliPrefix}/lib:${process.env.LD_LIBRARY_PATH || ''}`,
-                    DALI_WINDOW_WIDTH: '1024',
-                    DALI_WINDOW_HEIGHT: '600',
-                };
+            const env: NodeJS.ProcessEnv = { ...process.env };  // docker run carries its own env via -e flags
 
-            // Kill any stale container with the same name (e.g. from a
-            // previous extension session that crashed before --rm could clean up).
-            if (this.isDockerMode) {
-                const containerName = this.dockerContainerName();
-                try {
-                    require('child_process').execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
-                } catch { /* container may not exist; ignore */ }
-            }
+            this._killStaleContainer();
 
             const [cmd, args] = this.buildSpawnCommand();
             const proc = this._spawn(cmd, args, {
@@ -390,7 +362,7 @@ export class PreviewServer {
             this.stdoutBuffer  = '';
 
             const spawnTime = Date.now();
-            const modeLabel = this.isDockerMode ? `docker (${this.dockerRuntime!.imageRef(this.dockerImageTag!)})` : `native (DISPLAY=${env.DISPLAY})`;
+            const modeLabel = `docker (${this.dockerRuntime!.imageRef(this.dockerImageTag!)})`;
             this.outputChannel.appendLine(`[PreviewServer] Spawned PID=${proc.pid}, mode=${modeLabel}, timeout=${READY_TIMEOUT_MS}ms`);
 
             const readyTimer = setTimeout(() => {
@@ -514,16 +486,32 @@ export class PreviewServer {
                 this.outputChannel.appendLine('[PreviewServer] Ready.');
                 readyResolve?.(true);
 
+            } else if (line.startsWith('>>>ANIM:')) {
+                // ">>>ANIM:<count>:<durationMs>" — emitted on RELOAD before >>>OK,
+                // describing the loaded plugin's scrubbable animations.
+                const [countStr, durStr] = line.slice(8).split(':');
+                this.pendingAnimInfo = {
+                    count: parseInt(countStr, 10) || 0,
+                    durationMs: parseInt(durStr, 10) || 0,
+                };
+
             } else if (line.startsWith('>>>OK:')) {
                 const pngPath = line.slice(6);
                 if (this.pendingRequest) {
                     const { resolve, metadataPath } = this.pendingRequest;
                     this.pendingRequest = undefined;
-                    resolve({ success: true, pngPath, metadataPath });
+                    const anim = this.pendingAnimInfo;
+                    this.pendingAnimInfo = undefined;
+                    resolve({
+                        success: true, pngPath, metadataPath,
+                        animationCount: anim?.count,
+                        animationDurationMs: anim?.durationMs,
+                    });
                 }
 
             } else if (line.startsWith('>>>ERROR:')) {
                 const msg = line.slice(9);
+                this.pendingAnimInfo = undefined;
                 if (this.pendingRequest) {
                     const { resolve } = this.pendingRequest;
                     this.pendingRequest = undefined;

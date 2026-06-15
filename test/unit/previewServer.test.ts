@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { EventEmitter } from 'events';
-import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getPluginCodeOffset, getHarnessCodeOffset, parseGccErrors } from '../../src/errorParser';
@@ -38,6 +37,32 @@ describe('previewServer — plugin template', () => {
     it('plugin template uses -fPIC compatible includes', () => {
         const content = fs.readFileSync(PLUGIN_TEMPLATE_PATH, 'utf-8');
         expect(content).to.include('#include <dali/dali.h>');
+    });
+
+    it('plugin template exports animation-scrub control symbols', () => {
+        const content = fs.readFileSync(PLUGIN_TEMPLATE_PATH, 'utf-8');
+        expect(content).to.include('__RegisterPreviewAnimation');
+        expect(content).to.include('__SetPreviewProgress');
+        expect(content).to.include('__PreviewAnimationCount');
+        expect(content).to.include('__PreviewAnimationDuration');
+    });
+
+    it('scrub control pauses at registration and seeks without re-Play (no bake collapse)', () => {
+        const content = fs.readFileSync(PLUGIN_TEMPLATE_PATH, 'utf-8');
+        // Register pauses the animation so it never finishes + BAKEs its end values.
+        const reg = content.slice(
+            content.indexOf('void __RegisterPreviewAnimation'),
+            content.indexOf('__PreviewAnimationCount'),
+        );
+        expect(reg).to.include('.Pause()');
+        // SetPreviewProgress seeks via SetCurrentProgress only — re-Play()ing would
+        // re-capture a drifted/baked start value and collapse the animation range.
+        const setProg = content.slice(
+            content.indexOf('void __SetPreviewProgress'),
+            content.indexOf('{{USER_GLOBALS}}'),
+        );
+        expect(setProg).to.include('SetCurrentProgress');
+        expect(setProg).to.not.include('.Play(');
     });
 });
 
@@ -82,8 +107,9 @@ describe('previewServer — parseGccErrors() in plugin mode', () => {
     })();
 
     it('parses errors from preview_plugin.cpp', () => {
+        const pluginLine = PLUGIN_OFFSET + 2; // inside the user-code region
         const stderr = [
-            '/tmp/dali_preview/preview_plugin.cpp:28:5: error: use of undeclared identifier \'foo\'',
+            `/tmp/dali_preview/preview_plugin.cpp:${pluginLine}:5: error: use of undeclared identifier 'foo'`,
             '/tmp/other/unrelated.cpp:5:1: error: unrelated error',
         ].join('\n');
 
@@ -93,9 +119,11 @@ describe('previewServer — parseGccErrors() in plugin mode', () => {
     });
 
     it('ignores preview_harness.cpp errors in plugin mode', () => {
+        const hLine = PLUGIN_OFFSET + 5; // inside the user-code region
+        const pLine = PLUGIN_OFFSET + 2;
         const stderr =
-            '/tmp/dali_preview/preview_harness.cpp:31:3: error: harness error\n' +
-            '/tmp/dali_preview/preview_plugin.cpp:28:3: error: plugin error\n';
+            `/tmp/dali_preview/preview_harness.cpp:${hLine}:3: error: harness error\n` +
+            `/tmp/dali_preview/preview_plugin.cpp:${pLine}:3: error: plugin error\n`;
 
         const errorsPlugin  = parseGccErrors(stderr, PLUGIN_OFFSET, true);
         const errorsHarness = parseGccErrors(stderr, PLUGIN_OFFSET, false);
@@ -130,41 +158,11 @@ describe('previewServer — parseGccErrors() in plugin mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// build_server.sh existence
-// ---------------------------------------------------------------------------
-
-describe('previewServer — build_server.sh', () => {
-    const BUILD_SCRIPT = path.resolve(__dirname, '../../../server/build_server.sh');
-
-    it('build_server.sh exists', () => {
-        expect(fs.existsSync(BUILD_SCRIPT)).to.equal(true);
-    });
-
-    it('build_server.sh is executable', () => {
-        const stat = fs.statSync(BUILD_SCRIPT);
-        // Unix execute bit for owner (0o100)
-        expect(stat.mode & 0o100).to.be.greaterThan(0);
-    });
-
-    it('build_server.sh targets /tmp/dali_preview output directory', () => {
-        const content = fs.readFileSync(BUILD_SCRIPT, 'utf-8');
-        // Script uses OUT_DIR=/tmp/dali_preview and OUT_BIN=.../preview_server
-        expect(content).to.include('/tmp/dali_preview');
-        expect(content).to.include('preview_server');
-    });
-
-    it('build_server.sh links with -ldl', () => {
-        const content = fs.readFileSync(BUILD_SCRIPT, 'utf-8');
-        expect(content).to.include('-ldl');
-    });
-});
-
-// ---------------------------------------------------------------------------
 // preview_server.cpp existence and structure
 // ---------------------------------------------------------------------------
 
 describe('previewServer — preview_server.cpp', () => {
-    const SERVER_CPP = path.resolve(__dirname, '../../../server/preview_server.cpp');
+    const SERVER_CPP = path.resolve(__dirname, '../../../docker/preview_server.cpp');
 
     it('preview_server.cpp exists', () => {
         expect(fs.existsSync(SERVER_CPP)).to.equal(true);
@@ -229,12 +227,24 @@ function makeProc() {
     return proc;
 }
 
+// Docker-only: a minimal fake DockerRuntime so spawnServer/buildSpawnCommand
+// (which always take the container path now) don't dereference undefined.
+const fakeDockerRuntime = {
+    imageRef: (tag: string) => `ghcr.io/test/dali-preview-runtime:${tag}`,
+    setActiveServerContainer: () => {},
+} as any;
+
 /** Creates a PreviewServer with a controllable fake child process. */
 function makeServer(proc?: any) {
     const fakeProc = proc ?? makeProc();
-    const server = new PreviewServer('/ext', '/dali', ':99', fakeOutputChannel);
+    const server = new PreviewServer(
+        '/ext', fakeOutputChannel, '/tmp/dali_preview', fakeDockerRuntime, 'test-tag',
+    );
     // Bypass binary compilation — not relevant to IPC behavior tests
     (server as any).ensureServerBinary = async () => {};
+    // The stale-container cleanup shells out to `docker rm -f`; no-op it so the
+    // IPC tests never touch a real docker daemon.
+    (server as any)._killStaleContainer = () => {};
     // Inject fake process via overridable _spawn hook
     (server as any)._spawn = () => fakeProc;
     return { server, proc: fakeProc };
@@ -323,8 +333,11 @@ describe('PreviewServer — IPC behavior', () => {
         const procs: any[] = [];
         let spawnCount = 0;
 
-        const server = new PreviewServer('/ext', '/dali', ':99', fakeOutputChannel);
+        const server = new PreviewServer(
+            '/ext', fakeOutputChannel, '/tmp/dali_preview', fakeDockerRuntime, 'test-tag',
+        );
         (server as any).ensureServerBinary = async () => {};
+        (server as any)._killStaleContainer = () => {};
         (server as any)._spawn = () => {
             spawnCount++;
             const p = makeProc();
@@ -594,11 +607,80 @@ describe('PreviewServer — renderJson() IPC behavior', () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderAt() + >>>ANIM parsing (animation scrubbing)
+// ---------------------------------------------------------------------------
+
+describe('PreviewServer — renderAt() + animation info', () => {
+    afterEach(() => sinon.restore());
+
+    it('renderAt() writes a RENDER_AT command with progress + paths + size', async () => {
+        const { server, proc } = await startedServer();
+        const pr = server.renderAt(0.37, '/tmp/s.png', '/tmp/s_meta.json', 360, 640, 'dark');
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/s.png\n'));
+        await pr;
+        const parts: string[] = proc.stdin.write.lastCall.args[0].trim().split(' ');
+        expect(parts[0]).to.equal('RENDER_AT');
+        expect(parts[1]).to.equal('0.37');
+        expect(parts[2]).to.equal('/tmp/s.png');
+        expect(parts[3]).to.equal('/tmp/s_meta.json');
+        expect(parts[4]).to.equal('360');
+        expect(parts[5]).to.equal('640');
+    });
+
+    it('renderAt() clamps progress into [0,1]', async () => {
+        const { server, proc } = await startedServer();
+        const pr = server.renderAt(1.8, '/tmp/s.png', '/tmp/m.json', 360, 640);
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/s.png\n'));
+        await pr;
+        const parts: string[] = proc.stdin.write.lastCall.args[0].trim().split(' ');
+        expect(parts[1]).to.equal('1');
+    });
+
+    it('reload result carries animationCount + durationMs from a >>>ANIM line', async () => {
+        const { server, proc } = await startedServer();
+        const pr = server.reload('/tmp/x.so', '/tmp/x.png', '/tmp/x.json', 360, 640, 'dark');
+        proc.stdout.emit('data', Buffer.from('>>>ANIM:2:3000\n>>>OK:/tmp/x.png\n'));
+        const result = await pr;
+        expect(result.success).to.equal(true);
+        expect(result.animationCount).to.equal(2);
+        expect(result.animationDurationMs).to.equal(3000);
+    });
+
+    it('reload without a >>>ANIM line leaves animationCount undefined', async () => {
+        const { server, proc } = await startedServer();
+        const pr = server.reload('/tmp/x.so', '/tmp/x.png', '/tmp/x.json', 360, 640);
+        proc.stdout.emit('data', Buffer.from('>>>OK:/tmp/x.png\n'));
+        const result = await pr;
+        expect(result.animationCount).to.equal(undefined);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// docker/preview_server.cpp — RENDER_AT / animation contract
+// ---------------------------------------------------------------------------
+
+describe('previewServer — preview_server.cpp animation contract', () => {
+    const SERVER_CPP = path.resolve(__dirname, '../../../docker/preview_server.cpp');
+
+    it('server handles the RENDER_AT command via DoRenderAt', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('RENDER_AT');
+        expect(content).to.include('DoRenderAt');
+    });
+
+    it('server drives the plugin via __SetPreviewProgress and reports >>>ANIM', () => {
+        const content = fs.readFileSync(SERVER_CPP, 'utf-8');
+        expect(content).to.include('__SetPreviewProgress');
+        expect(content).to.include('>>>ANIM:');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // preview_server.cpp — HexToColor structure tests
 // ---------------------------------------------------------------------------
 
 describe('previewServer — preview_server.cpp HexToColor', () => {
-    const SERVER_CPP = path.resolve(__dirname, '../../../server/preview_server.cpp');
+    const SERVER_CPP = path.resolve(__dirname, '../../../docker/preview_server.cpp');
 
     it('preview_server.cpp contains HexToColor function', () => {
         const content = fs.readFileSync(SERVER_CPP, 'utf-8');
@@ -638,7 +720,7 @@ describe('previewServer — preview_server.cpp HexToColor', () => {
 // ---------------------------------------------------------------------------
 
 describe('previewServer — preview_server.cpp RENDER_JSON', () => {
-    const SERVER_CPP = path.resolve(__dirname, '../../../server/preview_server.cpp');
+    const SERVER_CPP = path.resolve(__dirname, '../../../docker/preview_server.cpp');
 
     it('implements RENDER_JSON command handling', () => {
         const content = fs.readFileSync(SERVER_CPP, 'utf-8');

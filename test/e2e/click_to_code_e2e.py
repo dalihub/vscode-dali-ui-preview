@@ -30,7 +30,7 @@ import threading
 import time
 
 REPO_ROOT  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BUILD_SH   = os.path.join(REPO_ROOT, "server", "build_server.sh")
+SERVER_SRC = os.path.join(REPO_ROOT, "docker", "preview_server.cpp")
 TMP_DIR    = "/tmp/dali_preview"
 SERVER_BIN = os.path.join(TMP_DIR, "preview_server")
 DISPLAY    = os.environ.get("CLICK_TO_CODE_DISPLAY", ":98")
@@ -67,12 +67,27 @@ def detect_dali_prefix() -> str:
     sys.exit(10)
 
 def build_server(dali_prefix: str) -> None:
+    # The extension is docker-only (the native build_server.sh was removed), but
+    # this click-to-code e2e still verifies the metadata export natively against a
+    # local DALi prefix — compile the (shared) server source inline.
     if os.path.exists(SERVER_BIN):
         return
-    print(f"[e2e] preview_server missing — building via {BUILD_SH}")
-    r = subprocess.run([BUILD_SH, dali_prefix], capture_output=True, text=True)
+    print(f"[e2e] preview_server missing — building from {SERVER_SRC}")
+    os.makedirs(TMP_DIR, exist_ok=True)
+    env = os.environ.copy()
+    env["PKG_CONFIG_PATH"] = f"{dali_prefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    mods = "dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0"
+    cmd = (
+        'g++ -std=c++17 -O2 '
+        f'$(pkg-config --cflags {mods}) "{SERVER_SRC}" '
+        f'$(pkg-config --libs {mods}) '
+        f'-L"{dali_prefix}/lib" -Wl,-rpath-link,"{dali_prefix}/lib" -ldl '
+        f'-o "{SERVER_BIN}"'
+    )
+    r = subprocess.run(cmd, shell=True, executable="/bin/bash", env=env,
+                       capture_output=True, text=True)
     if r.returncode != 0:
-        sys.stderr.write(f"ERROR: build_server.sh failed:\n{r.stderr}\n")
+        sys.stderr.write(f"ERROR: preview_server compile failed:\n{r.stderr}\n")
         sys.exit(11)
 
 def compile_plugin(dali_prefix: str, src_path: str, so_path: str) -> None:

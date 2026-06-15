@@ -5,6 +5,79 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-06-15
+
+### Added
+
+- **Compose-style animation preview (scrubbing).** Previews that contain DALi
+  `Animation`s now show a scrubber + play/pause bar under the image. Dragging
+  the slider renders the *exact* frame at that point in the animation timeline
+  — deterministic `Animation::SetCurrentProgress(t)` on the resident plugin —
+  and play steps through it. No GIF baking and no recompile per frame; the
+  longest-animation duration drives the timeline. The scrubber sits in a bottom
+  bar with a caption + current/total time. **Smooth playback:** frames are
+  rendered lazily and cached by index in the webview (a bounded set, independent
+  of the animation's length), and a background prefetch warms the cache after
+  the preview is already showing (yielding to user input) — so replay and
+  re-scrubbing run at 60fps from cache without ever pre-capturing up front.
+  Demo samples (in `test/samples/animation/`) covering the common animation
+  shapes: `animation-scrub` (pulsing FAB, looping scale), `progress-bar`
+  (determinate fill via SCALE_X), `toast-slide` (slide-up + fade-in),
+  `loader-bar` (indeterminate AUTO_REVERSE loop) — all verified rendering +
+  scrubbing against the real runtime. Mechanism: the build step
+  auto-injects `__RegisterPreviewAnimation(<anim>)` after each `<anim>.Play();`
+  so the plugin collects animation handles; the preview server gained a
+  `RENDER_AT <progress>` command that re-renders the already-loaded plugin and
+  reports `>>>ANIM:<count>:<durationMs>` on load; rendering stays entirely in
+  the container. Named animations only — method-chained temporaries have no
+  handle to scrub. (Verified end-to-end against the real runtime image.)
+
+### Removed
+
+- **The extension is now docker-only.** Removed the local/native DALi runtime
+  (host g++/pkg-config compile, the `daliPrefix` / `tizenSysroot` /
+  `runtimeMode` settings, the setup wizard, and the *Use Native/Docker Runtime*
+  commands), **SDB device preview**, **animation GIF capture** (superseded by
+  scrubbing), and **VNC interactive mode**. The container path (parser / dlopen
+  / harness) covers all preview rendering, so this drops ~16 files plus a large
+  amount of native-only code and its maintenance burden.
+
+### Fixed
+
+- **Animation scrubbing no longer leaks frames between previews.** Switching
+  between animated previews (or scrubbing several in succession) could flash the
+  previous preview's frames or show a wrong frame — background-prefetch and
+  in-flight scrub renders from the old preview arrived after the new one loaded.
+  Each render now carries a generation (epoch): the orchestrator rejects scrubs
+  for a stale epoch or while a fresh render is in progress (re-checking after the
+  render completes), and the webview discards any scrub frame whose epoch doesn't
+  match the current preview. (Server-side: confirmed the plugin's animation
+  registry does NOT accumulate across reloads.)
+- **Scrubbing no longer collapses to the end after an animation plays out.** A
+  non-looping animation that ran to completion BAKEs its end values into the
+  properties, after which `SetCurrentProgress` could no longer move it — so
+  re-opening/​re-viewing a finished preview showed only a tiny twitch near the
+  end. The plugin now `Pause()`s each animation at registration (so it never
+  finishes + bakes) and seeks via `SetCurrentProgress` only — never re-`Play()`,
+  which would re-capture a drifted start value. Verified deterministic across
+  immediate and post-playout scrubs for looping and non-looping samples.
+- **Animation-scrub robustness sweep (18 scenarios + adversarial code review).**
+  Fixed: scrub frames were written to a rotating `preview_scrub_<n%8>.png` that
+  aliased distinct cached frames onto one file (a re-read after eviction showed
+  the wrong frame) — now named by progress for a stable backing file; the
+  `>>>ANIM:<count>:<dur>` info could leak from a superseded reload onto the next
+  render's OK (wrong scrubber duration) — now cleared whenever the in-flight
+  request is replaced; the `.Play()` injection captured only the last identifier,
+  so `this->anim`/`obj.anim` registered an undeclared name and broke compilation
+  — now captures the full handle chain; a scrub the extension can't serve (epoch
+  mismatch / mid-render) left the webview stalled ~5 s on its watchdog — the
+  extension now NACKs so the slot frees immediately; and a single-fn preview
+  containing an animation routed through the parser path (no `>>>ANIM`) showed no
+  scrubber — now routed to the dlopen path. A 18-case sweep (looping/​non-looping,
+  AnimateTo/​By/​KeyFrames, position/​scale/​size/​colour/​orientation, multi-anim,
+  ease/​duration variants) verifies determinism, range, and no-bake against the
+  real runtime.
+
 ## [0.41.1] - 2026-06-12
 
 ### Fixed

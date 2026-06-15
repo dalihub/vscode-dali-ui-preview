@@ -6,6 +6,8 @@
 #include <dali-ui-foundation/dali-ui-foundation.h>
 
 #include <iostream>
+#include <vector>
+#include <algorithm>
 {{USER_INCLUDES}}
 using namespace Dali;
 using namespace Dali::Ui;
@@ -17,6 +19,45 @@ T __tag(T obj, const char* name)
 {
     obj.SetProperty(Dali::Actor::Property::NAME, Dali::String(name));
     return obj;
+}
+
+// === Animation scrubbing support ===
+// The build step injects `__RegisterPreviewAnimation(<anim>);` after each
+// `<anim>.Play();` in user code, so the server can drive every animation to an
+// exact normalized progress and capture a deterministic frame at that time.
+static std::vector<Dali::Animation>& __PreviewAnims()
+{
+    static std::vector<Dali::Animation> anims;
+    return anims;
+}
+extern "C" void __RegisterPreviewAnimation(Dali::Animation a)
+{
+    // Freeze immediately so the animation never runs to completion in real time —
+    // a finished non-looping animation BAKEs its end values into the properties,
+    // after which SetCurrentProgress can no longer scrub it. Play() in the user's
+    // code already captured the correct start value; Pause() holds it.
+    if(a) { a.Pause(); __PreviewAnims().push_back(a); }
+}
+extern "C" int __PreviewAnimationCount()
+{
+    return static_cast<int>(__PreviewAnims().size());
+}
+extern "C" float __PreviewAnimationDuration() // longest animation, in seconds
+{
+    float maxDur = 0.0f;
+    for(auto& a : __PreviewAnims()) if(a) maxDur = std::max(maxDur, a.GetDuration());
+    return maxDur;
+}
+extern "C" void __SetPreviewProgress(float p) // p in [0,1]
+{
+    // No re-Play: replaying re-captures the start value from the property's
+    // current (possibly drifted/baked) value, which collapses the animation's
+    // range. The animation is paused at its true start, so SetCurrentProgress
+    // alone yields a stable, deterministic frame at p.
+    for(auto& a : __PreviewAnims())
+    {
+        if(a) a.SetCurrentProgress(p);
+    }
 }
 {{USER_GLOBALS}}
 // === User preview code — exported symbol for dlopen ===

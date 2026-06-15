@@ -1,10 +1,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as path from 'path';
-import * as fs from 'fs';
-import * as vscode from 'vscode';
 import { BuildRunner } from '../../src/buildRunner';
-import * as daliEnv from '../../src/daliEnvironment';
 
 const PROJECT_ROOT_FOR_SANITIZE = path.resolve(__dirname, '../../..');
 
@@ -25,53 +22,82 @@ const fakeOutputChannel = {
     dispose: () => {},
 } as any;
 
+describe('BuildRunner.instrumentAnimations()', () => {
+    it('injects registration after a named .Play();', () => {
+        const out = BuildRunner.instrumentAnimations('anim.Play();');
+        expect(out).to.include('anim.Play();');
+        expect(out).to.include('__RegisterPreviewAnimation(anim);');
+    });
+
+    it('handles multiple named animations', () => {
+        const out = BuildRunner.instrumentAnimations('a.Play();\nb.Play();');
+        expect(out).to.include('__RegisterPreviewAnimation(a);');
+        expect(out).to.include('__RegisterPreviewAnimation(b);');
+    });
+
+    it('leaves code without .Play() untouched', () => {
+        const src = 'return View::New();';
+        expect(BuildRunner.instrumentAnimations(src)).to.equal(src);
+    });
+
+    it('does not inject for method-chained temporaries (no handle to scrub)', () => {
+        const out = BuildRunner.instrumentAnimations('Animation::New(1.0f).Play();');
+        expect(out).to.not.include('__RegisterPreviewAnimation');
+    });
+
+    it('registers the full handle chain for member/qualified animations', () => {
+        expect(BuildRunner.instrumentAnimations('this->fadeIn.Play();'))
+            .to.include('__RegisterPreviewAnimation(this->fadeIn);');
+        expect(BuildRunner.instrumentAnimations('state.anim.Play();'))
+            .to.include('__RegisterPreviewAnimation(state.anim);');
+    });
+});
+
 describe('BuildRunner — compilePlugin()', () => {
     afterEach(() => {
         sinon.restore();
     });
 
-    it('returns {success:false} when dali prefix is not found', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(false);
-        sinon.stub(daliEnv, 'findDaliPrefix').resolves(null);
+    // Docker-only: a fake DockerRuntime that records the request it was given
+    // and reports success, so we can assert on path naming + {{USER_CODE}}
+    // substitution without touching a real container.
+    function makeFakeDocker(over: Partial<any> = {}) {
+        return {
+            isAvailable: sinon.stub().resolves(true),
+            compilePlugin: sinon.stub().resolves({ success: true, output: '', elapsedMs: 1 }),
+            ...over,
+        } as any;
+    }
 
+    it('returns {success:false} when no DockerRuntime is provided', async () => {
         const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
         const result = await runner.compilePlugin('return Button::New();');
 
         expect(result.success).to.equal(false);
-        expect(result.error).to.include('DALi');
+        expect(result.error).to.include('Docker');
     });
 
     it('substitutes {{USER_CODE}} in plugin template before compiling', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedSourceContent = '';
-        // Override compileShared to capture what was written and skip actual compilation
-        (runner as any).compileShared = async (srcPath: string) => {
-            capturedSourceContent = fs.readFileSync(srcPath, 'utf-8');
-            return { success: true };
-        };
+        const docker = makeFakeDocker();
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
 
         const userCode = 'return MyWidget::New();';
         await runner.compilePlugin(userCode);
 
-        expect(capturedSourceContent).to.include(userCode);
-        expect(capturedSourceContent).not.to.include('{{USER_CODE}}');
+        const req = docker.compilePlugin.firstCall.args[0];
+        expect(req.source).to.include(userCode);
+        expect(req.source).not.to.include('{{USER_CODE}}');
     });
 
-    it('returns {success:false} with stderr on compile failure', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const stderrMsg = "error: use of undeclared identifier 'foo'";
-        (runner as any).compileShared = async () => ({
-            success: false,
-            error: stderrMsg,
+    it('returns {success:false} with output on compile failure', async () => {
+        const docker = makeFakeDocker({
+            compilePlugin: sinon.stub().resolves({
+                success: false,
+                output: "error: use of undeclared identifier 'foo'",
+                elapsedMs: 2,
+            }),
         });
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
 
         const result = await runner.compilePlugin('return foo();');
         expect(result.success).to.equal(false);
@@ -79,36 +105,20 @@ describe('BuildRunner — compilePlugin()', () => {
     });
 
     it('uses config-named .so path when configName is provided', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedSoPath = '';
-        (runner as any).compileShared = async (_srcPath: string, soPath: string) => {
-            capturedSoPath = soPath;
-            return { success: true };
-        };
+        const docker = makeFakeDocker();
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
 
         const result = await runner.compilePlugin('return View::New();', 'Phone Light');
         expect(result.soPath).to.include('phone_light');
-        expect(capturedSoPath).to.include('phone_light');
+        expect(docker.compilePlugin.firstCall.args[0].soPath).to.include('phone_light');
     });
 
     it('uses default preview_plugin.so when no configName is provided', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedSoPath = '';
-        (runner as any).compileShared = async (_srcPath: string, soPath: string) => {
-            capturedSoPath = soPath;
-            return { success: true };
-        };
+        const docker = makeFakeDocker();
+        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
 
         await runner.compilePlugin('return View::New();');
-        expect(capturedSoPath).to.match(/preview_plugin\.so$/);
+        expect(docker.compilePlugin.firstCall.args[0].soPath).to.match(/preview_plugin\.so$/);
     });
 });
 
@@ -164,93 +174,6 @@ describe('BuildRunner.hexToVector4()', () => {
     });
 });
 
-describe('BuildRunner — buildAndRun() fontSetup', () => {
-    let tmpFontDir: string;
-
-    before(() => {
-        tmpFontDir = path.join(require('os').tmpdir(), 'dali-test-fonts-' + Date.now());
-        fs.mkdirSync(tmpFontDir, { recursive: true });
-        fs.writeFileSync(path.join(tmpFontDir, 'NotoSansKR.ttf'), '');
-    });
-
-    after(() => {
-        fs.rmSync(tmpFontDir, { recursive: true, force: true });
-    });
-
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('injects FontClient::Get().AddCustomFontDirectory when font is found in fontDirectories', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const fakeConfig = { get: (_key: string, def: string[]) => [tmpFontDir] };
-        sinon.stub(vscode.workspace, 'getConfiguration').returns(fakeConfig as any);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedHarnessContent = '';
-        (runner as any).compile = async (harnessPath: string) => {
-            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
-            return { success: false, error: 'stub' };
-        };
-
-        await runner.buildAndRun('return View::New();', 720, 1280, 'dark', undefined, undefined, undefined, 'NotoSansKR.ttf');
-
-        expect(capturedHarnessContent).to.include(`FontClient::Get().AddCustomFontDirectory("${tmpFontDir}")`);
-    });
-
-    it('omits FontClient snippet when font is not specified', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedHarnessContent = '';
-        (runner as any).compile = async (harnessPath: string) => {
-            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
-            return { success: false, error: 'stub' };
-        };
-
-        await runner.buildAndRun('return View::New();', 720, 1280, 'dark');
-
-        expect(capturedHarnessContent).to.not.include('FontClient::Get().AddCustomFontDirectory');
-    });
-
-    it('escapes double-quotes in fontDir before C++ injection', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        // Use a directory containing a double-quote in the name (valid on Linux)
-        const quotedDir = path.join(require('os').tmpdir(), 'fonts-"test-' + Date.now());
-        fs.mkdirSync(quotedDir, { recursive: true });
-        fs.writeFileSync(path.join(quotedDir, 'Test.ttf'), '');
-
-        const fakeConfig = { get: (_key: string, def: string[]) => [quotedDir] };
-        sinon.stub(vscode.workspace, 'getConfiguration').returns(fakeConfig as any);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedHarnessContent = '';
-        (runner as any).compile = async (harnessPath: string) => {
-            capturedHarnessContent = fs.readFileSync(harnessPath, 'utf-8');
-            return { success: false, error: 'stub' };
-        };
-
-        await runner.buildAndRun('return View::New();', 720, 1280, 'dark', undefined, undefined, undefined, 'Test.ttf');
-
-        fs.rmSync(quotedDir, { recursive: true, force: true });
-
-        // Compute the correctly escaped version to verify escaping was applied
-        const expectedEscaped = quotedDir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        expect(capturedHarnessContent).to.include(`AddCustomFontDirectory("${expectedEscaped}")`);
-        // Also verify the raw (unescaped) double-quote is NOT present in the AddCustomFontDirectory call
-        const rawFontDirInCall = `AddCustomFontDirectory("${quotedDir}")`;
-        expect(capturedHarnessContent).to.not.include(rawFontDirInCall);
-    });
-});
-
 describe('BuildRunner.sanitizeConfigName()', () => {
     it('lowercases the name', () => {
         expect(BuildRunner.sanitizeConfigName('Phone Light')).to.equal('phone_light');
@@ -270,449 +193,5 @@ describe('BuildRunner.sanitizeConfigName()', () => {
 
     it('strips leading and trailing underscores', () => {
         expect(BuildRunner.sanitizeConfigName('_test_')).to.equal('test');
-    });
-});
-
-describe('BuildRunner — ffmpegAvailable()', () => {
-    beforeEach(() => {
-        // Reset static cache so each test exercises exec() independently
-        (BuildRunner as any)['_ffmpegCache'] = undefined;
-    });
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('returns true when ffmpeg exec succeeds (error is null)', async () => {
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(null, '/usr/bin/ffmpeg\n', '');
-            return {} as any;
-        }) as any);
-        const result = await BuildRunner.ffmpegAvailable();
-        expect(result).to.equal(true);
-    });
-
-    it('returns false when ffmpeg exec fails (error is non-null)', async () => {
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(new Error('not found'), '', '');
-            return {} as any;
-        }) as any);
-        const result = await BuildRunner.ffmpegAvailable();
-        expect(result).to.equal(false);
-    });
-});
-
-describe('BuildRunner — buildAndRunAnimation()', () => {
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('returns {success:false} when DALi prefix is not found', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(false);
-        sinon.stub(daliEnv, 'findDaliPrefix').resolves(null);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('DALi');
-    });
-
-    it('returns {success:false} when compilation fails', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        (runner as any).compile = async () => ({
-            success: false,
-            error: 'error: syntax error'
-        });
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('syntax error');
-    });
-
-    it('returns {success:false} when executeAnimation returns -1 (capture failed)', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        (runner as any).executeAnimation = async () => -1;
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('failed');
-    });
-
-    it('returns {success:true, gifPath} when ffmpeg assembles GIF successfully', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        (runner as any).executeAnimation = async () => 20;
-        (runner as any).assembleGif = async () => true;
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(true);
-        expect(result.gifPath).to.be.a('string');
-        expect(result.gifPath).to.match(/animation\.gif$/);
-        expect(result.frameCount).to.equal(20);
-    });
-
-    it('falls back to first frame PNG when ffmpeg assembly fails', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        // Stub executeAnimation to also write frame_000.png (after buildAndRunAnimation clears the dir)
-        (runner as any).executeAnimation = async () => {
-            const fd = path.join((runner as any).tmpDir, 'anim_frames');
-            fs.mkdirSync(fd, { recursive: true });
-            fs.writeFileSync(path.join(fd, 'frame_000.png'), '');
-            return 5;
-        };
-        (runner as any).assembleGif = async () => false;
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        const expectedFrame = path.join((runner as any).tmpDir, 'anim_frames', 'frame_000.png');
-        expect(result.success).to.equal(true);
-        expect(result.pngPath).to.equal(expectedFrame);
-        expect(result.gifPath).to.be.undefined;
-    });
-
-    it('falls back to first frame PNG when ffmpeg is not installed', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(false);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        // Stub executeAnimation to write frame_000.png (after buildAndRunAnimation clears the dir)
-        (runner as any).executeAnimation = async () => {
-            const fd = path.join((runner as any).tmpDir, 'anim_frames');
-            fs.mkdirSync(fd, { recursive: true });
-            fs.writeFileSync(path.join(fd, 'frame_000.png'), '');
-            return 3;
-        };
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        const expectedFrame = path.join((runner as any).tmpDir, 'anim_frames', 'frame_000.png');
-        expect(result.success).to.equal(true);
-        expect(result.pngPath).to.equal(expectedFrame);
-    });
-
-    it('returns {success:false} when no frames were captured (no frame_000.png)', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(false);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        (runner as any).executeAnimation = async () => 0;
-
-        // Ensure framesDir exists but has no frame_000.png
-        const framesDir = path.join((runner as any).tmpDir, 'anim_frames');
-        fs.mkdirSync(framesDir, { recursive: true });
-        const firstFrame = path.join(framesDir, 'frame_000.png');
-        if (fs.existsSync(firstFrame)) {
-            fs.unlinkSync(firstFrame);
-        }
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('No frames');
-
-        fs.rmSync(framesDir, { recursive: true, force: true });
-    });
-
-    it('uses totalFrames when capturedFrames is 0', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-        sinon.stub(BuildRunner, 'ffmpegAvailable').resolves(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        (runner as any).compile = async () => ({ success: true });
-        // capturedFrames = 0 → actualFrames should use totalFrames = duration*fps/1000 = 2000*10/1000 = 20
-        (runner as any).executeAnimation = async () => 0;
-        (runner as any).assembleGif = async () => true;
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-        );
-        expect(result.success).to.equal(true);
-        expect(result.frameCount).to.equal(20);
-    });
-});
-
-describe('BuildRunner — executeAnimation() output parsing', () => {
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('returns frame count from ANIM_DONE:N signal', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(null, 'FRAME:0/30\nFRAME:1/30\nANIM_DONE:30\n', '');
-            return {} as any;
-        }) as any);
-
-        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 5000);
-        expect(frames).to.equal(30);
-    });
-
-    it('returns -1 when exec errors without any FRAME: output', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(new Error('segfault'), '', 'Segmentation fault');
-            return {} as any;
-        }) as any);
-
-        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 5000);
-        expect(frames).to.equal(-1);
-    });
-
-    it('returns FRAME: count when timeout fires after partial capture', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            const err = new Error('timeout');
-            cb(err, 'FRAME:\nFRAME:\nFRAME:\n', '');
-            return {} as any;
-        }) as any);
-
-        const frames = await (runner as any).executeAnimation('/tmp/fake_bin', 720, 1280, 100);
-        expect(frames).to.equal(3);
-    });
-});
-
-describe('BuildRunner — assembleGif()', () => {
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('returns true when ffmpeg succeeds', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(null, '', '');
-            return {} as any;
-        }) as any);
-
-        const result = await (runner as any).assembleGif('/tmp/frames', '/tmp/out.gif', 10);
-        expect(result).to.equal(true);
-    });
-
-    it('returns false when ffmpeg fails', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const cp = require('child_process');
-        sinon.stub(cp, 'exec').callsFake(((...args: unknown[]) => {
-            const cb = args[args.length - 1] as Function;
-            cb(new Error('ffmpeg error'), '', 'Error: some ffmpeg failure');
-            return {} as any;
-        }) as any);
-
-        const result = await (runner as any).assembleGif('/tmp/frames', '/tmp/out.gif', 10);
-        expect(result).to.equal(false);
-    });
-});
-
-describe('BuildRunner — buildInteractive()', () => {
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('returns {success:false} when DALi prefix is not found', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(false);
-        sinon.stub(daliEnv, 'findDaliPrefix').resolves(null);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        const result = await runner.buildInteractive('return Button::New();');
-
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('DALi');
-    });
-
-    it('substitutes USER_CODE, PREVIEW_WIDTH, PREVIEW_HEIGHT, BACKGROUND_COLOR in template', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        let capturedContent = '';
-        (runner as any).compile = async (srcPath: string) => {
-            capturedContent = fs.readFileSync(srcPath, 'utf-8');
-            return { success: true };
-        };
-
-        const userCode = 'return TextLabel::New("hello");';
-        await runner.buildInteractive(userCode, 800, 480, 'dark');
-
-        expect(capturedContent).to.include(userCode);
-        expect(capturedContent).not.to.include('{{USER_CODE}}');
-        expect(capturedContent).to.include('800.0f');
-        expect(capturedContent).to.include('480.0f');
-        expect(capturedContent).not.to.include('{{PREVIEW_WIDTH}}');
-        expect(capturedContent).not.to.include('{{PREVIEW_HEIGHT}}');
-        expect(capturedContent).not.to.include('{{BACKGROUND_COLOR}}');
-    });
-
-    it('returns {success:false, error} when compile fails', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        const stderrMsg = "error: 'Foo' was not declared";
-        (runner as any).compile = async () => ({ success: false, error: stderrMsg });
-
-        const result = await runner.buildInteractive('return Foo::New();', 1024, 600);
-
-        expect(result.success).to.equal(false);
-        expect(result.error).to.equal(stderrMsg);
-    });
-
-    it('returns {success:true, binPath} when compile succeeds', async () => {
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-
-        (runner as any).compile = async (_srcPath: string, binPath: string) => {
-            return { success: true };
-        };
-
-        const result = await runner.buildInteractive('return View::New();', 1024, 600);
-
-        expect(result.success).to.equal(true);
-        expect(result.binPath).to.be.a('string');
-        expect(result.binPath).to.include('preview_interactive_bin');
-    });
-});
-
-// ---------------------------------------------------------------------------
-// runAnimationPreview() routing — tests via buildAndRunAnimation stub
-// ---------------------------------------------------------------------------
-
-describe('runAnimationPreview() routing', () => {
-    let runner: BuildRunner;
-    let updateAnimationSpy: sinon.SinonSpy;
-    let fakePreviewManager: any;
-
-    beforeEach(() => {
-        runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
-        (runner as any).daliPrefix = '/usr';
-        sinon.stub(daliEnv, 'validateDaliPrefix').returns(true);
-
-        updateAnimationSpy = sinon.spy();
-        fakePreviewManager = {
-            updateAnimation: updateAnimationSpy,
-        };
-    });
-
-    afterEach(() => {
-        sinon.restore();
-    });
-
-    it('success path: gifPath returned → updateAnimation called with gif path', async () => {
-        const gifPath = '/tmp/preview.gif';
-        sinon.stub(runner, 'buildAndRunAnimation').resolves({
-            success: true,
-            gifPath,
-            frameCount: 20,
-            metadataPath: undefined,
-        });
-
-        const result = await runner.buildAndRunAnimation(
-            'return View::New();', 720, 1280, 'dark', undefined,
-            2000, 10
-        );
-
-        expect(result.success).to.equal(true);
-        expect(result.gifPath).to.equal(gifPath);
-    });
-
-    it('failure path: buildAndRunAnimation fails → success=false with error message', async () => {
-        sinon.stub(runner, 'buildAndRunAnimation').resolves({
-            success: false,
-            error: 'compile error: undefined symbol',
-        });
-
-        const result = await runner.buildAndRunAnimation(
-            'return Broken::New();', 720, 1280, 'dark', undefined,
-            2000, 10
-        );
-
-        expect(result.success).to.equal(false);
-        expect(result.error).to.include('compile error');
-    });
-
-    it('stale generation guard: when two builds overlap, second result is discarded', async () => {
-        let buildGeneration = 1;
-
-        // Simulate what runAnimationPreview does: check generation after await
-        const runWithGeneration = async (myGeneration: number) => {
-            const result = await runner.buildAndRunAnimation(
-                'return View::New();', 720, 1280, 'dark', undefined, 2000, 10
-            );
-            if (myGeneration !== buildGeneration) {
-                return; // stale — do not call updateAnimation
-            }
-            if (result.success && (result.gifPath || result.pngPath)) {
-                fakePreviewManager.updateAnimation(result.gifPath || result.pngPath, 100, result.frameCount || 0);
-            }
-        };
-
-        // First build resolves, but generation has advanced by the time it finishes
-        sinon.stub(runner, 'buildAndRunAnimation').resolves({
-            success: true,
-            gifPath: '/tmp/preview.gif',
-            frameCount: 20,
-        });
-
-        const staleGeneration = 1;
-        buildGeneration = 2; // generation advanced before first build finishes
-
-        await runWithGeneration(staleGeneration);
-
-        expect(updateAnimationSpy.called).to.equal(false);
     });
 });

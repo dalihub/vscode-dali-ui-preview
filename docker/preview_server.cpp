@@ -267,6 +267,8 @@ struct ReloadRequest {
     float       fontScale = 0.0f; // optional, 0 = not set
     std::string font;             // optional, font filename
     bool        isJson = false;   // true → RENDER_JSON path
+    bool        isRenderAt = false; // true → RENDER_AT scrub path (reuse resident plugin)
+    float       progress = 0.0f;    // normalized [0,1] for RENDER_AT
 };
 
 // ---------------------------------------------------------------------------
@@ -724,6 +726,44 @@ public:
                 }
             }
 
+            // Parse: RENDER_AT <progress> <png_path> <metadata_path> <width> <height> [theme] [bgColor]
+            else if (line.size() >= 9 && line.substr(0, 9) == "RENDER_AT")
+            {
+                std::string rest = (line.size() > 9) ? line.substr(10) : "";
+                std::istringstream iss(rest);
+                ReloadRequest req;
+                req.isRenderAt = true;
+                std::string pStr, wStr, hStr;
+                if (!(iss >> pStr >> req.pngPath >> req.metadataPath >> wStr >> hStr))
+                {
+                    std::cout << ">>>ERROR:malformed RENDER_AT command" << std::endl;
+                    continue;
+                }
+                try
+                {
+                    req.progress = std::stof(pStr);
+                    req.width    = std::stof(wStr);
+                    req.height   = std::stof(hStr);
+                }
+                catch (...)
+                {
+                    std::cout << ">>>ERROR:malformed RENDER_AT command" << std::endl;
+                    continue;
+                }
+                std::string themeStr;
+                if (iss >> themeStr) req.theme = themeStr;
+                std::string colorStr;
+                if (iss >> colorStr && colorStr != "-") req.bgColor = colorStr;
+
+                if (!mCaptureBusy)
+                    DoReload(req);
+                else
+                {
+                    mPendingRequest = req;
+                    mHasPending     = true;
+                }
+            }
+
             // Parse: RELOAD <so_path> <png_path> <metadata_path> <width> <height> [theme]
             else if (line.size() >= 6 && line.substr(0, 6) == "RELOAD")
             {
@@ -893,7 +933,8 @@ public:
 
     void DoReload(const ReloadRequest& req)
     {
-        if (req.isJson) { DoRenderJson(req); return; }
+        if (req.isJson)     { DoRenderJson(req); return; }
+        if (req.isRenderAt) { DoRenderAt(req);  return; }
 
         mCaptureBusy = true;
         mCurrentReq  = req;
@@ -942,6 +983,8 @@ public:
             dlclose(mPluginHandle);
             mPluginHandle = nullptr;
         }
+        mSetPreviewProgress = nullptr;
+        mAnimCount          = 0;
 
         // Remove all actors from root layer
         Layer rootLayer = mWindow.GetRootLayer();
@@ -992,7 +1035,38 @@ public:
             return;
         }
 
+        // Resolve optional animation-scrub symbols. Always present in current
+        // plugins; mAnimCount is 0 for previews with no .Play() animations.
+        mSetPreviewProgress = reinterpret_cast<void(*)(float)>(dlsym(mPluginHandle, "__SetPreviewProgress"));
+        {
+            using IntFn   = int (*)();
+            using FloatFn = float (*)();
+            IntFn   animCount = reinterpret_cast<IntFn>(dlsym(mPluginHandle, "__PreviewAnimationCount"));
+            FloatFn animDur   = reinterpret_cast<FloatFn>(dlsym(mPluginHandle, "__PreviewAnimationDuration"));
+            mAnimCount        = animCount ? animCount() : 0;
+            long durationMs   = animDur ? static_cast<long>(animDur() * 1000.0f) : 0L;
+            std::cout << ">>>ANIM:" << mAnimCount << ":" << durationMs << std::endl;
+        }
+
         ScheduleCapture();
+    }
+
+    void DoRenderAt(const ReloadRequest& req)
+    {
+        if (!mPluginHandle || !mSetPreviewProgress || mAnimCount == 0)
+        {
+            std::cout << ">>>ERROR:no animated preview loaded" << std::endl;
+            mCaptureBusy = false;   // symmetric with the other bail-outs: drain any queued request
+            FlushPending();
+            return;
+        }
+        mCaptureBusy = true;
+        mCurrentReq  = req;
+        mSetPreviewProgress(req.progress);
+        // Let one update cycle apply the new progress before capturing.
+        mResourceTimer = Timer::New(32);
+        mResourceTimer.TickSignal().Connect(this, [this]() { OnStartCapture(); return false; });
+        mResourceTimer.Start();
     }
 
     void ScheduleCapture()
@@ -1117,6 +1191,8 @@ private:
     int          mResourceTickCount;
 
     void*        mPluginHandle;
+    void       (*mSetPreviewProgress)(float) = nullptr;
+    int          mAnimCount = 0;
     bool         mHasPending;
     bool         mCaptureBusy;
     std::string  mStdinBuf;
