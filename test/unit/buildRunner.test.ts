@@ -58,46 +58,55 @@ describe('BuildRunner — compilePlugin()', () => {
         sinon.restore();
     });
 
-    // Docker-only: a fake DockerRuntime that records the request it was given
-    // and reports success, so we can assert on path naming + {{USER_CODE}}
-    // substitution without touching a real container.
-    function makeFakeDocker(over: Partial<any> = {}) {
+    // A fake BuildBackend that records the compilePlugin request it was given
+    // and echoes the soPath back on success, so we can assert on path naming +
+    // {{USER_CODE}} substitution without touching docker or a host compiler.
+    function makeFakeBackend(over: Partial<any> = {}) {
         return {
-            isAvailable: sinon.stub().resolves(true),
-            compilePlugin: sinon.stub().resolves({ success: true, output: '', elapsedMs: 1 }),
+            kind: 'docker',
+            supportsResidentServer: true,
+            outputPaths: (workDir: string) => ({
+                pngEmbed: '/work/preview.png',
+                metadataEmbed: '/work/preview_metadata.json',
+                pngHost: path.join(workDir, 'preview.png'),
+                metadataHost: path.join(workDir, 'preview_metadata.json'),
+            }),
+            validate: sinon.stub().resolves([]),
+            capture: sinon.stub().resolves({ success: true }),
+            compilePlugin: sinon.stub().callsFake(async (req: any) => ({ success: true, soPath: req.soPath })),
             ...over,
         } as any;
     }
 
-    it('returns {success:false} when no DockerRuntime is provided', async () => {
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel);
+    it('returns {success:false} when the backend has no dlopen support (local mode)', async () => {
+        const backend = makeFakeBackend({ kind: 'local', supportsResidentServer: false, compilePlugin: undefined });
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
         const result = await runner.compilePlugin('return Button::New();');
 
         expect(result.success).to.equal(false);
-        expect(result.error).to.include('Docker');
+        expect(result.error).to.include('not supported');
     });
 
     it('substitutes {{USER_CODE}} in plugin template before compiling', async () => {
-        const docker = makeFakeDocker();
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
+        const backend = makeFakeBackend();
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
 
         const userCode = 'return MyWidget::New();';
         await runner.compilePlugin(userCode);
 
-        const req = docker.compilePlugin.firstCall.args[0];
+        const req = backend.compilePlugin.firstCall.args[0];
         expect(req.source).to.include(userCode);
         expect(req.source).not.to.include('{{USER_CODE}}');
     });
 
-    it('returns {success:false} with output on compile failure', async () => {
-        const docker = makeFakeDocker({
+    it('returns {success:false} with the backend error on compile failure', async () => {
+        const backend = makeFakeBackend({
             compilePlugin: sinon.stub().resolves({
                 success: false,
-                output: "error: use of undeclared identifier 'foo'",
-                elapsedMs: 2,
+                error: "Plugin compile failed:\nerror: use of undeclared identifier 'foo'",
             }),
         });
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
 
         const result = await runner.compilePlugin('return foo();');
         expect(result.success).to.equal(false);
@@ -105,20 +114,52 @@ describe('BuildRunner — compilePlugin()', () => {
     });
 
     it('uses config-named .so path when configName is provided', async () => {
-        const docker = makeFakeDocker();
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
+        const backend = makeFakeBackend();
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
 
         const result = await runner.compilePlugin('return View::New();', 'Phone Light');
         expect(result.soPath).to.include('phone_light');
-        expect(docker.compilePlugin.firstCall.args[0].soPath).to.include('phone_light');
+        expect(backend.compilePlugin.firstCall.args[0].soPath).to.include('phone_light');
     });
 
     it('uses default preview_plugin.so when no configName is provided', async () => {
-        const docker = makeFakeDocker();
-        const runner = new BuildRunner(makeContext(), undefined, fakeOutputChannel, docker);
+        const backend = makeFakeBackend();
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
 
         await runner.compilePlugin('return View::New();');
-        expect(docker.compilePlugin.firstCall.args[0].soPath).to.match(/preview_plugin\.so$/);
+        expect(backend.compilePlugin.firstCall.args[0].soPath).to.match(/preview_plugin\.so$/);
+    });
+});
+
+describe('BuildRunner — buildAndRun() backend seam', () => {
+    afterEach(() => sinon.restore());
+
+    it('bakes the backend embed paths into the harness and reads back the host paths', async () => {
+        const capture = sinon.stub().resolves({ success: true, pngPath: '/host/p.png', metadataPath: '/host/m.json' });
+        const backend = {
+            kind: 'local',
+            supportsResidentServer: false,
+            outputPaths: () => ({
+                pngEmbed: 'EMBED_PNG_PATH',
+                metadataEmbed: 'EMBED_META_PATH',
+                pngHost: '/host/p.png',
+                metadataHost: '/host/m.json',
+            }),
+            validate: sinon.stub().resolves([]),
+            capture,
+        } as any;
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, backend);
+
+        const result = await runner.buildAndRun('return View::New();', 100, 100);
+
+        const req = capture.firstCall.args[0];
+        // OUTPUT_PATH/METADATA_PATH substituted with the backend's embed paths…
+        expect(req.source).to.include('EMBED_PNG_PATH');
+        expect(req.source).to.not.include('{{OUTPUT_PATH}}');
+        // …while the host paths are passed through for reading the result back.
+        expect(req.pngPathHost).to.equal('/host/p.png');
+        expect(result.success).to.equal(true);
+        expect(result.pngPath).to.equal('/host/p.png');
     });
 });
 

@@ -33,3 +33,4 @@ dali-ui-preview-cli/**
 samples/dali-examples/**
 samples/test/**
 hello-dali.preview.dali.cpp
+dali-animation-playground.html

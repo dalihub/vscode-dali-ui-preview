@@ -137,13 +137,13 @@ export async function selectRuntimeVersionCommand(
     runtime: DockerRuntime,
     outputChannel: vscode.OutputChannel,
     onSelected: () => Promise<void>,
-): Promise<void> {
+): Promise<string | undefined> {
     const access = await checkDockerAccess();
     if (access.state !== 'ok') {
         await vscode.window.showWarningMessage(
             `Cannot list runtime versions — docker is not accessible (${access.state}).`,
         );
-        return;
+        return undefined;
     }
 
     // Local tags switch instantly and work offline; remote tags may need a
@@ -166,7 +166,7 @@ export async function selectRuntimeVersionCommand(
         await vscode.window.showWarningMessage(
             'No runtime versions found locally or in the registry.',
         );
-        return;
+        return undefined;
     }
 
     // Read each cached image's DALi version label (local `docker inspect` —
@@ -201,8 +201,11 @@ export async function selectRuntimeVersionCommand(
         placeHolder: `Select a DALi runtime version to preview with (current: ${current})`,
         ignoreFocusOut: true,
     });
-    if (!pick || pick.label === current) {
-        return;
+    if (!pick) {
+        return undefined; // cancelled
+    }
+    if (pick.label === current) {
+        return pick.label; // committed to the current version — nothing to pull/restart
     }
 
     await ConfigurationService.getInstance().update(
@@ -213,4 +216,5 @@ export async function selectRuntimeVersionCommand(
     if (ok) {
         await onSelected();
     }
+    return pick.label;
 }

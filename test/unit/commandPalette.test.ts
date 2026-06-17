@@ -16,6 +16,9 @@ const PALETTE_VISIBLE = [
     'dali.openSample',
     'dali.openExamples',
     'dali.rerunSetup',
+    'dali.useLocalRuntime',
+    'dali.restartDaliRuntime',
+    'dali.selectRuntimeVersion',
 ];
 
 // Hidden from the palette: CodeLens-only (previewFunction needs args), the
@@ -28,7 +31,6 @@ const PALETTE_HIDDEN = [
     'dali.installDocker',
     'dali.pullRuntimeImage',
     'dali.checkRuntimeUpdate',
-    'dali.selectRuntimeVersion',
     'dali.showReadme',
 ];
 

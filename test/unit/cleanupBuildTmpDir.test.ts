@@ -32,6 +32,24 @@ describe('cleanupBuildTmpDir()', () => {
         expect(fs.existsSync(path.join(tmpDir, 'preview_metadata.json'))).to.equal(false);
     });
 
+    it('sweeps accumulated scrub frames (preview_scrub_*.png) on dispose', () => {
+        // A scrubbing session leaves up to SCRUB_PROGRESS_GRID+1 bounded frames +
+        // one metadata file; all are transient and must be removed on shutdown.
+        fs.writeFileSync(path.join(tmpDir, 'preview_scrub_0.png'),   'a');
+        fs.writeFileSync(path.join(tmpDir, 'preview_scrub_100.png'), 'b');
+        fs.writeFileSync(path.join(tmpDir, 'preview_scrub_200.png'), 'c');
+        fs.writeFileSync(path.join(tmpDir, 'preview_scrub_metadata.json'), 'd');
+        fs.writeFileSync(path.join(tmpDir, 'preview_server'), 'KEEP');
+
+        const removed = cleanupBuildTmpDir(tmpDir);
+
+        expect(removed).to.equal(4);
+        expect(fs.existsSync(path.join(tmpDir, 'preview_scrub_0.png'))).to.equal(false);
+        expect(fs.existsSync(path.join(tmpDir, 'preview_scrub_200.png'))).to.equal(false);
+        expect(fs.existsSync(path.join(tmpDir, 'preview_scrub_metadata.json'))).to.equal(false);
+        expect(fs.existsSync(path.join(tmpDir, 'preview_server'))).to.equal(true);
+    });
+
     it('recursively removes subdirectories like anim_frames', () => {
         const framesDir = path.join(tmpDir, 'anim_frames');
         fs.mkdirSync(framesDir);

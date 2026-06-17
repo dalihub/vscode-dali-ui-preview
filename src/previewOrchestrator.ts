@@ -16,6 +16,16 @@ import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
 import { PreviewMode } from './types';
 
+// Quantization grid for scrub-frame backing filenames. Each scrub frame is
+// written to `preview_scrub_<round(progress*GRID)>.png`, so the on-disk set is
+// BOUNDED to GRID+1 names (reused/overwritten across animations and durations)
+// instead of leaking a fresh PNG per distinct progress for an entire session.
+// The grid must exceed the webview's max FRAME_COUNT (48, see media/preview.html)
+// so two adjacent timeline frames never quantize onto the same file: 200 yields a
+// 0.5% bucket against a >=2.1% frame spacing (~4x margin), keeping each cached
+// frame on its own stable file (the BUG10 anti-aliasing invariant).
+const SCRUB_PROGRESS_GRID = 200;
+
 // ---------------------------------------------------------------------------
 // Strategy Pattern for build paths
 // ---------------------------------------------------------------------------
@@ -236,12 +246,13 @@ export interface OrchestratorDeps {
     outputChannel: vscode.OutputChannel;
     diagnosticCollection: vscode.DiagnosticCollection;
     /**
-     * Gate a render on docker readiness (docker mode only). Returns true if the
-     * render may proceed. When docker is missing it surfaces the actionable
-     * setup popup (unless `silent`, for live-preview keystroke renders).
-     * Injected late via `setEnsureDockerReady` (see extension.ts).
+     * Gate a render on runtime readiness. Returns true if the render may
+     * proceed. When the runtime isn't ready it surfaces actionable setup
+     * guidance (docker install, or — in local mode — pick the DALi folder /
+     * install missing host deps), unless `silent` (live-preview keystrokes).
+     * Injected late via `setEnsureRuntimeReady` (see extension.ts).
      */
-    ensureDockerReady?: (opts: { silent: boolean }) => Promise<boolean>;
+    ensureRuntimeReady?: (opts: { silent: boolean }) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,10 +584,16 @@ export class PreviewOrchestrator {
             return;
         }
         const tmpDir = this.deps.buildRunner.getTmpDir();
-        // Name the frame by its progress so each cached frame has a STABLE backing
-        // file. A rotating mod-N name aliases distinct cached frames onto one file,
-        // so a re-read after browser eviction would surface the wrong frame.
-        const pngPath = path.join(tmpDir, `preview_scrub_${Math.round(progress * 100000)}.png`);
+        // Name the frame by a quantized progress bucket so each cached frame keeps a
+        // STABLE backing file (a rotating mod-N name aliases distinct cached frames
+        // onto one file, so a re-read after browser eviction surfaces the wrong
+        // frame). The grid is FIXED so the file set stays BOUNDED to
+        // SCRUB_PROGRESS_GRID+1 names — reused across animations instead of leaking a
+        // fresh PNG per progress all session — while remaining collision-free for any
+        // timeline up to the webview's 48-frame cap. Old frames are then fully swept
+        // by BuildRunner.dispose()'s cleanupBuildTmpDir() on shutdown.
+        const bucket = Math.round(progress * SCRUB_PROGRESS_GRID);
+        const pngPath = path.join(tmpDir, `preview_scrub_${bucket}.png`);
         const metadataPath = path.join(tmpDir, 'preview_scrub_metadata.json');
         const result = await server.renderAt(
             progress, pngPath, metadataPath,
@@ -762,8 +779,8 @@ export class PreviewOrchestrator {
         this.deps.previewManager = manager;
     }
 
-    setEnsureDockerReady(fn: (opts: { silent: boolean }) => Promise<boolean>): void {
-        this.deps.ensureDockerReady = fn;
+    setEnsureRuntimeReady(fn: (opts: { silent: boolean }) => Promise<boolean>): void {
+        this.deps.ensureRuntimeReady = fn;
     }
 
     // -----------------------------------------------------------------------
@@ -827,21 +844,21 @@ export class PreviewOrchestrator {
 
         log.debug('Extension', 'extraction mode selected', { mode: extraction.mode, fileName: doc.fileName });
 
-        // Docker gate: in docker mode, when the dlopen server isn't up we are about
-        // to fall back to the full-harness path. Verify docker access first and, if
-        // it's missing, surface the actionable install/setup popup (the no-reload
-        // resume path) instead of letting buildAndRunDocker fail with a raw string
-        // buried in the panel. Runs before building/lastDocument advance so an early
-        // return needs no cleanup. Live-preview (keystroke) renders pass silent so
-        // they never pop a modal or spam the panel.
-        if (!this.deps.previewServer?.isRunning && this.deps.ensureDockerReady) {
-            const ready = await this.deps.ensureDockerReady({ silent: livePreview });
+        // Runtime gate: when no resident server is up we're about to fall back to
+        // the one-shot build path. Verify the runtime is ready first and, if not,
+        // surface actionable setup guidance (docker install, or — in local mode —
+        // pick the DALi folder / install host deps) instead of letting the build
+        // fail with a raw string buried in the panel. Runs before building/
+        // lastDocument advance so an early return needs no cleanup. Live-preview
+        // (keystroke) renders pass silent so they never pop a modal or spam the panel.
+        if (!this.deps.previewServer?.isRunning && this.deps.ensureRuntimeReady) {
+            const ready = await this.deps.ensureRuntimeReady({ silent: livePreview });
             if (!ready) {
                 if (!livePreview) {
                     previewManager.showError(
-                        'Docker is required to render the preview. Follow the "DALi: Install Docker via Terminal" setup steps in the notification.',
+                        'Preview runtime is not ready. Follow the setup steps in the notification.',
                     );
-                    this.deps.statusBar?.showError('Docker not available');
+                    this.deps.statusBar?.showError('Runtime not available');
                 }
                 return;
             }

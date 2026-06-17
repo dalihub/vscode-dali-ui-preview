@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import * as vscode from 'vscode';
 import { ConfigurationService } from '../../src/configurationService';
 
 describe('ConfigurationService — runtimeUpdatePolicy', () => {
@@ -6,5 +7,36 @@ describe('ConfigurationService — runtimeUpdatePolicy', () => {
         // The vscode mock's getConfiguration().get(key, default) returns the
         // supplied default, so this asserts the getter passes 'notify'.
         expect(ConfigurationService.getInstance().runtimeUpdatePolicy).to.equal('notify');
+    });
+});
+
+describe('ConfigurationService — runtimeMode / daliPrefix', () => {
+    const realGetConfiguration = vscode.workspace.getConfiguration;
+    afterEach(() => { (vscode.workspace as any).getConfiguration = realGetConfiguration; });
+
+    // Override the vscode mock so a specific key returns a non-default value.
+    function stubConfig(values: Record<string, any>): void {
+        (vscode.workspace as any).getConfiguration = () => ({
+            get: (key: string, dflt: any) => (key in values ? values[key] : dflt),
+            update: () => Promise.resolve(),
+        });
+    }
+
+    it('runtimeMode defaults to "docker" (matching the manifest)', () => {
+        expect(ConfigurationService.getInstance().runtimeMode).to.equal('docker');
+    });
+
+    it('daliPrefix defaults to "" (empty → auto-detect)', () => {
+        expect(ConfigurationService.getInstance().daliPrefix).to.equal('');
+    });
+
+    it('runtimeMode returns "local" when configured', () => {
+        stubConfig({ runtimeMode: 'local' });
+        expect(ConfigurationService.getInstance().runtimeMode).to.equal('local');
+    });
+
+    it('runtimeMode falls back to "docker" for an unrecognized value', () => {
+        stubConfig({ runtimeMode: 'bogus' });
+        expect(ConfigurationService.getInstance().runtimeMode).to.equal('docker');
     });
 });

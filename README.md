@@ -41,8 +41,8 @@ panel. After the first render, text edits update in **~100 ms**.
 
 - 🐳 **Docker runtime (default)** — no DALi build on your machine. The runtime ships as a
   pre-built image that the extension pulls for you (~290 MB, once).
-- 🛠️ **Native runtime** — already have DALi at `/opt/dali`? Point the extension at it and
-  render on your host GPU.
+- 🛠️ **Local runtime (for framework devs)** — modifying DALi itself? Point the extension at
+  your own build; each preview compiles against it, so a fresh `.so` shows up on every render.
 - 🧭 **Guided setup** — right after you install the extension it prompts you to install
   Docker **and** download the runtime image, then takes you to your first preview — no
   preview file needed to get started.
@@ -64,8 +64,8 @@ You only need **one** of the two runtimes. If you're not sure, pick Docker — i
 > ⚠️ **Docker mode (the default) requires two one-time steps: ① install Docker, and
 > ② download the runtime image (~290 MB).** You don't do these by hand — right after you
 > install the extension, DALi Preview **prompts you and performs both for you** once you
-> approve. Until both are done, previews can't render. Already have a native DALi build?
-> See [Native runtime](#native-runtime-advanced).
+> approve. Until both are done, previews can't render. Building DALi yourself?
+> See **⭐ Local DALi runtime** below.
 
 1. **Install the extension** (see [Installation](#installation) below).
 2. **Set up the runtime when prompted.** Right after install, a **Set up DALi Preview**
@@ -116,10 +116,11 @@ code --install-extension dali-preview-*.vsix
 
 ## Setting up your runtime
 
-The first-run prompt sets up Docker for you (and the walkthrough guides native setup), but
-here's what each option does — and exactly what you need in place.
+There are two runtimes. **App developers** use **Docker** (default, zero host setup).
+**DALi framework (uifw) developers** who modify DALi itself use the **local runtime** so
+previews reflect their own freshly-built `.so` files — see the important section below.
 
-### Docker runtime *(recommended)*
+### Docker runtime *(recommended for app developers)*
 
 The DALi runtime is a pre-built container image — you don't build DALi yourself.
 **Two one-time steps are required**, and the extension prompts you for both right after
@@ -142,14 +143,47 @@ Check or fix the runtime anytime:
 - **DALi Preview: Reset Extension** — remove containers, images, and caches and start
   fresh (your code, settings, and Docker install are untouched).
 
-### Native runtime *(advanced)*
+### ⭐ Local DALi runtime — for DALi framework (uifw) developers
 
-If you already have DALi built on your host, switch with **DALi Preview: Use Native DALi
-Runtime** and point the picker at your install prefix — the folder containing
-`lib/libdali2-core.so`. Common prefixes: `/opt/dali`, `~/dali-env/opt`. The extension
-saves it to `daliPreview.daliPrefix`, validates it, and offers to `apt install` any missing
-tools (`g++`, `Xvfb`, `ccache`). Native rendering uses your host GPU and is a touch faster
-on large canvases.
+> **📌 Important.** Use this when you **modify DALi itself** and want the preview to reflect
+> *your* build. App developers should stay on Docker (above). In local mode each preview is
+> compiled on your host (`g++` + `pkg-config`) against your DALi install and rendered under
+> Xvfb — a fresh one-shot process every time, so a just-rebuilt `libdali2-*.so` shows up on
+> the **next render with no image rebuild and no restart**.
+
+**How to point the extension at your local DALi folder**
+
+1. Open the Command Palette (`Ctrl+Shift+P`) → **DALi Preview: Use Local DALi Runtime**.
+2. A **folder picker** opens, pre-seeded with an auto-detected prefix when one is found.
+   Choose your **DALi install prefix** — the folder that contains
+   `lib/libdali2-core.so` and `lib/pkgconfig/dali2-ui-foundation.pc` (typically
+   `…/dali-env/opt`). You may also select a **parent folder** that contains `dali-env/opt`;
+   it's resolved for you.
+3. The path is saved to **`daliPreview.daliPrefix`**, `runtimeMode` is set to `local`, and
+   the window reloads. Done — save a `.preview.dali.cpp` and it renders against your DALi.
+
+Rebuilt DALi? Just **save again** (or hit refresh) — the new `.so` is picked up automatically.
+
+**Auto-detection order** (so you often don't need to pick a folder at all):
+
+1. the `daliPreview.daliPrefix` setting (your explicit choice);
+2. the **`DESKTOP_PREFIX`** environment variable — exactly what a dali-env `setenv` exports,
+   so `source setenv` then launch VS Code and it's found;
+3. a **`setenv`** file in a workspace folder (`DESKTOP_PREFIX=…`);
+4. a **shared/system install** — whatever `pkg-config` has registered, then common
+   locations like `/opt/dali`.
+
+It deliberately does **not** scan your home/project directories, so a shared tool never
+auto-selects one person's project build. Prerequisites on the host: `g++`, `Xvfb`,
+`pkg-config` (the extension tells you which is missing). To go (back) to Docker, run
+**DALi Preview: Select Runtime Version** and pick a container version.
+
+> Speed: local mode runs a **native resident preview server** (compiled from the bundled
+> `preview_server.cpp` against your prefix), so editing preview code uses the fast
+> dlopen/parser paths and **animation scrubbing** — same as Docker, not a full rebuild each
+> time. After you rebuild DALi (`make install`), a watcher on `…/lib/libdali2-*.so` restarts
+> the server automatically (or run **DALi Preview: Restart DALi Runtime**) so it loads your
+> new build.
 
 ## Writing previews
 
@@ -221,15 +255,14 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 |---|---|
 | **Open Preview** | Open the preview panel for the active file |
 | **Preview Function** | Preview the function under the cursor |
+| **Use Local DALi Runtime** | **Local mode — pick your DALi prefix folder (framework devs)** |
+| **Select Runtime Version** | **Docker mode — pick a container/DALi version (switches into Docker from local)** |
 | **Open Sample File** | Drop a starter `hello-dali.preview.dali.cpp` into the workspace |
 | **Run Setup Walkthrough** | Reopen the guided setup |
 | **Install Docker via Terminal** | **① Install Docker** (one `sudo` password, no reboot) |
 | **Download Runtime Image** | **② Pull the DALi runtime image** (~290 MB) |
 | **Verify Docker Access** | Confirm Docker is reachable; fix a "permission denied" session |
 | **Toggle Theme** | Switch the preview between dark and light |
-| **Toggle Interactive Mode (VNC)** | Drive the live app in the panel |
-| **Select Target Device** / **Device Preview** | Pick an SDB device and render on it |
-| **Select Runtime Version** | Choose a DALi runtime image tag |
 | **Check for Runtime Image Update** | Compare your image against the registry |
 | **Clean Runtime Images** | Remove cached runtime images to free disk |
 | **Reset Extension** | Remove containers, images, and caches and start fresh |
@@ -239,20 +272,16 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `daliPreview.runtimeMode` | `docker` \| `native` | `docker` | Where preview builds run. Docker needs no host DALi install. |
-| `daliPreview.daliPrefix` | string | `""` | Native mode only — path to your DALi install prefix. Auto-detected if empty. |
+| `daliPreview.runtimeMode` | `docker` \| `local` | `docker` | Where preview builds run. `docker` needs no host DALi install; `local` compiles against a host DALi (framework devs). |
+| `daliPreview.daliPrefix` | string | `""` | **Local mode** — path to your DALi install prefix. Empty = auto-detect (`DESKTOP_PREFIX` / workspace `setenv` / a system install). Usually set for you by **Use Local DALi Runtime**. |
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | Runtime image used in Docker mode. |
 | `daliPreview.daliVersionTag` | string | `latest` | Runtime image tag (DALi version). `latest` follows the rolling tag. |
-| `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | How to handle a newer runtime image (checked once/day). |
+| `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | How to handle a newer runtime image (checked once/day, Docker mode). |
 | `daliPreview.previewWidth` | number | `1024` | Default canvas width (px). |
 | `daliPreview.previewHeight` | number | `600` | Default canvas height (px). |
 | `daliPreview.livePreview` | boolean | `true` | Re-render automatically as you type. |
 | `daliPreview.livePreviewDebounce` | number | `0` | Debounce (ms) between keystroke and re-render. `0` = every keystroke. |
-| `daliPreview.fontDirectories` | string[] | `[]` | Directories of custom TTF/OTF fonts (native mode). |
-| `daliPreview.vncPort` / `daliPreview.websocketPort` | number | `5900` / `6080` | Starting ports for interactive (VNC) mode. |
-| `daliPreview.sdbPath` | string | `""` | Path to `sdb`. Empty = use `sdb` from `PATH`. |
-| `daliPreview.tizenSysroot` | string | `""` | Tizen sysroot for ARM device cross-compilation. |
-| `daliPreview.targetDevice` | string | `""` | Default SDB device serial (set by *Select Target Device*). |
+| `daliPreview.fontDirectories` | string[] | `[]` | Directories of custom TTF/OTF fonts (honored in local mode). |
 | `daliPreview.logLevel` | `error`…`trace` | `info` | Verbosity of the **DALi Preview** output channel. |
 
 ## Troubleshooting
@@ -268,8 +297,9 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
   once; later previews start instantly. Pre-pull with **Download Runtime Image**.
 - **"permission denied … docker.sock"** — run **DALi Preview: Verify Docker Access** →
   *Fix for this session*. (`setfacl` re-grants the running session access.)
-- **Native mode: "DALi not found"** — confirm `daliPreview.daliPrefix` points at the folder
-  containing `lib/libdali2-core.so`, and that `lib/pkgconfig/dali2-*.pc` exist.
+- **Local mode: "DALi not found"** — confirm `daliPreview.daliPrefix` points at the folder
+  containing `lib/libdali2-core.so` and `lib/pkgconfig/dali2-ui-foundation.pc` (re-pick it with
+  **DALi Preview: Use Local DALi Runtime**).
 - **Where are the logs?** — the **DALi Preview** output channel. Set `daliPreview.logLevel`
   to `debug` (or `trace` for structured JSON) and look for `[Perf]` lines to see which render
   path fired.
@@ -277,8 +307,10 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 ## Notes & limitations
 
 - **Linux only.** Headless rendering uses Xvfb; Windows/macOS would need a DALi WebAssembly port.
-- **Custom fonts and animation preview are native-runtime features.** In Docker mode they
-  are currently skipped; animation export also requires `ffmpeg`.
+- **Local runtime: a resident native server gives the fast paths + animation scrubbing**,
+  same as Docker. After rebuilding DALi, the lib watcher (or **Restart DALi Runtime**)
+  respawns it so your new build is loaded; very large canvases are bounded by the host
+  Xvfb screen. Custom fonts are honored in local mode; Docker mode currently skips them.
 - Previews render the **extracted region** — the body you `return`, not your whole application.
 
 ## Changelog

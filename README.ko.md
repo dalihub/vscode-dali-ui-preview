@@ -38,7 +38,7 @@
 
 - 🐳 **Docker 런타임 (기본값)** — 내 PC에 DALi를 빌드할 필요 없음. 런타임은 미리 빌드된
   이미지로 제공되어 확장이 자동으로 받아옵니다(~290 MB, 최초 1회).
-- 🛠️ **네이티브 런타임** — 이미 `/opt/dali`에 DALi가 있다면 그 경로를 지정해 호스트 GPU로 렌더링.
+- 🛠️ **로컬 런타임 (프레임워크 개발자용)** — DALi 자체를 수정한다면 내 빌드를 지정 → 매 렌더마다 새 `.so` 자동 반영.
 - 🧭 **가이드 설치** — 확장을 설치하면 곧바로 Docker 설치**와** 런타임 이미지 다운로드를
   안내하고 첫 프리뷰까지 데려갑니다 — 시작하는 데 프리뷰 파일이 필요 없습니다.
 - 🔄 **런타임 업데이트** — 새 DALi 런타임 이미지가 올라오면 알림을 받고, 버전 선택기에서 전환.
@@ -49,7 +49,7 @@
 |---|---|
 | **OS** | Linux (x86_64). Ubuntu 22.04+ 권장. *Windows / macOS 미지원.* |
 | **VS Code** | 1.85.0 이상 |
-| **런타임** | **Docker** *(권장 — 별도 설치 불필요)*, **또는** 네이티브 DALi 빌드 (dali-core, dali-adaptor, dali-ui) |
+| **런타임** | **Docker** *(권장 — 별도 설치 불필요)*, **또는** 로컬 DALi 빌드 (dali-core, dali-adaptor, dali-ui) |
 
 둘 중 **하나만** 있으면 됩니다. 잘 모르겠으면 Docker를 고르세요 — 그대로 동작합니다.
 
@@ -58,8 +58,8 @@
 > ⚠️ **Docker 모드(기본값)는 두 가지 일회성 단계가 필요합니다: ① Docker 설치, ② 런타임
 > 이미지(~290 MB) 다운로드.** 직접 할 필요는 없습니다 — 확장을 설치하면 곧바로 DALi
 > Preview가 **물어보고 두 단계를 대신 수행**합니다(승인만 하면 됩니다). 두 단계가 모두
-> 끝나기 전에는 프리뷰가 렌더링되지 않습니다. 이미 네이티브 DALi 빌드가 있다면
-> [네이티브 런타임](#네이티브-런타임-고급)을 참고하세요.
+> 끝나기 전에는 프리뷰가 렌더링되지 않습니다. DALi를 직접 빌드한다면 아래
+> **⭐ 로컬 DALi 런타임** 섹션을 참고하세요.
 
 1. **확장을 설치**합니다 (아래 [설치](#설치) 참고).
 2. **안내가 뜨면 런타임을 설정합니다.** 설치 직후 **Set up DALi Preview** 대화상자가
@@ -110,10 +110,11 @@ code --install-extension dali-preview-*.vsix
 
 ## 런타임 설정하기
 
-설치 직후 뜨는 설정 안내가 Docker를 대신 구성해 주며(네이티브 설정은 walkthrough가 안내),
-각 방식이 무엇을 하고 무엇이 필요한지 정리하면 다음과 같습니다.
+런타임은 두 가지입니다. **앱 개발자**는 **Docker**(기본값, 호스트 설치 불필요)를 쓰고,
+**DALi 프레임워크(uifw) 개발자**처럼 DALi 자체를 수정하는 경우엔 **로컬 런타임**을 써서
+직접 빌드한 `.so` 가 프리뷰에 바로 반영되게 합니다 — 아래 중요 섹션 참고.
 
-### Docker 런타임 *(권장)*
+### Docker 런타임 *(앱 개발자 권장)*
 
 DALi 런타임이 미리 빌드된 컨테이너 이미지로 제공되므로, DALi를 직접 빌드하지 않습니다.
 **두 가지 일회성 단계가 필수**이며, 확장이 설치 직후(그리고 설정이 끝나기 전 프리뷰 파일을
@@ -135,13 +136,44 @@ DALi 런타임이 미리 빌드된 컨테이너 이미지로 제공되므로, DA
 - **DALi Preview: Reset Extension** — 컨테이너·이미지·캐시를 제거하고 처음부터 다시 시작
   (코드·설정·Docker 설치는 그대로).
 
-### 네이티브 런타임 *(고급)*
+### ⭐ 로컬 DALi 런타임 — DALi 프레임워크(uifw) 개발자용
 
-이미 호스트에 DALi를 빌드해 두었다면 **DALi Preview: Use Native DALi Runtime** 으로 전환하고,
-설치 prefix(= `lib/libdali2-core.so` 가 들어 있는 폴더)를 지정합니다. 흔한 경로:
-`/opt/dali`, `~/dali-env/opt`. 확장이 이를 `daliPreview.daliPrefix` 에 저장하고 검증한 뒤,
-누락된 도구(`g++`, `Xvfb`, `ccache`)를 `apt install` 하도록 제안합니다. 네이티브 렌더링은 호스트
-GPU를 사용해 큰 캔버스에서 약간 더 빠릅니다.
+> **📌 중요.** **DALi 자체를 수정**하면서 *내 빌드*를 프리뷰로 확인하고 싶을 때 씁니다.
+> 앱 개발자는 위의 Docker를 쓰세요. 로컬 모드에선 매 프리뷰를 호스트에서
+> (`g++` + `pkg-config`) 내 DALi 설치에 대해 컴파일하고 Xvfb로 렌더링합니다 — **매번 새
+> 프로세스**라서, 방금 다시 빌드한 `libdali2-*.so` 가 **다음 렌더에 자동 반영**됩니다
+> (이미지 재빌드도, 재시작도 없음).
+
+**로컬 DALi 폴더 지정 방법**
+
+1. 명령 팔레트(`Ctrl+Shift+P`) → **DALi Preview: Use Local DALi Runtime**.
+2. **폴더 선택 다이얼로그**가 뜹니다(자동 탐지된 경로가 있으면 거기로 미리 열림).
+   **DALi 설치 prefix** — `lib/libdali2-core.so` 와 `lib/pkgconfig/dali2-ui-foundation.pc`
+   가 들어 있는 폴더(보통 `…/dali-env/opt`)를 고르세요. `dali-env/opt` 를 포함하는
+   **상위 폴더**를 골라도 알아서 해석합니다.
+3. 경로가 **`daliPreview.daliPrefix`** 에 저장되고 `runtimeMode` 가 `local` 로 바뀐 뒤
+   창이 새로고침됩니다. 이제 `.preview.dali.cpp` 를 저장하면 내 DALi로 렌더링됩니다.
+
+DALi를 다시 빌드했나요? **다시 저장**(또는 새로고침)만 하면 새 `.so` 가 자동 반영됩니다.
+
+**자동 탐지 순서** (대개 폴더를 직접 안 골라도 됨):
+
+1. `daliPreview.daliPrefix` 설정(명시적 지정);
+2. **`DESKTOP_PREFIX`** 환경변수 — dali-env 의 `setenv` 가 export 하는 바로 그 값이라,
+   `source setenv` 후 VS Code 를 실행하면 잡힙니다;
+3. 워크스페이스 폴더의 **`setenv`** 파일(`DESKTOP_PREFIX=…`);
+4. **공용/시스템 설치** — `pkg-config` 에 등록된 위치, 그다음 `/opt/dali` 같은 공통 경로.
+
+홈/프로젝트 디렉터리는 **일부러 스캔하지 않습니다** — 공용 도구라 특정 개인의 프로젝트
+빌드를 자동 선택하지 않게요. 호스트 전제조건: `g++`, `Xvfb`, `pkg-config`(없으면 무엇이
+빠졌는지 알려 줍니다). Docker로 (되)전환하려면 **DALi Preview: Select Runtime Version** 으로
+컨테이너 버전을 고르세요.
+
+> 속도: 로컬 모드는 **네이티브 상주 프리뷰 서버**(번들된 `preview_server.cpp` 를 내 prefix로
+> 컴파일)를 띄워서, 프리뷰 코드 편집 시 dlopen/parser 빠른 경로 + **애니메이션 스크럽**까지
+> Docker와 동일하게 동작합니다 — 매번 풀 빌드하지 않습니다. DALi를 다시 빌드(`make install`)하면
+> `…/lib/libdali2-*.so` 워처가 서버를 자동 재시작(또는 **DALi Preview: Restart DALi Runtime**)
+> 해서 새 빌드를 로드합니다.
 
 ## 프리뷰 작성하기
 
@@ -211,15 +243,14 @@ return MyScreen();
 |---|---|
 | **Open Preview** | 활성 파일의 프리뷰 패널 열기 |
 | **Preview Function** | 커서 위치의 함수 프리뷰 |
+| **Use Local DALi Runtime** | **로컬 모드 — DALi prefix 폴더 선택(프레임워크 개발자용)** |
+| **Select Runtime Version** | **Docker 모드 — 컨테이너/DALi 버전 선택(로컬에서 실행 시 Docker로 전환)** |
 | **Open Sample File** | 시작용 `hello-dali.preview.dali.cpp` 생성 |
 | **Run Setup Walkthrough** | 가이드 설치 다시 열기 |
 | **Install Docker via Terminal** | **① Docker 설치** (`sudo` 비밀번호 1회, 재부팅 없음) |
 | **Download Runtime Image** | **② DALi 런타임 이미지 받기** (~290 MB) |
 | **Verify Docker Access** | Docker 접근 확인; "permission denied" 세션 복구 |
 | **Toggle Theme** | 프리뷰 다크/라이트 전환 |
-| **Toggle Interactive Mode (VNC)** | 패널 안에서 실제 앱 조작 |
-| **Select Target Device** / **Device Preview** | SDB 기기 선택 후 그 기기에서 렌더링 |
-| **Select Runtime Version** | DALi 런타임 이미지 태그 선택 |
 | **Check for Runtime Image Update** | 레지스트리와 이미지 비교 |
 | **Clean Runtime Images** | 캐시된 런타임 이미지 삭제로 디스크 정리 |
 | **Reset Extension** | 컨테이너 · 이미지 · 캐시 제거 후 초기화 |
@@ -229,20 +260,16 @@ return MyScreen();
 
 | 설정 | 타입 | 기본값 | 설명 |
 |---|---|---|---|
-| `daliPreview.runtimeMode` | `docker` \| `native` | `docker` | 프리뷰 빌드 위치. docker는 호스트 DALi 설치 불필요. |
-| `daliPreview.daliPrefix` | string | `""` | 네이티브 모드 전용 — DALi 설치 prefix 경로. 비우면 자동 감지. |
+| `daliPreview.runtimeMode` | `docker` \| `local` | `docker` | 프리뷰 빌드 위치. `docker`는 호스트 DALi 설치 불필요; `local`은 호스트 DALi로 컴파일(프레임워크 개발자). |
+| `daliPreview.daliPrefix` | string | `""` | **로컬 모드** — DALi 설치 prefix 경로. 비우면 자동 감지(`DESKTOP_PREFIX` / 워크스페이스 `setenv` / 시스템 설치). 보통 **Use Local DALi Runtime** 이 대신 설정. |
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | docker 모드에서 사용할 런타임 이미지. |
 | `daliPreview.daliVersionTag` | string | `latest` | 런타임 이미지 태그(DALi 버전). `latest` 는 롤링 태그를 따름. |
-| `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | 새 런타임 이미지 처리 방식(하루 1회 확인). |
+| `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | 새 런타임 이미지 처리 방식(하루 1회 확인, docker 모드). |
 | `daliPreview.previewWidth` | number | `1024` | 기본 캔버스 너비 (px). |
 | `daliPreview.previewHeight` | number | `600` | 기본 캔버스 높이 (px). |
 | `daliPreview.livePreview` | boolean | `true` | 타이핑 중 자동 재렌더링. |
 | `daliPreview.livePreviewDebounce` | number | `0` | 키 입력과 재렌더링 사이 debounce(ms). `0` = 매 키 입력. |
-| `daliPreview.fontDirectories` | string[] | `[]` | 커스텀 TTF/OTF 폰트 디렉터리(네이티브 모드). |
-| `daliPreview.vncPort` / `daliPreview.websocketPort` | number | `5900` / `6080` | 인터랙티브(VNC) 모드 시작 포트. |
-| `daliPreview.sdbPath` | string | `""` | `sdb` 경로. 비우면 `PATH` 의 `sdb` 사용. |
-| `daliPreview.tizenSysroot` | string | `""` | ARM 기기 크로스 컴파일용 Tizen sysroot. |
-| `daliPreview.targetDevice` | string | `""` | 기본 SDB 기기 시리얼 (*Select Target Device* 가 설정). |
+| `daliPreview.fontDirectories` | string[] | `[]` | 커스텀 TTF/OTF 폰트 디렉터리(로컬 모드에서 적용). |
 | `daliPreview.logLevel` | `error`…`trace` | `info` | **DALi Preview** 출력 채널 로그 상세도. |
 
 ## 문제 해결
@@ -258,16 +285,19 @@ return MyScreen();
   프리뷰는 즉시 시작됩니다. **Download Runtime Image** 로 미리 받아둘 수 있습니다.
 - **"permission denied … docker.sock"** — **DALi Preview: Verify Docker Access** →
   *Fix for this session* 을 실행하세요. (`setfacl` 가 실행 중인 세션에 권한을 다시 부여.)
-- **네이티브 모드 "DALi not found"** — `daliPreview.daliPrefix` 가 `lib/libdali2-core.so` 가
-  있는 폴더를 가리키는지, `lib/pkgconfig/dali2-*.pc` 가 존재하는지 확인하세요.
+- **로컬 모드 "DALi not found"** — `daliPreview.daliPrefix` 가 `lib/libdali2-core.so` 와
+  `lib/pkgconfig/dali2-ui-foundation.pc` 가 있는 폴더를 가리키는지 확인하세요
+  (**DALi Preview: Use Local DALi Runtime** 으로 다시 지정 가능).
 - **로그 위치** — **DALi Preview** 출력 채널. `daliPreview.logLevel` 을 `debug`(구조화 JSON은
   `trace`)로 올리고 `[Perf]` 줄에서 어떤 렌더링 경로가 동작했는지 확인하세요.
 
 ## 참고 & 한계
 
 - **Linux 전용.** 헤드리스 렌더링에 Xvfb를 사용합니다. Windows/macOS는 DALi WebAssembly 포팅이 선행되어야 합니다.
-- **커스텀 폰트와 애니메이션 프리뷰는 네이티브 런타임 기능입니다.** Docker 모드에서는 현재
-  건너뜁니다. 애니메이션 내보내기는 `ffmpeg` 도 필요합니다.
+- **로컬 런타임도 상주 네이티브 서버로 빠른 경로 + 애니메이션 스크럽**을 Docker와 동일하게
+  제공합니다. DALi 재빌드 후엔 lib 워처(또는 **Restart DALi Runtime**)가 서버를 재시작해 새
+  빌드를 로드합니다. 아주 큰 캔버스는 호스트 Xvfb 화면 크기에 제한됩니다. 커스텀 폰트는 로컬
+  모드에서 적용되며, Docker 모드에서는 현재 건너뜁니다.
 - 프리뷰는 앱 전체가 아니라 **추출된 영역**(여러분이 `return` 한 본문)을 렌더링합니다.
 
 ## 변경 이력

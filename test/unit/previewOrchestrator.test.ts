@@ -211,4 +211,35 @@ describe('PreviewOrchestrator — scrubAnimation epoch guard', () => {
         expect(renderAtCalls.length).to.equal(0);
         expect(updateImageCalls.length).to.equal(0);
     });
+
+    // Scrub PNGs are written to a FIXED-grid filename so a long scrubbing session
+    // (many durations/frame counts) reuses a BOUNDED set of files instead of
+    // leaking a fresh PNG per distinct progress until dispose().
+    it('writes scrub frames to a bounded, quantized filename (no per-progress leak)', async () => {
+        const { orch, renderAtCalls } = makeScrubOrch();
+        (orch as any).activeEpoch_ = 7;
+        (orch as any).building = false;
+
+        // renderAt(progress, pngPath, metadataPath, ...) — pngPath is arg[1].
+        await orch.scrubAnimation(0.999, 7);
+        const png = renderAtCalls[0][1] as string;
+        const bucket = Number(png.match(/preview_scrub_(\d+)\.png$/)![1]);
+        // Bucket stays on the fixed 0..200 grid — never the old progress*100000 blow-up.
+        expect(bucket).to.be.at.most(200);
+    });
+
+    it('gives the same progress a stable file and distinct frames distinct files', async () => {
+        const { orch, renderAtCalls } = makeScrubOrch();
+        (orch as any).activeEpoch_ = 7;
+        (orch as any).building = false;
+
+        await orch.scrubAnimation(0.25, 7);   // first frame
+        await orch.scrubAnimation(0.25, 7);   // same progress again
+        await orch.scrubAnimation(0.75, 7);   // a different frame
+        const f1 = renderAtCalls[0][1] as string;
+        const f2 = renderAtCalls[1][1] as string;
+        const f3 = renderAtCalls[2][1] as string;
+        expect(f1).to.equal(f2);              // stable: same progress -> same backing file
+        expect(f3).to.not.equal(f1);          // anti-alias: distinct frame -> distinct file
+    });
 });

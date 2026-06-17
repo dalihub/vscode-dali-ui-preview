@@ -20,6 +20,12 @@ import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnbo
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
 import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand } from './checkUpdateCommand';
+import * as path from 'path';
+import { BuildBackend } from './buildBackend';
+import { DockerBackend } from './backends/dockerBackend';
+import { LocalBackend } from './backends/localBackend';
+import { useLocalRuntimeCommand, presentLocalRuntimeIssues } from './localRuntimeCommand';
+import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -48,6 +54,10 @@ let dockerAccessPoller: DockerAccessPoller | undefined;
 // Reassigned in activate(); the no-op default lets callers invoke it
 // unconditionally (e.g. from the access poller before the first real init).
 let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<void> = async () => {};
+// Local runtime: watcher on the DALi prefix's lib dir, so a `make install`
+// rebuild auto-restarts the resident native server (which holds the old libs).
+let daliLibWatcher: vscode.FileSystemWatcher | undefined;
+let daliLibWatchPrefix: string | undefined;
 // Tracks whether a preview-server init has already been kicked off this session
 // (so the activation eager-start and the on-focus lazy-start don't both fire,
 // and we don't re-prompt for docker on every file switch). Module-scoped so the
@@ -100,11 +110,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
     }
 
-    // Docker runtime — the DALi UI is always rendered inside the container image.
-    dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
+    // Select the build backend from runtimeMode. Default 'docker' renders inside
+    // the container image (no host DALi install needed). 'local' compiles against
+    // a host-installed DALi prefix and runs under Xvfb — for uifw developers who
+    // rebuild DALi itself and want previews to reflect their fresh .so files.
+    const runtimeMode = ConfigurationService.getInstance().runtimeMode;
+    const isLocalRuntime = runtimeMode === 'local';
+    let backend: BuildBackend;
+    if (isLocalRuntime) {
+        backend = new LocalBackend(xvfbManager);
+        statusBar?.showMode('compile');
+        outputChannel.appendLine(
+            '[Runtime] Local DALi runtime mode — compiling against the host DALi prefix; ' +
+            'docker / preview-server fast paths are disabled (every preview is a fresh one-shot build).',
+        );
+    } else {
+        // Docker runtime — the DALi UI is rendered inside the container image.
+        dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
+        backend = new DockerBackend(dockerRuntime, outputChannel);
+    }
 
     // Build runner
-    buildRunner = new BuildRunner(context, xvfbManager, outputChannel, dockerRuntime);
+    buildRunner = new BuildRunner(context, outputChannel, backend);
 
     // Create the orchestrator (previewManager will be set later via ensurePreviewManager)
     // We pass a dummy previewManager initially; ensurePreviewManager will update it
@@ -140,6 +167,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
     };
 
+    // Local runtime: watch the DALi prefix's lib dir so a rebuild (`make install`)
+    // restarts the resident native server, which otherwise keeps the previously
+    // loaded core libs mapped. Debounced (a build touches many files); best-effort
+    // (watching outside the workspace can fail — the "Restart DALi Runtime" command
+    // is the reliable fallback). Re-arming for the same prefix is a no-op.
+    const armDaliLibWatcher = (prefix: string): void => {
+        if (daliLibWatcher && daliLibWatchPrefix === prefix) {
+            return;
+        }
+        try {
+            daliLibWatcher?.dispose();
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(path.join(prefix, 'lib'), 'libdali2-*.so'),
+            );
+            let debounce: ReturnType<typeof setTimeout> | undefined;
+            const onLibChange = () => {
+                if (debounce) { clearTimeout(debounce); }
+                debounce = setTimeout(() => {
+                    debounce = undefined;
+                    outputChannel.appendLine('[PreviewServer] DALi libraries changed — restarting native runtime to pick them up.');
+                    void initPreviewServer().catch((err) =>
+                        outputChannel.appendLine(`[PreviewServer] restart after lib change failed: ${err?.message ?? err}`),
+                    );
+                }, 800);
+            };
+            watcher.onDidChange(onLibChange);
+            watcher.onDidCreate(onLibChange);
+            daliLibWatcher = watcher;
+            daliLibWatchPrefix = prefix;
+            context.subscriptions.push(watcher);
+            outputChannel.appendLine(`[PreviewServer] Watching ${path.join(prefix, 'lib')} for DALi rebuilds.`);
+        } catch (err: any) {
+            outputChannel.appendLine(`[PreviewServer] Could not watch DALi libs (use "Restart DALi Runtime" manually): ${err?.message ?? err}`);
+        }
+    };
+
     // PreviewServer (dlopen mode) — start eagerly; falls back to Phase 1 if unavailable.
     // Honored at startup: when daliPreview.disablePreviewServer is true the server
     // is never spawned, so every preview goes through the full g++ harness path.
@@ -148,17 +211,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // docker-setup guidance modal — the first-run onboarding owns that prompt,
         // so we don't double up. Command/poller callers keep the default (prompt).
         const promptOnDockerIssue = opts?.promptOnDockerIssue ?? true;
-        // Re-callable after docker becomes available (or a runtime switch):
-        // tear down any prior instance first so we don't leak a process or
-        // leave a stale orchestrator reference.
+        // Re-callable after docker becomes available, a runtime switch, or a DALi
+        // rebuild (local) — tear down any prior instance first so we don't leak a
+        // process or leave a stale orchestrator reference.
         if (previewServer) {
             previewServer.stop();
             previewServer = undefined;
             orchestrator?.updatePreviewServer(undefined);
         }
         if (ConfigurationService.getInstance().disablePreviewServer) {
-            outputChannel.appendLine('[PreviewServer] Skipped (daliPreview.disablePreviewServer is true) — using Phase 1 full harness path');
+            outputChannel.appendLine('[PreviewServer] Skipped (daliPreview.disablePreviewServer is true) — using full harness path');
             statusBar?.showMode('compile');
+            return;
+        }
+
+        // Local runtime: compile + spawn the native resident server (dlopen fast
+        // path) against the host DALi prefix. Falls back to the one-shot harness
+        // path (LocalBackend.capture) when no valid prefix is configured.
+        if (isLocalRuntime) {
+            const prefix = await findDaliPrefix();
+            if (!prefix || !validateDaliPrefix(prefix)) {
+                outputChannel.appendLine('[PreviewServer] Local: no valid DALi prefix — one-shot harness path. Set it via "DALi Preview: Use Local DALi Runtime".');
+                statusBar?.showMode('compile');
+                return;
+            }
+            const localTmpDir = BuildRunner.getWorkspaceTmpDir();
+            previewServer = new PreviewServer(
+                context.extensionPath, outputChannel, localTmpDir,
+                undefined, undefined, [],
+                {
+                    daliPrefix: prefix,
+                    display: xvfbManager?.getDisplay() ?? process.env.DISPLAY ?? ':0',
+                    serverSrcPath: path.join(context.extensionPath, 'docker', 'preview_server.cpp'),
+                    serverBinPath: path.join(localTmpDir, 'preview_server'),
+                },
+            );
+            const started = await previewServer.start();
+            if (started) {
+                outputChannel.appendLine('[PreviewServer] Native resident server started (local runtime).');
+                statusBar?.showMode('server');
+                orchestrator?.updatePreviewServer(previewServer);
+                armDaliLibWatcher(prefix);
+            } else {
+                outputChannel.appendLine('[PreviewServer] Native server unavailable — using one-shot harness path.');
+                previewServer = undefined;
+                statusBar?.showMode('compile');
+            }
             return;
         }
 
@@ -244,7 +342,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
     } else {
         outputChannel.appendLine(
-            '[PreviewServer] Deferred container start — no previewable file open at activation.',
+            '[PreviewServer] Deferred server start — no previewable file open at activation.',
         );
     }
 
@@ -296,15 +394,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // would hit a TDZ on the block-scoped startDockerSetupWatch const.) The
     // arrow reads previewServer/dockerAccessPoller at call time, so it always
     // reflects the current runtime state.
-    const ensureDockerReadyForPreview = (opts: { silent: boolean }): Promise<boolean> =>
-        decidePreviewDockerGate({
-            serverRunning: !!previewServer?.isRunning,
-            pollerRunning: !!dockerAccessPoller?.isRunning,
-            silent: opts.silent,
-            checkAccess: checkDockerAccess,
-            showGuidance: maybeShowDockerGuidance,
-        });
-    orchestrator?.setEnsureDockerReady(ensureDockerReadyForPreview);
+    if (isLocalRuntime) {
+        // Local gate: validate the host DALi prefix + build deps before falling
+        // through to a one-shot compile, surfacing actionable guidance (pick the
+        // DALi folder / install xvfb) instead of a raw compiler error.
+        const ensureLocalRuntimeReady = async (opts: { silent: boolean }): Promise<boolean> => {
+            const issues = await backend.validate();
+            if (issues.length === 0) {
+                return true;
+            }
+            if (!opts.silent) {
+                await presentLocalRuntimeIssues(issues);
+            }
+            return false;
+        };
+        orchestrator?.setEnsureRuntimeReady(ensureLocalRuntimeReady);
+    } else {
+        const ensureDockerReadyForPreview = (opts: { silent: boolean }): Promise<boolean> =>
+            decidePreviewDockerGate({
+                serverRunning: !!previewServer?.isRunning,
+                pollerRunning: !!dockerAccessPoller?.isRunning,
+                silent: opts.silent,
+                checkAccess: checkDockerAccess,
+                showGuidance: maybeShowDockerGuidance,
+            });
+        orchestrator?.setEnsureRuntimeReady(ensureDockerReadyForPreview);
+    }
 
     // Once-a-day background check for a newer runtime image (docker mode only,
     // gated by the autoCheckRuntimeUpdate setting; silent on no-update/offline).
@@ -374,11 +489,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 ? checkRuntimeUpdateCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); })
                 : Promise.resolve(),
         ),
-        vscode.commands.registerCommand('dali.selectRuntimeVersion', () =>
-            dockerRuntime
-                ? selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); })
-                : Promise.resolve(),
-        ),
+        // "Select Runtime Version" is the Docker-mode entry point: in docker mode
+        // it picks a container version and restarts the server on it; in local
+        // mode it picks a version and switches INTO docker (then reloads).
+        vscode.commands.registerCommand('dali.selectRuntimeVersion', async () => {
+            if (!isLocalRuntime && dockerRuntime) {
+                await selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); });
+                return;
+            }
+            const runtime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
+            const picked = await selectRuntimeVersionCommand(runtime, outputChannel, async () => {});
+            if (!picked) {
+                return; // cancelled / docker unavailable — stay in local mode
+            }
+            await ConfigurationService.getInstance().update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
+            const choice = await vscode.window.showInformationMessage(
+                `DALi Preview: switching to the Docker runtime (${picked}). Reload the window to apply.`,
+                'Reload Window',
+            );
+            if (choice === 'Reload Window') {
+                await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        }),
         vscode.commands.registerCommand('dali.openSample', () =>
             openSampleCommand(context),
         ),
@@ -391,45 +523,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('dali.rerunSetup', () =>
             openWalkthrough(),
         ),
+        vscode.commands.registerCommand('dali.useLocalRuntime', () =>
+            useLocalRuntimeCommand(isLocalRuntime),
+        ),
+        // Local runtime: rebuild-aware restart. After rebuilding DALi, run this to
+        // respawn the resident server so it loads your latest libdali2-*.so. (The
+        // lib watcher usually does this automatically.)
+        vscode.commands.registerCommand('dali.restartDaliRuntime', async () => {
+            if (!isLocalRuntime) {
+                await vscode.window.showInformationMessage(
+                    'Restart applies to the local DALi runtime. In Docker mode, use "DALi Preview: Select Runtime Version".',
+                );
+                return;
+            }
+            serverInitTriggered = true;
+            await initPreviewServer();
+            void vscode.window.showInformationMessage('DALi runtime restarted — using your latest DALi build.');
+        }),
     );
 
     // First-launch onboarding — shown once per machine via globalState flag.
     // We proactively offer to install Docker + download the runtime image, so
     // the user no longer has to open a `.preview.dali.cpp` file first to
     // discover setup. Idempotent: rerun via "DALi Preview: Run Setup Walkthrough".
-    const onboardingCfg = ConfigurationService.getInstance();
-    context.globalState.setKeysForSync([DOCKER_ONBOARDING_KEY]);
-    maybeRunFirstRunDockerSetup({
-        daliVersionTag: onboardingCfg.daliVersionTag,
-        alreadyShown: !!context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY),
-        checkAccess: () => checkDockerAccess(),
-        hasImage: (tag) => dockerRuntime ? dockerRuntime.hasImage(tag) : Promise.resolve(false),
-        markShown: () => Promise.resolve(context.globalState.update(DOCKER_ONBOARDING_KEY, true)),
-        confirmInstall: async () => {
-            const choice = await vscode.window.showInformationMessage(
-                'DALi Preview renders your UI inside a Docker container. Set it up now? ' +
-                'This installs Docker (one password), then downloads the runtime image ' +
-                '(~290 MB) automatically — no reboot or reload needed.',
-                { modal: true },
-                'Set Up Now',
-            );
-            return choice === 'Set Up Now';
-        },
-        installDocker: async () => {
-            // Re-probe so we run the right action: a fresh install vs. just a
-            // socket-permission / daemon fix (both wired to start the access
-            // poller, which auto-pulls the image and starts the server next).
-            const access = await checkDockerAccess();
-            if (access.state === 'docker-not-installed') {
-                await installDockerCommand(startDockerSetupWatch);
-            } else {
-                await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
-            }
-        },
-        log: (msg) => outputChannel.appendLine(msg),
-    }).catch((err) =>
-        outputChannel.appendLine(`[Onboarding] init error: ${err?.message ?? err}`),
-    );
+    // Docker mode only — local-runtime users configure a DALi prefix instead.
+    if (!isLocalRuntime) {
+        const onboardingCfg = ConfigurationService.getInstance();
+        context.globalState.setKeysForSync([DOCKER_ONBOARDING_KEY]);
+        maybeRunFirstRunDockerSetup({
+            daliVersionTag: onboardingCfg.daliVersionTag,
+            alreadyShown: !!context.globalState.get<boolean>(DOCKER_ONBOARDING_KEY),
+            checkAccess: () => checkDockerAccess(),
+            hasImage: (tag) => dockerRuntime ? dockerRuntime.hasImage(tag) : Promise.resolve(false),
+            markShown: () => Promise.resolve(context.globalState.update(DOCKER_ONBOARDING_KEY, true)),
+            confirmInstall: async () => {
+                const choice = await vscode.window.showInformationMessage(
+                    'DALi Preview renders your UI inside a Docker container. Set it up now? ' +
+                    'This installs Docker (one password), then downloads the runtime image ' +
+                    '(~290 MB) automatically — no reboot or reload needed.',
+                    { modal: true },
+                    'Set Up Now',
+                );
+                return choice === 'Set Up Now';
+            },
+            installDocker: async () => {
+                // Re-probe so we run the right action: a fresh install vs. just a
+                // socket-permission / daemon fix (both wired to start the access
+                // poller, which auto-pulls the image and starts the server next).
+                const access = await checkDockerAccess();
+                if (access.state === 'docker-not-installed') {
+                    await installDockerCommand(startDockerSetupWatch);
+                } else {
+                    await showDockerSetupGuidance(access, outputChannel, startDockerSetupWatch);
+                }
+            },
+            log: (msg) => outputChannel.appendLine(msg),
+        }).catch((err) =>
+            outputChannel.appendLine(`[Onboarding] init error: ${err?.message ?? err}`),
+        );
+    }
 
     // Document/editor event listeners that drive auto-preview (save, focus,
     // live text change, config change). All state they touch is module-scoped.
@@ -456,6 +608,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
             // Remember which function was previewed for live preview updates
             orchestrator?.setLastCodeLensFunc({ uri: uri.toString(), startLine: funcStartLine, endLine: funcEndLine });
+            // CodeLens targets are regular .cpp files (not isPreviewable), so the
+            // focus-driven lazy start in onDidChangeActiveTextEditor never fires for
+            // them — start the resident preview server here too. Without this, a
+            // CodeLens-only workflow never spins up the server and every live edit
+            // falls back to the ~1.7s full-harness compile. (No-op in local mode.)
+            if (!previewServer && !serverInitTriggered) {
+                serverInitTriggered = true;
+                void initPreviewServer().catch((err) =>
+                    outputChannel.appendLine(`[PreviewServer] lazy init error (codelens): ${err?.message ?? err}`),
+                );
+            }
             ensurePreviewManager(context);
             previewManager!.show(true);
             if (orchestrator) {

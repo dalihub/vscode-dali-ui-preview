@@ -22,6 +22,20 @@ export class ConfigurationService {
         return vscode.workspace.getConfiguration('daliPreview');
     }
 
+    /**
+     * Where preview builds run. 'docker' (default) uses the containerized DALi
+     * runtime — no host install needed. 'local' compiles against a
+     * host-installed DALi prefix (for uifw developers who rebuild DALi itself).
+     */
+    get runtimeMode(): 'docker' | 'local' {
+        return this.getConfig().get<string>('runtimeMode', 'docker') === 'local' ? 'local' : 'docker';
+    }
+
+    /** Path to the local DALi install prefix (used only when runtimeMode is 'local'). */
+    get daliPrefix(): string {
+        return this.getConfig().get<string>('daliPrefix', '');
+    }
+
     get dockerImage(): string {
         return this.getConfig().get<string>('dockerImage', DEFAULT_DOCKER_IMAGE);
     }

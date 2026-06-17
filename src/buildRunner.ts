@@ -2,11 +2,9 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { XvfbManager } from './xvfbManager';
-import { DockerRuntime } from './dockerRuntime';
+import { BuildBackend } from './buildBackend';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
-import { ensureRuntimeImage } from './pullImageCommand';
 
 export interface BuildResult {
     success: boolean;
@@ -23,7 +21,6 @@ export class BuildRunner {
     private templateContent: string;
     private pluginTemplateContent: string;
     private tmpDir: string;
-    private hasCcache: boolean = false;
     private extensionPath: string;
 
     /**
@@ -44,10 +41,9 @@ export class BuildRunner {
     }
 
     constructor(
-        private context: vscode.ExtensionContext,
-        private xvfbManager: XvfbManager | undefined,
+        context: vscode.ExtensionContext,
         private outputChannel: vscode.OutputChannel,
-        private dockerRuntime?: DockerRuntime
+        private backend: BuildBackend,
     ) {
         this.extensionPath = context.extensionPath;
         const templatePath = path.join(context.extensionPath, 'server', 'preview_harness.cpp.template');
@@ -59,16 +55,6 @@ export class BuildRunner {
         this.tmpDir = BuildRunner.getWorkspaceTmpDir();
         if (!fs.existsSync(this.tmpDir)) {
             fs.mkdirSync(this.tmpDir, { recursive: true });
-        }
-
-        // Check ccache availability
-        try {
-            require('child_process').execSync('which ccache', { stdio: 'ignore' });
-            this.hasCcache = true;
-            this.outputChannel.appendLine('ccache detected, will use for faster builds');
-        } catch (err) {
-            this.hasCcache = false;
-            getLogger().trace('Build', 'ccache not found', { error: String(err) });
         }
     }
 
@@ -182,11 +168,6 @@ export class BuildRunner {
     }
 
     /**
-     * Compile user code into a shared library (.so) for dlopen.
-     * When configName is provided, the .so is named preview_plugin_{configName}.so.
-     * Returns the path to the .so on success.
-     */
-    /**
      * Inject animation registration so the preview server can scrub animations.
      * After every `<var>.Play();` in user code, append `__RegisterPreviewAnimation(<var>);`
      * so the resident plugin collects each Animation handle for SetCurrentProgress.
@@ -202,6 +183,12 @@ export class BuildRunner {
         );
     }
 
+    /**
+     * Compile user code into a shared library (.so) for the dlopen fast path.
+     * When configName is provided, the .so is named preview_plugin_{configName}.so.
+     * Delegates the actual compile to the active backend; a backend with no
+     * resident server (local mode, M1) reports the path unsupported.
+     */
     async compilePlugin(
         userCode: string,
         configName?: string,
@@ -223,30 +210,31 @@ export class BuildRunner {
             .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.instrumentAnimations(userCode));
 
-        // Compile inside the container so the host doesn't need DALi.
-        if (!this.dockerRuntime) {
-            return { success: false, error: 'Docker runtime mode but DockerRuntime not provided.' };
+        if (!this.backend.compilePlugin) {
+            return { success: false, error: `Plugin (dlopen) compile is not supported by the ${this.backend.kind} runtime backend.` };
         }
-        if (!(await this.dockerRuntime.isAvailable())) {
-            return { success: false, error: 'Docker is not available.' };
-        }
-        const cfg = ConfigurationService.getInstance();
-        const result = await this.dockerRuntime.compilePlugin({
+        const result = await this.backend.compilePlugin({
             source: pluginCode,
             workDir: this.tmpDir,
             srcPath: pluginSrc,
             soPath,
-            imageTag: cfg.daliVersionTag,
             timeoutMs: 30_000,
         });
         if (!result.success) {
-            log.debug('Build', 'docker compilePlugin failed', { elapsedMs: result.elapsedMs });
-            return { success: false, error: `Plugin compile failed (docker, ${result.elapsedMs}ms):\n${result.output}` };
+            return { success: false, error: result.error };
         }
-        log.debug('Build', 'docker compilePlugin done', { soPath, elapsedMs: result.elapsedMs });
-        return { success: true, soPath };
+        log.debug('Build', 'compilePlugin done', { soPath: result.soPath });
+        return { success: true, soPath: result.soPath };
     }
 
+    /**
+     * Render the harness for `userCode` and compile+run it via the active
+     * backend (docker container or local g++/Xvfb) to capture a PNG.
+     *
+     * The templating above the backend call is identical regardless of where
+     * the build runs; only the baked-in output path differs (container `/work`
+     * vs a host path), which the backend's `outputPaths` resolves.
+     */
     async buildAndRun(
         userCode: string,
         width?: number,
@@ -258,113 +246,57 @@ export class BuildRunner {
         sliceIncludes = ''
     ): Promise<BuildResult> {
         const log = getLogger();
-        log.debug('Build', 'buildAndRun start', { width, height, theme });
-
-        return this.buildAndRunDocker(userCode, width, height, theme, bgColor, font, sliceGlobals, sliceIncludes);
-    }
-
-    /**
-     * Docker runtime variant of buildAndRun.
-     * The container holds DALi + g++ + Xvfb; the host owns templating only.
-     * Bind-mount maps the host tmpDir to /work in the container, so the
-     * harness writes its PNG/metadata where the host can read them back.
-     */
-    private async buildAndRunDocker(
-        userCode: string,
-        width: number | undefined,
-        height: number | undefined,
-        theme: 'light' | 'dark',
-        bgColor: string | undefined,
-        font: string | undefined,
-        sliceGlobals = '',
-        sliceIncludes = '',
-    ): Promise<BuildResult> {
-        const log = getLogger();
-
-        if (!this.dockerRuntime) {
-            return { success: false, error: 'Docker runtime mode is enabled but no DockerRuntime was provided to BuildRunner.' };
-        }
-
-        if (!(await this.dockerRuntime.isAvailable())) {
-            return {
-                success: false,
-                error: 'Docker is not available. Run "DALi: Install Docker via Terminal" from the Command Palette to set it up — no reboot needed.'
-            };
-        }
+        log.debug('Build', 'buildAndRun start', { width, height, theme, backend: this.backend.kind });
 
         const cfg = ConfigurationService.getInstance();
-        const imageTag = cfg.daliVersionTag;
-        const imageRef = this.dockerRuntime.imageRef(imageTag);
-
-        // Auto-pull (with progress) instead of telling the user to do it
-        // manually — consistent with the preview-server path.
-        if (!(await ensureRuntimeImage(this.dockerRuntime, this.outputChannel))) {
-            return {
-                success: false,
-                error: `DALi runtime image not available: ${imageRef}. ` +
-                    `Download it with "DALi Preview: Download Runtime Image".`
-            };
-        }
-
         if (!width || !height) {
             width = cfg.previewWidth;
             height = cfg.previewHeight;
         }
 
-        // Custom fonts inside the container would need their dirs bind-mounted
-        // separately. Out of scope for Phase 5-A — warn and continue without.
-        if (font) {
-            log.warn('Build', 'docker mode: custom font ignored (not yet supported in container runtime)', { font });
-        }
+        const out = this.backend.outputPaths(this.tmpDir);
 
-        // Container-side paths (bind-mount: tmpDir → /work)
-        const pngPathContainer = '/work/preview.png';
-        const metadataPathContainer = '/work/preview_metadata.json';
-        // Host-side paths (where the bind-mounted files actually live)
-        const pngPathHost = path.join(this.tmpDir, 'preview.png');
-        const metadataPathHost = path.join(this.tmpDir, 'preview_metadata.json');
+        // Custom fonts: the local backend can register host font directories
+        // directly; the container can't see them without a bind-mount (out of
+        // scope for M1), so docker mode ignores the font — unchanged behavior.
+        let fontSetup = '';
+        if (font) {
+            if (this.backend.kind === 'local') {
+                fontSetup = this.buildFontSetup(font, cfg.fontDirectories);
+            } else {
+                log.warn('Build', 'docker mode: custom font ignored (not yet supported in container runtime)', { font });
+            }
+        }
 
         const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
         const harness = this.renderHarness(this.templateContent, {
-            userCode, width, height, bgColorVec, fontSetup: '',
+            userCode, width, height, bgColorVec, fontSetup,
             includes: sliceIncludes, globals: sliceGlobals,
-            extra: { OUTPUT_PATH: pngPathContainer, METADATA_PATH: metadataPathContainer },
+            extra: { OUTPUT_PATH: out.pngEmbed, METADATA_PATH: out.metadataEmbed },
         });
 
         // Remove stale outputs so we never report a previous run's PNG.
-        for (const p of [pngPathHost, metadataPathHost]) {
+        for (const p of [out.pngHost, out.metadataHost]) {
             try { fs.unlinkSync(p); } catch { /* not present */ }
         }
 
-        log.debug('Build', 'docker buildAndCapture start', { imageRef, width, height });
-        const result = await this.dockerRuntime.buildAndCapture({
+        const result = await this.backend.capture({
             source: harness,
             workDir: this.tmpDir,
-            imageTag,
+            pngPathHost: out.pngHost,
+            metadataPathHost: out.metadataHost,
             width,
             height,
             timeoutMs: 60_000,
         });
 
         if (!result.success) {
-            return {
-                success: false,
-                error: `Docker render failed (exit ${result.exitCode}):\n${result.output}`,
-            };
+            return { success: false, error: result.error ?? 'Build failed' };
         }
-
-        if (!fs.existsSync(pngPathHost)) {
-            return {
-                success: false,
-                error: `Container exited 0 but PNG not found at ${pngPathHost}.\nContainer output:\n${result.output}`,
-            };
-        }
-
-        log.debug('Build', 'docker buildAndCapture done', { pngPathHost, elapsedMs: result.elapsedMs });
         return {
             success: true,
-            pngPath: pngPathHost,
-            metadataPath: fs.existsSync(metadataPathHost) ? metadataPathHost : undefined,
+            pngPath: result.pngPath,
+            metadataPath: result.metadataPath,
         };
     }
 

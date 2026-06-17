@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.42.0",
+  "version": "0.43.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -110,6 +110,16 @@
         "command": "dali.rerunSetup",
         "title": "Run Setup Walkthrough",
         "category": "DALi Preview"
+      },
+      {
+        "command": "dali.useLocalRuntime",
+        "title": "Use Local DALi Runtime",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.restartDaliRuntime",
+        "title": "Restart DALi Runtime",
+        "category": "DALi Preview"
       }
     ],
     "menus": {
@@ -121,7 +131,6 @@
         { "command": "dali.installDocker", "when": "false" },
         { "command": "dali.pullRuntimeImage", "when": "false" },
         { "command": "dali.checkRuntimeUpdate", "when": "false" },
-        { "command": "dali.selectRuntimeVersion", "when": "false" },
         { "command": "dali.showReadme", "when": "false" }
       ]
     },
@@ -166,6 +175,24 @@
     "configuration": {
       "title": "DALi Preview",
       "properties": {
+        "daliPreview.runtimeMode": {
+          "type": "string",
+          "enum": [
+            "docker",
+            "local"
+          ],
+          "enumDescriptions": [
+            "Render inside the containerized DALi runtime — no host DALi install needed.",
+            "Compile against a host-installed DALi prefix and run under Xvfb — for uifw developers who rebuild DALi itself and want previews to reflect their fresh .so files."
+          ],
+          "default": "docker",
+          "description": "Where preview builds run. 'docker' (default) uses the containerized DALi runtime. 'local' compiles against the host DALi install at daliPreview.daliPrefix — switch to it via the 'DALi Preview: Use Local DALi Runtime' command, which also picks the folder."
+        },
+        "daliPreview.daliPrefix": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the local DALi install prefix (the directory containing lib/ and include/). Used only when runtimeMode is 'local'. Leave empty to auto-detect from $DESKTOP_PREFIX, a workspace setenv file, or ~/dali-env/opt."
+        },
         "daliPreview.dockerImage": {
           "type": "string",
           "default": "ghcr.io/lwc0917/dali-preview-runtime",

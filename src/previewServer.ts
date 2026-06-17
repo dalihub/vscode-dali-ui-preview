@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, exec } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,6 +10,25 @@ import { getLogger } from './logger';
 
 const MAX_RESTARTS = 3;
 const READY_TIMEOUT_MS = 15000;
+
+/** pkg-config modules the native preview_server links against. */
+const DALI_PKG_MODULES = 'dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0';
+
+/**
+ * Local (native) preview-server configuration. When provided, PreviewServer
+ * compiles `docker/preview_server.cpp` against the host DALi prefix and spawns
+ * the resulting binary under Xvfb — instead of running the container image.
+ */
+export interface LocalServerConfig {
+    /** Local DALi install prefix (contains lib/ and include/). */
+    daliPrefix: string;
+    /** Xvfb display string the server renders into, e.g. ':99'. */
+    display: string;
+    /** Path to the bundled preview_server C++ source. */
+    serverSrcPath: string;
+    /** Host path to build/cache the native server binary. */
+    serverBinPath: string;
+}
 
 interface PendingRequest {
     resolve: (result: BuildResult) => void;
@@ -38,11 +57,15 @@ export class PreviewServer {
         // same path. Use this to make user assets (images, fonts) referenced
         // by absolute path in user code visible inside the container.
         private readonly dockerExtraMounts: readonly string[] = [],
+        // When set, run a locally-compiled native server instead of the
+        // container (for local runtime mode). Mutually exclusive with the
+        // docker* params above.
+        private readonly localConfig?: LocalServerConfig,
     ) {}
 
-    /** Docker-only build: the server always runs inside a container. */
+    /** True when running the containerized server; false for the native local server. */
     get isDockerMode(): boolean {
-        return true;
+        return !this.localConfig;
     }
 
     // -----------------------------------------------------------------------
@@ -54,11 +77,51 @@ export class PreviewServer {
     }
 
     /**
-     * No-op: the preview_server binary is pre-built inside the docker image at
-     * /opt/dali/bin/preview_server, so there is nothing to compile on the host.
+     * Docker mode: no-op — the preview_server binary is pre-built inside the
+     * image at /opt/dali/bin/preview_server.
+     * Local mode: compile `preview_server.cpp` against the host DALi prefix when
+     * the binary is missing or older than the source.
      */
     async ensureServerBinary(): Promise<void> {
-        return;
+        if (!this.localConfig) {
+            return;
+        }
+        const cfg = this.localConfig;
+        if (!fs.existsSync(cfg.serverSrcPath)) {
+            throw new Error(`preview_server source not found at ${cfg.serverSrcPath}`);
+        }
+        let needsBuild = !fs.existsSync(cfg.serverBinPath);
+        if (!needsBuild) {
+            try {
+                needsBuild = fs.statSync(cfg.serverSrcPath).mtimeMs > fs.statSync(cfg.serverBinPath).mtimeMs;
+            } catch {
+                needsBuild = true;
+            }
+        }
+        if (!needsBuild) {
+            return;
+        }
+        this.outputChannel.appendLine(`[PreviewServer] Building native preview_server (${cfg.daliPrefix}) ...`);
+        const pkgConfigPath = `${cfg.daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
+        const cmd = [
+            `PKG_CONFIG_PATH="${pkgConfigPath}"`,
+            'g++ -std=c++17 -O2',
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags ${DALI_PKG_MODULES})`,
+            `"${cfg.serverSrcPath}"`,
+            `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs ${DALI_PKG_MODULES})`,
+            `-L"${cfg.daliPrefix}/lib" -Wl,-rpath-link,"${cfg.daliPrefix}/lib" -ldl`,
+            `-o "${cfg.serverBinPath}"`,
+        ].join(' ');
+        await new Promise<void>((resolve, reject) => {
+            exec(cmd, { timeout: 120_000, shell: '/bin/bash' }, (error, _stdout, stderr) => {
+                if (error) {
+                    reject(new Error(`preview_server compile failed:\n${stderr || error.message}`));
+                } else {
+                    resolve();
+                }
+            });
+        });
+        this.outputChannel.appendLine('[PreviewServer] Native preview_server built.');
     }
 
     /**
@@ -249,6 +312,11 @@ export class PreviewServer {
     }
 
     private buildSpawnCommand(): [string, string[]] {
+        // Local mode: just the native binary; env (DISPLAY/LD_LIBRARY_PATH) is
+        // applied in spawnServer.
+        if (this.localConfig) {
+            return [this.localConfig.serverBinPath, []];
+        }
         const imageRef = this.dockerRuntime!.imageRef(this.dockerImageTag!);
         const containerName = this.dockerContainerName();
         // Build the -v flags for the workspace and any extra mounts so
@@ -340,6 +408,9 @@ export class PreviewServer {
      * never shells out to a real docker daemon.
      */
     protected _killStaleContainer(): void {
+        if (this.localConfig) {
+            return; // no container in local (native) mode
+        }
         const containerName = this.dockerContainerName();
         try {
             require('child_process').execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' });
@@ -348,7 +419,16 @@ export class PreviewServer {
 
     private spawnServer(): Promise<boolean> {
         return new Promise((resolve) => {
-            const env: NodeJS.ProcessEnv = { ...process.env };  // docker run carries its own env via -e flags
+            // Docker run carries its own env via -e flags; the native server needs
+            // DISPLAY (Xvfb) + LD_LIBRARY_PATH pointing at the local DALi prefix.
+            const env: NodeJS.ProcessEnv = { ...process.env };
+            if (this.localConfig) {
+                const inherited = process.env.LD_LIBRARY_PATH;
+                env.LD_LIBRARY_PATH = inherited
+                    ? `${this.localConfig.daliPrefix}/lib:${inherited}`
+                    : `${this.localConfig.daliPrefix}/lib`;
+                env.DISPLAY = this.localConfig.display;
+            }
 
             this._killStaleContainer();
 
@@ -362,7 +442,9 @@ export class PreviewServer {
             this.stdoutBuffer  = '';
 
             const spawnTime = Date.now();
-            const modeLabel = `docker (${this.dockerRuntime!.imageRef(this.dockerImageTag!)})`;
+            const modeLabel = this.localConfig
+                ? `native (${this.localConfig.serverBinPath})`
+                : `docker (${this.dockerRuntime!.imageRef(this.dockerImageTag!)})`;
             this.outputChannel.appendLine(`[PreviewServer] Spawned PID=${proc.pid}, mode=${modeLabel}, timeout=${READY_TIMEOUT_MS}ms`);
 
             const readyTimer = setTimeout(() => {

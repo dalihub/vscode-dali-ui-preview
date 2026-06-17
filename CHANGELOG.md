@@ -5,6 +5,57 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-06-17
+
+### Added
+
+- **Local DALi runtime preview — for DALi framework (uifw) developers.** A new
+  `daliPreview.runtimeMode` setting (`docker` default | `local`) renders previews
+  against a host-installed DALi instead of the container. In local mode the
+  extension compiles a **native resident preview server** from the bundled
+  `preview_server.cpp` against your DALi prefix and spawns it under Xvfb, so the
+  parser/dlopen fast paths **and animation scrubbing** work just like docker —
+  editing preview code is fast, not a full ~1.7s rebuild each time. For framework
+  developers who rebuild DALi itself, a freshly-built `libdali2-*.so` is picked up
+  automatically: a watcher on `…/lib/libdali2-*.so` restarts the resident server
+  on a rebuild. With no valid prefix configured, local mode falls back to a
+  one-shot harness compile. App developers are unaffected — `docker` stays the
+  default. Documented as a prominent section in the README (EN + KO). SDB device
+  preview, VNC, and GIF capture are **not** revived.
+- **Command: Use Local DALi Runtime** — opens a folder picker (pre-seeded with an
+  auto-detected prefix; accepts a parent that contains `dali-env/opt`), validates
+  it (`dali2-ui-foundation.pc` + g++/Xvfb/pkg-config), saves `daliPreview.daliPrefix`,
+  and reloads.
+- **Command: Restart DALi Runtime** (local mode) — respawn the resident server to
+  load your latest DALi build.
+
+### Changed
+
+- **Internal `BuildBackend` seam.** BuildRunner's harness templating is now
+  backend-agnostic; the docker container/`/work` path duality is encapsulated in
+  `DockerBackend`, and `LocalBackend` drives the native g++/pkg-config build.
+- **DALi prefix auto-detection is shared-tool-safe.** Order: the
+  `daliPreview.daliPrefix` setting → `$DESKTOP_PREFIX` (what a dali-env `setenv`
+  exports) → a workspace `setenv` file → a system/shared install
+  (`pkg-config`-registered, then `/opt/dali`). It no longer scans personal
+  home/project dirs (`~/dali-env/opt`, `~/tizen/*`), so a shared install never
+  auto-selects one developer's build.
+- **Select Runtime Version** is now visible in the Command Palette and is the
+  Docker-mode entry point — it picks a container/DALi version and, when run from
+  local mode, switches into Docker. The separate *Use Docker Runtime* command was
+  removed (its role is now covered by Select Runtime Version).
+
+### Fixed
+
+- **CodeLens previews no longer fall back to the slow path.** A CodeLens-only
+  workflow (a regular `.cpp` with no markers) never started the resident preview
+  server, so every live edit recompiled the full harness (~1.7s). Clicking the
+  ▶ Preview CodeLens now starts the server, so live edits use the fast path.
+- **Use Local DALi Runtime no longer re-prompts a reload when already active.**
+  Re-running it while already in local mode with the same prefix now reports
+  "Already using the local DALi runtime" instead of asking to reload again (it
+  still updates + reloads when you pick a different prefix).
+
 ## [0.42.0] - 2026-06-15
 
 ### Added
