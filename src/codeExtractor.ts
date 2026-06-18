@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PreviewConfig, PreviewState } from './previewConfig';
+import { PreviewConfig, PreviewState, expandPreset } from './previewConfig';
 import { getLogger } from './logger';
 
 export interface ExtractionResult {
@@ -23,6 +23,11 @@ const SINGLE_PREVIEW_MARKER = '// @preview';
 const DALI_PREVIEW_MARKER = '// @dali-preview';
 
 const PREVIEW_CONFIG_RE = /^\/\/\s*@preview-config:\s*(.+)$/;
+// `// @preview-preset: <name>` (ADR-001 §2 / WU-M3.7). `preset-name := identifier`
+// — a leading letter/underscore then word chars/hyphens. A matched line is
+// expanded into PreviewConfig variants (PREVIEW_PRESETS) and APPENDED to
+// configs[], then excluded from the code (handled like a @preview-config line).
+const PREVIEW_PRESET_RE = /^\/\/\s*@preview-preset:\s*([A-Za-z_][\w-]*)\s*$/;
 const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
 const CONFIG_WIDTH_RE = /width\s*=\s*(\d+)/;
 const CONFIG_HEIGHT_RE = /height\s*=\s*(\d+)/;
@@ -110,6 +115,29 @@ function parsePreviewConfigLine(line: string): PreviewConfig | null {
 }
 
 /**
+ * If `line` is a `// @preview-preset: <name>` directive (WU-M3.7), expand it into
+ * its PreviewConfig variants. Returns:
+ *   - the variant array  → push these onto configs[] and skip the line as code
+ *   - []                 → it WAS a preset line but the name is unknown (logged
+ *                          as a warning); still skip it as code (ADR-001 §2: no
+ *                          silent error, but the line is not real preview code)
+ *   - null               → not a preset line at all (treat as ordinary code)
+ */
+function expandPresetLine(line: string): PreviewConfig[] | null {
+    const m = PREVIEW_PRESET_RE.exec(line.trim());
+    if (!m) {
+        return null;
+    }
+    const name = m[1];
+    const variants = expandPreset(name);
+    if (!variants) {
+        getLogger().warn('Extraction', `unknown preset '${name}' — ignoring // @preview-preset line`, { name });
+        return [];
+    }
+    return variants;
+}
+
+/**
  * Parse a `// @preview-state:` directive (ADR-001), mirroring
  * `parsePreviewConfigLine`. Grammar: `focus=<id>` and/or `progress=<float>`,
  * comma-separated. Only `focus` and `progress` are recognised — any other key
@@ -181,6 +209,12 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             const cfg = parsePreviewConfigLine(line);
             if (cfg) {
                 configs.push(cfg);
+                configLineCount++;
+                continue;
+            }
+            const presetConfigs = expandPresetLine(line);
+            if (presetConfigs !== null) {
+                configs.push(...presetConfigs); // append expanded variants ([] if unknown)
                 configLineCount++;
                 continue;
             }
@@ -355,6 +389,11 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             const cfg = parsePreviewConfigLine(lineText);
             if (cfg) {
                 configs.push(cfg);
+                continue;
+            }
+            const presetConfigs = expandPresetLine(lineText);
+            if (presetConfigs !== null) {
+                configs.push(...presetConfigs); // append expanded variants ([] if unknown)
                 continue;
             }
             const st = parsePreviewStateLine(lineText);

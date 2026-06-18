@@ -44,31 +44,50 @@ export interface StandaloneBuildOptions {
  * this file must NOT import vscode. The token→RGBA rows are SHARED with
  * src/buildRunner.ts AND docker/preview_server.cpp (keep all three in sync).
  */
-export function buildPaletteDefs(theme?: 'light' | 'dark'): string {
-    if (theme !== 'dark') {
-        return '';
+export function buildPaletteDefs(theme?: 'light' | 'dark', locale?: string): string {
+    const blocks: string[] = [];
+    if (theme === 'dark') {
+        const rows = DARK_PALETTE_TOKENS.map(
+            (t) => `        {"${t.id}", Dali::Vector4(${t.rgba.map(formatFloat).join(', ')})},`,
+        ).join('\n');
+        blocks.push([
+            '// Dark-theme token palette (theme=dark). Free function — no captures —',
+            '// as required by ColorOverrideFunc (ui-color-manager.h). Returns false',
+            '// for unmapped ids so they fall through to the theme (hex colors never',
+            '// reach here, so they are unaffected — honest reskin boundary).',
+            'static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)',
+            '{',
+            '    struct Row { const char* k; Dali::Vector4 v; };',
+            '    static const Row table[] = {',
+            rows,
+            '    };',
+            '    for(const auto& r : table)',
+            '    {',
+            '        if(id == r.k) { out = r.v; return true; }',
+            '    }',
+            '    return false;',
+            '}',
+        ].join('\n'));
     }
-    const rows = DARK_PALETTE_TOKENS.map(
-        (t) => `        {"${t.id}", Dali::Vector4(${t.rgba.map(formatFloat).join(', ')})},`,
-    ).join('\n');
-    return [
-        '// Dark-theme token palette (theme=dark). Free function — no captures —',
-        '// as required by ColorOverrideFunc (ui-color-manager.h). Returns false',
-        '// for unmapped ids so they fall through to the theme (hex colors never',
-        '// reach here, so they are unaffected — honest reskin boundary).',
-        'static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)',
-        '{',
-        '    struct Row { const char* k; Dali::Vector4 v; };',
-        '    static const Row table[] = {',
-        rows,
-        '    };',
-        '    for(const auto& r : table)',
-        '    {',
-        '        if(id == r.k) { out = r.v; return true; }',
-        '    }',
-        '    return false;',
-        '}',
-    ].join('\n');
+    // locale set → honest untranslated override (WU-M3.6). Returns false for every
+    // key so dali-ui falls back to dgettext → raw key when uncatalogued. Free fn
+    // (no captures) as required by LocalizedStringOverrideFunc.
+    if (locale) {
+        blocks.push([
+            '// Locale override (locale=<l>). Free function — no captures — as',
+            '// required by LocalizedStringOverrideFunc (ui-localization-manager.h).',
+            '// Returns false for EVERY key so dali-ui falls back to dgettext; with',
+            '// no catalog loaded that yields the resource id verbatim (e.g. an',
+            '// IDS_TITLE binding shows "IDS_TITLE"). The tool never fabricates a',
+            '// translation — honest untranslated boundary (ADR-004 §2, ADR-007).',
+            'static bool __LocaleOverride(Dali::StringView resourceId, Dali::StringView domain, Dali::String& outString)',
+            '{',
+            '    (void)resourceId; (void)domain; (void)outString;',
+            '    return false; // fall through to dgettext → raw key when uncatalogued',
+            '}',
+        ].join('\n'));
+    }
+    return blocks.join('\n');
 }
 
 /** Build the harness {{UI_CONFIG_SETUP}} slot (frozen, pre-Apply). Mirrors
@@ -83,12 +102,36 @@ export function buildUiConfigSetup(fontScale?: number): string {
 /** Build the harness {{PRE_BUILD_INSTALL}} slot (runtime, pre-tree). Mirrors
  *  src/buildRunner.ts.buildPreBuildInstall (harness variant — no plugin SetScale,
  *  the harness froze SetScalingFactor instead). */
-export function buildPreBuildInstall(theme?: 'light' | 'dark'): string {
+export function buildPreBuildInstall(theme?: 'light' | 'dark', locale?: string): string {
     const lines: string[] = [];
     if (theme === 'dark') {
         lines.push('    Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
     }
+    // locale set → install the honest untranslated override (WU-M3.6).
+    if (locale) {
+        lines.push('    Dali::Ui::UiLocalizationManager::Get().SetLocalizedStringOverride(&__LocaleOverride);');
+    }
     return lines.join('\n');
+}
+
+/** RTL locales whose ROW layout mirrors. Mirrors src/previewConfig.ts RTL_LOCALES
+ *  (the standalone runner must not import vscode-dependent modules). Matched by
+ *  base language subtag (ar_EG → ar). */
+const RTL_LOCALES: ReadonlySet<string> = new Set(['ar', 'he', 'fa', 'ur']);
+function isRtlLocale(locale?: string): boolean {
+    if (!locale) { return false; }
+    return RTL_LOCALES.has(locale.split(/[_-]/)[0].toLowerCase());
+}
+
+/** Build the post-build root layout-direction install (WU-M3.5). For an RTL
+ *  locale, sets root LAYOUT_DIRECTION=RIGHT_TO_LEFT so a ROW mirrors (children
+ *  inherit it). Composed into {{POST_BUILD_FOCUS}} where `root` is in scope.
+ *  Mirrors src/buildRunner.ts.buildPostBuildLayoutDir. */
+export function buildPostBuildLayoutDir(locale?: string): string {
+    if (!isRtlLocale(locale)) {
+        return '';
+    }
+    return '    root.SetProperty(Dali::Actor::Property::LAYOUT_DIRECTION, Dali::LayoutDirection::RIGHT_TO_LEFT);';
 }
 
 /** Shared dark token list — keep in sync with src/buildRunner.ts and
@@ -140,6 +183,16 @@ export function buildPostBuildFocus(focusId?: string): string {
         '        if(__fv) { Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv); }',
         '    }',
     ].join('\n');
+}
+
+/** Compose the {{POST_BUILD_FOCUS}} slot — RTL layout-direction (applied first so
+ *  the mirror is in effect when the ring draws) + focus install. Either part is
+ *  '' when its knob is unset; both '' → byte-identical. Mirrors
+ *  src/buildRunner.ts.buildPostBuild (intentional duplication — no vscode here). */
+export function buildPostBuild(locale?: string, focusId?: string): string {
+    return [buildPostBuildLayoutDir(locale), buildPostBuildFocus(focusId)]
+        .filter((s) => s !== '')
+        .join('\n');
 }
 
 /**
@@ -289,16 +342,16 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
     const harness = templateContent
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
-        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme))
+        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme, opts.locale))
         .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
-        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme))
+        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme, opts.locale))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, escapeCppString(opts.outputPngPath))
         .replace(/\{\{METADATA_PATH\}\}/g, escapeCppString(opts.metadataPath))
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
-        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
+        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuild(opts.locale, opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
     try {
@@ -338,16 +391,16 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
     const harness = template
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
-        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme))
+        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme, opts.locale))
         .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
-        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme))
+        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme, opts.locale))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, '/work/render.png')
         .replace(/\{\{METADATA_PATH\}\}/g, '/work/meta.json')
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
-        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
+        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuild(opts.locale, opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
     try {

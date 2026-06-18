@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildBackend } from './buildBackend';
 import { ConfigurationService } from './configurationService';
+import { isRtlLocale } from './previewConfig';
 import { getLogger } from './logger';
 
 export interface BuildResult {
@@ -102,11 +103,65 @@ export class BuildRunner {
      * SHARED with docker/preview_server.cpp's __DarkServerPalette (same constants,
      * desync-guarded by the DARK_PALETTE_TOKENS list).
      */
-    static buildPaletteDefs(theme?: 'light' | 'dark'): string {
-        if (theme !== 'dark') {
+    static buildPaletteDefs(theme?: 'light' | 'dark', locale?: string): string {
+        const blocks: string[] = [];
+        if (theme === 'dark') {
+            blocks.push(BuildRunner.darkPaletteFreeFunction());
+        }
+        // locale set → emit the honest untranslated override (WU-M3.6). Free
+        // function (no captures) as required by LocalizedStringOverrideFunc
+        // (ui-localization-manager.h).
+        if (locale) {
+            blocks.push(BuildRunner.localeOverrideFreeFunction());
+        }
+        return blocks.join('\n');
+    }
+
+    /**
+     * Build the static `__LocaleOverride` free function (no captures) backing the
+     * honest untranslated-IDS signal (WU-M3.6 / ADR-007 `untranslated`). It
+     * returns FALSE for every key so dali-ui falls back to dgettext, which — with
+     * NO catalog loaded (M3 does not load locale catalogs) — yields the resource
+     * id verbatim (ui-localization-manager.h: "dgettext null result -> resourceId").
+     * So an `IDS_TITLE` label renders the raw key `IDS_TITLE`, NOT a fabricated
+     * translation. This is the DELIBERATE honest boundary: the tool never invents
+     * a translation string (ADR-004 §2). The matching `untranslated` provenance is
+     * merged by the host (previewOrchestrator); the visible badge chip is M5.
+     */
+    private static localeOverrideFreeFunction(): string {
+        return [
+            '// Locale override (locale=<l>). Free function — no captures — as',
+            '// required by LocalizedStringOverrideFunc (ui-localization-manager.h).',
+            '// Returns false for EVERY key so dali-ui falls back to dgettext; with',
+            '// no catalog loaded that yields the resource id verbatim (e.g. an',
+            '// IDS_TITLE binding shows "IDS_TITLE"). The tool never fabricates a',
+            '// translation — honest untranslated boundary (ADR-004 §2, ADR-007).',
+            'static bool __LocaleOverride(Dali::StringView resourceId, Dali::StringView domain, Dali::String& outString)',
+            '{',
+            '    (void)resourceId; (void)domain; (void)outString;',
+            '    return false; // fall through to dgettext → raw key when uncatalogued',
+            '}',
+        ].join('\n');
+    }
+
+    /**
+     * Build the post-build root layout-direction install (WU-M3.5 / ADR-004 F3.4).
+     * When `locale` is an RTL locale (ar/he/fa/ur — isRtlLocale), emit a call that
+     * sets the root's LAYOUT_DIRECTION to RIGHT_TO_LEFT. The root's children
+     * inherit it (Actor INHERIT_LAYOUT_DIRECTION defaults true), so a ROW
+     * FlexLayout mirrors its main-axis order (left-most child moves to the right).
+     * `root` must be in scope at the call site — this composes into the
+     * {{POST_BUILD_FOCUS}} slot (harness: after `window.Add(root)`; plugin:
+     * `__ApplyPreviewFocus(Dali::Actor root)`). Uses SetProperty (not the View-only
+     * SetLayoutDirection) so it works on the plugin's `Dali::Actor root` too.
+     * '' when not RTL → byte-identical. This is LAYOUT mirroring only, NOT
+     * translation (text is unchanged; ADR-004 §2 honest boundary).
+     */
+    static buildPostBuildLayoutDir(locale?: string): string {
+        if (!isRtlLocale(locale)) {
             return '';
         }
-        return BuildRunner.darkPaletteFreeFunction();
+        return '    root.SetProperty(Dali::Actor::Property::LAYOUT_DIRECTION, Dali::LayoutDirection::RIGHT_TO_LEFT);';
     }
 
     /**
@@ -138,10 +193,18 @@ export class BuildRunner {
         theme?: 'light' | 'dark',
         fontScale?: number,
         isPlugin = false,
+        locale?: string,
     ): string {
         const lines: string[] = [];
         if (theme === 'dark') {
             lines.push('    Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
+        }
+        // locale set → install the honest untranslated override (WU-M3.6). Runtime,
+        // warm-server-safe (refreshes all bindings on install — ui-localization-
+        // manager.h). __LocaleOverride is emitted into {{PALETTE_DEFS}} when locale
+        // is set, so the symbol exists here.
+        if (locale) {
+            lines.push('    Dali::Ui::UiLocalizationManager::Get().SetLocalizedStringOverride(&__LocaleOverride);');
         }
         // Runtime scale only on the warm/plugin path; the harness uses the frozen
         // SetScalingFactor in {{UI_CONFIG_SETUP}} (both wired per ADR-004 §2).
@@ -272,20 +335,25 @@ export class BuildRunner {
             /** fontScale → frozen `.SetScalingFactor(f)` in {{UI_CONFIG_SETUP}}
              *  (scales _spx units). undefined → slot is '' (byte-identical). */
             fontScale?: number;
+            /** locale → RTL locales (ar/he/fa/ur) mirror the root via
+             *  {{POST_BUILD_FOCUS}} (LAYOUT_DIRECTION=RIGHT_TO_LEFT) and install the
+             *  honest untranslated override (WU-M3.5/M3.6). undefined → slots stay
+             *  '' (byte-identical). */
+            locale?: string;
             extra?: Record<string, string>;
         },
     ): string {
         let out = template
             .replace(/\{\{USER_INCLUDES\}\}/g, opts.includes ?? '')
             .replace(/\{\{USER_GLOBALS\}\}/g, opts.globals ?? '')
-            .replace(/\{\{PALETTE_DEFS\}\}/g, BuildRunner.buildPaletteDefs(opts.theme))
+            .replace(/\{\{PALETTE_DEFS\}\}/g, BuildRunner.buildPaletteDefs(opts.theme, opts.locale))
             .replace(/\{\{UI_CONFIG_SETUP\}\}/g, BuildRunner.buildUiConfigSetup(opts.fontScale))
-            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, BuildRunner.buildPreBuildInstall(opts.theme, opts.fontScale, false))
+            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, BuildRunner.buildPreBuildInstall(opts.theme, opts.fontScale, false, opts.locale))
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.injectFocusName(opts.userCode, opts.focusId))
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
             .replace(/\{\{BACKGROUND_COLOR\}\}/g, opts.bgColorVec)
-            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuildFocus(opts.focusId))
+            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuild(opts.locale, opts.focusId))
             .replace(/\{\{FONT_SETUP\}\}/g, opts.fontSetup);
         if (opts.extra) {
             for (const [key, value] of Object.entries(opts.extra)) {
@@ -317,6 +385,21 @@ export class BuildRunner {
             '        if(__fv) { Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv); }',
             '    }',
         ].join('\n');
+    }
+
+    /**
+     * Compose the {{POST_BUILD_FOCUS}} slot — the single post-build site where
+     * `root` is in scope (ADR-006 focus + ADR-004 F3.4 RTL both need `root`). The
+     * RTL layout-direction is applied FIRST (so the mirror is in effect when the
+     * focus ring is drawn), then the focus install. Either part is '' when its
+     * knob is unset; both '' → byte-identical to the focus-less / LTR harness.
+     * Shared shape with standaloneBuildRunner (intentional duplication — that file
+     * must not import vscode).
+     */
+    static buildPostBuild(locale?: string, focusId?: string): string {
+        return [BuildRunner.buildPostBuildLayoutDir(locale), BuildRunner.buildPostBuildFocus(focusId)]
+            .filter((s) => s !== '')
+            .join('\n');
     }
 
     /**
@@ -394,9 +477,17 @@ export class BuildRunner {
         configName?: string,
         sliceGlobals = '',
         sliceIncludes = '',
+        /** Per-config knobs (WU-M3.8 gallery): theme=dark installs the dark color
+         *  override, locale installs the untranslated override + RTL mirror,
+         *  fontScale installs the warm-safe runtime SetScale. All undefined →
+         *  every slot is '' → byte-identical to the M2 plugin. The frozen-only
+         *  fontScale path (SetScalingFactor) is the harness's job — the warm
+         *  server is past Apply() — so the orchestrator routes frozen-needing
+         *  variants to buildAndRun (ADR-004 §3). */
+        config?: { theme?: 'light' | 'dark'; locale?: string; fontScale?: number },
     ): Promise<BuildResult & { soPath?: string }> {
         const log = getLogger();
-        log.debug('Build', 'compilePlugin', { configName: configName || 'default', sliced: !!sliceGlobals });
+        log.debug('Build', 'compilePlugin', { configName: configName || 'default', sliced: !!sliceGlobals, theme: config?.theme, locale: config?.locale });
 
         const suffix = configName ? `_${BuildRunner.sanitizeConfigName(configName)}` : '';
         const pluginSrc = path.join(this.tmpDir, `preview_plugin${suffix}.cpp`);
@@ -409,16 +500,16 @@ export class BuildRunner {
             .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
             .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             // {{PALETTE_DEFS}}/{{PRE_BUILD_INSTALL}} are the ADR-004 install slots
-            // for the warm/dlopen path. config→install plumbing into this path is
-            // M3.8 (pass 2); default to '' now so the template compiles unchanged.
-            .replace(/\{\{PALETTE_DEFS\}\}/g, '')
-            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, '')
+            // for the warm/dlopen path (WU-M3.8). theme/locale emit their palette
+            // free functions + runtime installs; all-undefined → '' (byte-identical).
+            .replace(/\{\{PALETTE_DEFS\}\}/g, BuildRunner.buildPaletteDefs(config?.theme, config?.locale))
+            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, BuildRunner.buildPreBuildInstall(config?.theme, config?.fontScale, true, config?.locale))
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.instrumentAnimations(userCode))
             // Plugin focus is server-driven (warm path); the orchestrator does not
-            // yet plumb focus into the dlopen path, so default the slot to '' (the
-            // __ApplyPreviewFocus hook becomes a no-op). Keeps the template
-            // compilable now that the placeholder exists.
-            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, '');
+            // yet plumb focus into the dlopen path. RTL (locale) does apply here —
+            // __ApplyPreviewFocus(root) is the warm post-build site where `root` is
+            // in scope, so a ROW mirrors in the gallery's RTL variant. '' when LTR.
+            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuild(config?.locale, undefined));
 
         if (!this.backend.compilePlugin) {
             return { success: false, error: `Plugin (dlopen) compile is not supported by the ${this.backend.kind} runtime backend.` };
@@ -493,7 +584,7 @@ export class BuildRunner {
         const harness = this.renderHarness(this.templateContent, {
             userCode, width, height, bgColorVec, fontSetup,
             includes: sliceIncludes, globals: sliceGlobals, focusId,
-            theme, fontScale,
+            theme, fontScale, locale,
             extra: { OUTPUT_PATH: out.pngEmbed, METADATA_PATH: out.metadataEmbed },
         });
 

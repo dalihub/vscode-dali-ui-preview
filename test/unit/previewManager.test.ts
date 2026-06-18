@@ -1,5 +1,9 @@
 import { expect } from 'chai';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { PreviewManager } from '../../src/previewManager';
+import { MultiPreviewResult } from '../../src/previewConfig';
 
 // ---------------------------------------------------------------------------
 // Minimal stub for the VS Code API used by PreviewManager
@@ -195,5 +199,58 @@ describe('PreviewManager — show(preserveFocus)', () => {
         mgr.show();
         expect(revealCalls).to.have.length(1);
         expect(revealCalls[0].preserveFocus).to.equal(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// updateMultiImage — gallery message contract (WU-M3.8)
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — updateMultiImage() gallery contract', () => {
+    function writeMeta(dir: string, name: string, obj: object): string {
+        const p = path.join(dir, `${name}.json`);
+        fs.writeFileSync(p, JSON.stringify(obj));
+        return p;
+    }
+
+    it('posts updateMultiImage with one {name, uri, metadata} item per config variant', () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mm-'));
+        const meta = writeMeta(tmp, 'dark', { root: { name: 'RootLayer' }, provenance: [{ kind: 'untranslated', detail: 'x' }] });
+        const pngPath = path.join(tmp, 'dark.png');
+        fs.writeFileSync(pngPath, 'PNG');
+
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        const results: MultiPreviewResult[] = [
+            { config: { name: 'Light', theme: 'light' }, success: true, pngPath, metadataPath: undefined, buildTimeMs: 12 },
+            { config: { name: 'Dark', theme: 'dark' }, success: true, pngPath, metadataPath: meta, buildTimeMs: 34 },
+        ];
+        mgr.updateMultiImage(results);
+
+        const msg = postedMessages.find(m => m.command === 'updateMultiImage') as any;
+        expect(msg, 'updateMultiImage posted').to.exist;
+        expect(msg.images).to.have.length(2);
+        // Per-config name is carried into the grid header.
+        expect(msg.images[0].name).to.equal('Light');
+        expect(msg.images[1].name).to.equal('Dark');
+        // Successful variants carry a webview uri.
+        expect(msg.images[0].uri).to.be.a('string');
+        // The Dark variant's metadata (with its provenance) is threaded per-config.
+        expect(msg.images[1].metadata).to.deep.include({ provenance: [{ kind: 'untranslated', detail: 'x' }] });
+
+        fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('carries the error (not a uri) for a failed config variant', () => {
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        const results: MultiPreviewResult[] = [
+            { config: { name: 'Broken' }, success: false, buildTimeMs: 5, error: 'compile failed: foo' },
+        ];
+        mgr.updateMultiImage(results);
+
+        const msg = postedMessages.find(m => m.command === 'updateMultiImage') as any;
+        expect(msg.images).to.have.length(1);
+        expect(msg.images[0].success).to.equal(false);
+        expect(msg.images[0].error).to.equal('compile failed: foo');
+        expect(msg.images[0].uri).to.equal(undefined);
     });
 });

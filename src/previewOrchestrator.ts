@@ -11,7 +11,7 @@ import { parseChainExpression, SceneNode } from './cppParser';
 import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, diagnoseGccErrors } from './errorParser';
-import { PreviewConfig, MultiPreviewResult } from './previewConfig';
+import { PreviewConfig, MultiPreviewResult, ProvenanceEntry } from './previewConfig';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
 import { PreviewMode } from './types';
@@ -127,7 +127,7 @@ class DlopenStrategy implements PreviewStrategy {
 
     async execute(
         code: string,
-        _extraction: ExtractionResult,
+        extraction: ExtractionResult,
         width: number,
         height: number,
         theme: 'light' | 'dark',
@@ -137,6 +137,15 @@ class DlopenStrategy implements PreviewStrategy {
         const log = getLogger();
         const buildRunner = this.getBuildRunner();
         const server = this.getPreviewServer();
+        // Single-config knobs (WU-M3.8 warm path): a lone `@preview-config` with
+        // locale/fontScale installs into the resident plugin (RTL mirror +
+        // untranslated override + runtime SetScale) and is re-sent on RELOAD, so a
+        // single-config file is honest in LIVE warm preview too. undefined when
+        // absent → byte-identical. theme already flows via the `theme` arg.
+        const singleCfg = extraction.configs && extraction.configs.length === 1
+            ? extraction.configs[0] : undefined;
+        const cfgLocale = singleCfg?.locale;
+        const cfgFontScale = singleCfg?.fontScale;
         if (!server?.isRunning) {
             return { result: { success: false, error: 'Server not running' } };
         }
@@ -149,15 +158,22 @@ class DlopenStrategy implements PreviewStrategy {
         // honest current-path error against THEIR code, not a confusing error
         // inside generated stub code they never wrote.
         const useSlice = slice?.rung === 'heuristic';
+        // Thread locale (RTL mirror + untranslated override) and fontScale
+        // (runtime SetScale) into the warm plugin. theme is intentionally NOT
+        // routed here: theme reskin on the warm/server path is owned by M3.3/M3.4
+        // (server color override + window bg via reload), so re-installing it in
+        // the plugin would double-apply. undefined knobs → byte-identical plugin.
+        const cfgKnobs = { locale: cfgLocale, fontScale: cfgFontScale };
         let pluginResult = await buildRunner.compilePlugin(
             code, undefined,
             useSlice ? slice!.globals : '',
             useSlice ? slice!.includes : '',
+            cfgKnobs,
         );
         if (!pluginResult.success && useSlice) {
             this.outputChannel.appendLine('[Slice] Rung2 compile failed → Rung3 fallback (no globals)');
             log.debug('Build', 'slice compile failed, falling back to Rung3');
-            pluginResult = await buildRunner.compilePlugin(code);
+            pluginResult = await buildRunner.compilePlugin(code, undefined, '', '', cfgKnobs);
         }
         const compileEnd = Date.now();
         this.outputChannel.appendLine(
@@ -169,8 +185,13 @@ class DlopenStrategy implements PreviewStrategy {
             const pngPath = path.join(tmpDir, 'preview.png');
             const metadataPath = path.join(tmpDir, 'preview_metadata.json');
             const reloadStart = Date.now();
+            // Re-send the single-config locale/fontScale on RELOAD too, symmetric
+            // with the multi-config gallery path. The plugin .so already installs
+            // them via its slots; this keeps the resident server in sync (its own
+            // RELOAD install is the docker baked-in part — live sign-off).
             const result = await server.reload(
                 pluginResult.soPath, pngPath, metadataPath, width, height, theme, bgColor,
+                cfgLocale, cfgFontScale,
             );
             this.outputChannel.appendLine(
                 `[Perf]    server.reload (dlopen+render+screenshot): ${Date.now() - reloadStart}ms`,
@@ -222,6 +243,14 @@ class HarnessStrategy implements PreviewStrategy {
         // model types) fails with "not declared" whenever the preview server is
         // down and we fall back here.
         const useSlice = slice?.rung === 'heuristic';
+        // Single-config knobs (WU-M3.5/M3.2): a lone `@preview-config` with
+        // fontScale/locale threads into the harness so a single-config file
+        // mirrors RTL / scales text in LIVE preview too — matching the golden the
+        // standalone runner bakes for the same sample. undefined when absent →
+        // byte-identical. (Multi-config gallery threads per-variant in
+        // runMultiPreview; theme already flows via currentTheme_.)
+        const singleCfg = extraction.configs && extraction.configs.length === 1
+            ? extraction.configs[0] : undefined;
         // `// @preview-state: focus=<id>` (ADR-006): the harness is the proven
         // focus-capable path. runBuildStrategies routes focus-bearing previews
         // here (skipping parser/dlopen), so pass the target through to fill the
@@ -229,7 +258,7 @@ class HarnessStrategy implements PreviewStrategy {
         const result = await this.getBuildRunner().buildAndRun(
             code, width, height, theme, bgColor, undefined,
             useSlice ? slice!.globals : '', useSlice ? slice!.includes : '',
-            extraction.state?.focus,
+            extraction.state?.focus, singleCfg?.fontScale, singleCfg?.locale,
         );
         this.outputChannel.appendLine(
             `[Perf]    buildAndRun (full harness): ${Date.now() - harnessStart}ms`,
@@ -266,6 +295,67 @@ export interface OrchestratorDeps {
 
 function sanitizeForPath(name: string): string {
     return BuildRunner.sanitizeConfigName(name);
+}
+
+/**
+ * Detect the `IDS_` resource keys a translatable binding references in preview
+ * code (WU-M3.6 / ADR-007 `untranslated`). Matches `SetTranslatableText("IDS_X")`
+ * and any bare `"IDS_..."` string literal (covers the common label/binding APIs
+ * without a full parse). Returns the de-duplicated, in-order key list.
+ */
+function findIdsKeys(code: string): string[] {
+    const keys: string[] = [];
+    const seen = new Set<string>();
+    const re = /"(IDS_[A-Za-z0-9_]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(code)) !== null) {
+        if (!seen.has(m[1])) {
+            seen.add(m[1]);
+            keys.push(m[1]);
+        }
+    }
+    return keys;
+}
+
+/**
+ * Build the `untranslated` provenance for a single-config preview (WU-M3.6).
+ * Honest signal only: when a `locale` is set AND the code uses `IDS_` keys, M3
+ * loads NO catalog, so those keys render as their raw id (the harness installs
+ * the no-op `__LocaleOverride` → dgettext fallback → raw key). We record ONE
+ * `untranslated` provenance entry naming the keys, which the host merges into the
+ * metadata. The VISIBLE badge chip is M5 (ADR-007 F5.3) — M3 only prepares the
+ * channel. Returns [] when no locale or no IDS_ keys (→ no provenance, no badge).
+ */
+export function buildUntranslatedProvenance(locale: string | undefined, code: string): ProvenanceEntry[] {
+    if (!locale) {
+        return [];
+    }
+    const keys = findIdsKeys(code);
+    if (keys.length === 0) {
+        return [];
+    }
+    const shown = keys.slice(0, 3).join(', ') + (keys.length > 3 ? ', …' : '');
+    return [{
+        kind: 'untranslated',
+        detail: `${shown} shown as key (no ${locale} catalog)`,
+    }];
+}
+
+/**
+ * Merge a provenance array into a (possibly null) metadata object as the
+ * top-level `provenance` field (ADR-007 §1/§2 host-merge). No-op when there is
+ * nothing to merge. Existing entries (e.g. a future runtime `>>>PROV:` marker)
+ * are preserved and appended to. Mutates+returns `metadata` (or a fresh object
+ * when it was null but provenance exists), so existing metadata consumers are
+ * unaffected (purely additive top-level field, Inv-6).
+ */
+export function mergeProvenance(metadata: object | null, provenance: ProvenanceEntry[]): object | null {
+    if (provenance.length === 0) {
+        return metadata;
+    }
+    const meta = (metadata ?? {}) as { provenance?: ProvenanceEntry[] };
+    meta.provenance = [...(meta.provenance ?? []), ...provenance];
+    return meta;
 }
 
 /** Walk up from `startDir` to the nearest project root (.git or package.json), used
@@ -528,6 +618,9 @@ export class PreviewOrchestrator {
         buildTimeMs: number;
         startTime: number;
         previewManager: PreviewManager;
+        /** ADR-007 provenance to merge into the metadata (WU-M3.6). Empty by
+         *  default → metadata unchanged (no badge). */
+        provenance?: ProvenanceEntry[];
     }): void {
         const { result, parserScene, usedServerMode, usedParserMode, buildTimeMs, startTime, previewManager } = args;
         const log = getLogger();
@@ -542,6 +635,11 @@ export class PreviewOrchestrator {
         // Enrich metadata with FlexLayout properties from the parser tree
         if (metadata && parserScene) {
             enrichMetadataWithFlexProps(metadata, parserScene);
+        }
+        // WU-M3.6: merge ADR-007 provenance (untranslated IDS_) as a top-level
+        // metadata field. host-merge → no server change; webview badge is M5.
+        if (args.provenance && args.provenance.length > 0) {
+            metadata = mergeProvenance(metadata, args.provenance);
         }
         this.deps.outputChannel.appendLine(`[Perf]    metadata read+enrich: ${Date.now() - metaStart}ms`);
         this.cancelErrorDebounce();
@@ -943,9 +1041,15 @@ export class PreviewOrchestrator {
             const buildTimeMs = Date.now() - startTime;
 
             if (result.success && result.pngPath) {
+                // WU-M3.6: honest untranslated signal for a single-config preview
+                // with a locale + IDS_ keys (no catalog → raw key). Merged into the
+                // metadata for the M5 badge channel (ADR-007); no badge yet in M3.
+                const singleCfg = extraction.configs && extraction.configs.length === 1
+                    ? extraction.configs[0] : undefined;
+                const provenance = buildUntranslatedProvenance(singleCfg?.locale, extraction.code);
                 this.applySuccessfulBuild({
                     result, parserScene, usedServerMode, usedParserMode,
-                    buildTimeMs, startTime, previewManager,
+                    buildTimeMs, startTime, previewManager, provenance,
                 });
             } else {
                 this.reportHarnessFailure(result, doc, extraction.startLine, buildRunner);
@@ -1018,7 +1122,17 @@ export class PreviewOrchestrator {
 
             try {
                 if (this.deps.previewServer?.isRunning) {
-                    const pluginResult = await buildRunner.compilePlugin(instrumented, config.name);
+                    // WU-M3.8: thread the per-config locale/fontScale into the plugin
+                    // compile so each gallery variant installs its own RTL mirror +
+                    // untranslated override (locale) and runtime SetScale (fontScale)
+                    // — ADR-004 warm-path install slots. theme is NOT routed into the
+                    // plugin here (theme reskin on the warm path is owned by M3.3/M3.4
+                    // via the server override + window bg through reload, so doubling
+                    // it in the plugin is avoided). The RELOAD command below still
+                    // re-sends theme/locale/fontScale to the resident server.
+                    const pluginResult = await buildRunner.compilePlugin(
+                        instrumented, config.name, '', '', { locale, fontScale },
+                    );
 
                     if (myGeneration !== this.buildGeneration) {
                         return;
@@ -1050,9 +1164,14 @@ export class PreviewOrchestrator {
                         results.push({ config, success: false, buildTimeMs: Date.now() - configStart, error: errorMsg });
                     }
                 } else {
-                    // Phase 1 fallback
+                    // Phase 1 fallback (harness path). Thread fontScale/locale so a
+                    // gallery variant still scales text (frozen SetScalingFactor) and
+                    // mirrors RTL even without the resident server (WU-M3.8 / ADR-004
+                    // §3: frozen-needing knobs are exactly what the harness path
+                    // applies). theme already threaded; font/focus stay defaulted.
                     const result = await buildRunner.buildAndRun(
                         instrumented, width, height, theme, this.currentBgColor_,
+                        undefined, '', '', undefined, fontScale, locale,
                     );
                     results.push({
                         config,
