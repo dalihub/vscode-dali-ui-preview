@@ -250,6 +250,30 @@ static bool AreAllResourcesReady(Actor actor)
     return true;
 }
 
+// === Focus resolution fallback (ADR-006 step 3): depth-first walk for the
+// first keyboard-focusable View. Used when a `focus=<id>` directive's name is
+// not found by FindChildByName, so a misspelled/unbound id still focuses
+// SOMETHING (no empty-handed render) rather than nothing. Always present; only
+// the POST_BUILD_FOCUS call site is conditional, so it's dead code (no
+// behavior change) for the 20 focus-less goldens.
+static Dali::Ui::View __FindFirstFocusable(Dali::Actor actor)
+{
+    Dali::Ui::View view = Dali::Ui::View::DownCast(actor);
+    if(view && view.IsFocusable())
+    {
+        return view;
+    }
+    for(uint32_t i = 0; i < actor.GetChildCount(); i++)
+    {
+        Dali::Ui::View found = __FindFirstFocusable(actor.GetChildAt(i));
+        if(found)
+        {
+            return found;
+        }
+    }
+    return Dali::Ui::View();
+}
+
 class PreviewApp : public ConnectionTracker
 {
 public:
@@ -319,7 +343,11 @@ private:
 int main(int argc, char* argv[])
 {
   Application app = Application::New(&argc, &argv, "");
-  UiConfig::New().Apply();
+  // SetAlwaysShowFocus(true) so a resolved focus target draws dali-ui's default
+  // focus indicator in a static (non-interactive) render. frozen-after-Apply
+  // (ui-config.h), so it must be chained BEFORE Apply(). Harmless when no focus
+  // directive is present (nothing is focused → nothing drawn). ADR-004/ADR-006.
+  UiConfig::New().SetAlwaysShowFocus(true).Apply();
   PreviewApp preview(app);
   app.MainLoop();
   return 0;

@@ -19,6 +19,92 @@ export interface StandaloneBuildOptions {
     templatePath: string;
     daliPrefix: string;
     display: string;
+    /** `// @preview-state: focus=<id>` target (ADR-006). When set, the harness's
+     *  {{POST_BUILD_FOCUS}} slot resolves it (FindChildByName → Nth-focusable
+     *  fallback) and the matching variable declaration is NAME-tagged so
+     *  FindChildByName("<id>") works. Undefined → slot becomes '' (no ring). */
+    focusId?: string;
+}
+
+/**
+ * Build the C++ for the harness/plugin {{POST_BUILD_FOCUS}} slot (ADR-006).
+ * `root` is in scope at the slot (harness OnInit / plugin __ApplyPreviewFocus).
+ * Resolution: FindChildByName(<id>) → if not a View, DFS first-focusable
+ * (__FindFirstFocusable, defined in the template) → SetCurrentFocusView.
+ * Returns '' when no focusId, so focus-less goldens stay byte-identical.
+ *
+ * Duplicated (intentionally, not shared) in src/buildRunner.ts: this file must
+ * NOT import vscode-dependent modules, and buildRunner.ts pulls in vscode.
+ */
+export function buildPostBuildFocus(focusId?: string): string {
+    if (!focusId) {
+        return '';
+    }
+    const id = focusId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return [
+        '    {',
+        `        Dali::Actor __ft = root.FindChildByName("${id}");`,
+        '        Dali::Ui::View __fv = Dali::Ui::View::DownCast(__ft);',
+        '        if(!__fv) { __fv = __FindFirstFocusable(root); }',
+        '        if(__fv) { Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv); }',
+        '    }',
+    ].join('\n');
+}
+
+/**
+ * Targeted NAME injection (ADR-006 step 2): so root.FindChildByName("<id>")
+ * resolves the variable the user wrote (`View card2 = ...;`). If `focusId` is a
+ * bare identifier AND user code declares `<type> <focusId> = ...;`, append
+ * `<focusId>.SetProperty(Dali::Actor::Property::NAME, "<focusId>");` right after
+ * that statement. Minimal & safe — only the focus variable is touched; if no
+ * such declaration is found, code is returned unchanged (Nth-focusable fallback
+ * handles it at runtime). Quoted/numeric focus ids are left to FindChildByName /
+ * the fallback.
+ *
+ * Duplicated in src/buildRunner.ts (see buildPostBuildFocus note).
+ */
+export function injectFocusName(userCode: string, focusId?: string): string {
+    if (!focusId || !/^[A-Za-z_]\w*$/.test(focusId)) {
+        return userCode;
+    }
+    // Match a declaration `<type> <focusId> = <init>;` ending at the first
+    // top-level `;`. The init may span lines / contain nested ()/{} and strings,
+    // so walk for the terminating semicolon outside strings & brackets rather
+    // than using a greedy regex (which could swallow a later statement).
+    const declRe = new RegExp(`(?:^|\\n)[^\\n]*?\\b(?:auto|[\\w:]+(?:<[^>]*>)?)\\s+${focusId}\\s*=`, 'g');
+    const m = declRe.exec(userCode);
+    if (!m) {
+        return userCode;
+    }
+    const eqIdx = m.index + m[0].length; // just past the `=`
+    const semiIdx = findStatementEnd(userCode, eqIdx);
+    if (semiIdx < 0) {
+        return userCode;
+    }
+    const insertAt = semiIdx + 1; // after the `;`
+    const tag = `\n${focusId}.SetProperty(Dali::Actor::Property::NAME, Dali::String("${focusId}"));`;
+    return userCode.slice(0, insertAt) + tag + userCode.slice(insertAt);
+}
+
+/** Index of the statement-terminating `;` at or after `from`, skipping `;`
+ *  inside (), {}, [], and string/char literals. -1 if none. */
+function findStatementEnd(code: string, from: number): number {
+    let depth = 0;
+    let inStr = false;
+    let strCh = '';
+    for (let i = from; i < code.length; i++) {
+        const ch = code[i];
+        if (inStr) {
+            if (ch === '\\') { i++; }
+            else if (ch === strCh) { inStr = false; }
+            continue;
+        }
+        if (ch === '"' || ch === '\'') { inStr = true; strCh = ch; }
+        else if (ch === '(' || ch === '{' || ch === '[') { depth++; }
+        else if (ch === ')' || ch === '}' || ch === ']') { depth--; }
+        else if (ch === ';' && depth <= 0) { return i; }
+    }
+    return -1;
 }
 
 export interface StandaloneBuildResult {
@@ -108,15 +194,17 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
         return { success: false, error: `Failed to read template: ${(e as Error).message}` };
     }
 
+    const userCode = injectFocusName(opts.userCode, opts.focusId);
     const harness = templateContent
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
-        .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
+        .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, escapeCppString(opts.outputPngPath))
         .replace(/\{\{METADATA_PATH\}\}/g, escapeCppString(opts.metadataPath))
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
+        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
     try {
@@ -152,15 +240,17 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
     try { template = fs.readFileSync(opts.templatePath, 'utf-8'); }
     catch (e) { return { success: false, error: `Failed to read template: ${(e as Error).message}` }; }
 
+    const userCode = injectFocusName(opts.userCode, opts.focusId);
     const harness = template
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
-        .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
+        .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, '/work/render.png')
         .replace(/\{\{METADATA_PATH\}\}/g, '/work/meta.json')
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
+        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
     try {

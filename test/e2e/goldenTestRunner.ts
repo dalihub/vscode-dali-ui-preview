@@ -24,6 +24,21 @@ const MARKER_BEGIN = '// @dali-preview-begin';
 const MARKER_END = '// @dali-preview-end';
 const PREVIEW_CONFIG_RE = /^\/\/\s*@preview-config:/;
 
+// Zero-arg factory entry marker (ADR-001). EXACT-match line so it never collides
+// with `// @dali-preview-begin` (region marker, has a suffix). The body of the
+// factory below it becomes the preview code.
+const DALI_PREVIEW_MARKER = '// @dali-preview';
+
+// `// @preview-state:` directive — mirrored EXACTLY from codeExtractor.ts so the
+// golden runner (which can't import codeExtractor: vscode dep) parses focus
+// identically. Drift is locked by codeExtractor's unit tests + this e2e golden.
+const PREVIEW_STATE_RE = /^\/\/\s*@preview-state:\s*(.+)$/;
+const STATE_FOCUS_RE = /(?:^|,)\s*focus\s*=\s*(?:"([^"]*)"|([A-Za-z_]\w*))/;
+
+// Same leading-var-declaration matcher codeExtractor uses to rewrite
+// `View card = ...` → `return ...`.
+const VAR_DECL_RE = /^\s*(?:auto|[\w:]+(?:<[^>]*>)?)\s+\w+\s*=\s*/;
+
 interface TestResult {
     name: string;
     passed: boolean;
@@ -71,6 +86,92 @@ function extractMarkerCode(filePath: string): string | null {
 }
 
 /**
+ * Extract a zero-arg `// @dali-preview` factory body (ADR-001 Mode 2), mirroring
+ * codeExtractor.extractPreviewCode's single-marker path. Inlined because the
+ * golden runner can't import codeExtractor (vscode dep) — same reason
+ * `sanitizeEmoji` is inlined. Returns the factory body (leading `View x = ...`
+ * rewritten to `return ...`), or null when no exact `// @dali-preview` marker is
+ * present. Handles inline / single-line bodies (`Foo() { ... }`).
+ */
+function extractDaliPreviewMarker(filePath: string): string | null {
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim() !== DALI_PREVIEW_MARKER) {
+            continue;
+        }
+        // Scan forward (bounded) for the factory's opening brace.
+        let braceLineStart = -1;
+        for (let j = i + 1; j < lines.length && j < i + 20; j++) {
+            if (lines[j].includes('{')) { braceLineStart = j; break; }
+        }
+        if (braceLineStart < 0) { return null; }
+
+        // Balance braces from the opening `{`, tracking columns for inline bodies.
+        const braceColStart = lines[braceLineStart].indexOf('{');
+        let depth = 0;
+        let foundOpen = false;
+        let braceLineEnd = -1;
+        let braceColEnd = -1;
+        for (let j = braceLineStart; j < lines.length; j++) {
+            const text = lines[j];
+            for (let c = 0; c < text.length; c++) {
+                if (text[c] === '{') { depth++; foundOpen = true; }
+                else if (text[c] === '}') { depth--; }
+                if (foundOpen && depth === 0) { braceLineEnd = j; braceColEnd = c; break; }
+            }
+            if (braceLineEnd >= 0) { break; }
+        }
+        if (braceLineEnd < 0) { return null; }
+
+        const codeLines: string[] = [];
+        if (braceLineStart === braceLineEnd) {
+            codeLines.push(lines[braceLineStart].slice(braceColStart + 1, braceColEnd));
+        } else {
+            const head = lines[braceLineStart].slice(braceColStart + 1);
+            if (head.trim()) { codeLines.push(head); }
+            for (let j = braceLineStart + 1; j < braceLineEnd; j++) {
+                if (PREVIEW_STATE_RE.test(lines[j].trim())) { continue; }
+                codeLines.push(lines[j]);
+            }
+            const tail = lines[braceLineEnd].slice(0, braceColEnd);
+            if (tail.trim()) { codeLines.push(tail); }
+        }
+
+        let code = codeLines.join('\n');
+        if (!code.trim()) { return null; }
+
+        const trimmed = code.trimStart();
+        if (!trimmed.startsWith('return')) {
+            const match = trimmed.match(VAR_DECL_RE);
+            if (match) { code = 'return ' + trimmed.slice(match[0].length); }
+        }
+        return code;
+    }
+    return null;
+}
+
+/**
+ * Parse `// @preview-state: focus=<id>` (ADR-006) → focus id, mirroring
+ * codeExtractor's PREVIEW_STATE_RE / STATE_FOCUS_RE exactly. Last valid focus
+ * line wins. A focus value containing whitespace is rejected (IPC-injection
+ * safety, matching codeExtractor). Returns undefined when absent.
+ */
+function parseFocusId(filePath: string): string | undefined {
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+    let focus: string | undefined;
+    for (const line of lines) {
+        const m = PREVIEW_STATE_RE.exec(line.trim());
+        if (!m) { continue; }
+        const fm = STATE_FOCUS_RE.exec(m[1]);
+        if (!fm) { continue; }
+        const value = fm[1] !== undefined ? fm[1] : fm[2];
+        if (value && !/[\s\n]/.test(value)) { focus = value; } // last valid wins
+    }
+    return focus;
+}
+
+/**
  * Read width/height from a `// @preview-config: ... width=W, height=H` line.
  * Falls back to the default preview size when absent — so a 2520×4480 design
  * (weather-forecast) renders at its real size instead of being clipped at 480×320.
@@ -100,9 +201,13 @@ function sanitizeEmoji(code: string): string {
 function extractCode(filePath: string): string | null {
     let code: string | null = null;
     if (filePath.endsWith('.preview.dali.cpp')) {
-        code = extractPreviewFileCode(filePath);
+        // A zero-arg `// @dali-preview` factory wins over whole-file mode so a
+        // `.preview.dali.cpp` can host a named factory (mirrors codeExtractor's
+        // Mode 2 taking precedence). Otherwise the whole file is the code.
+        code = extractDaliPreviewMarker(filePath) ?? extractPreviewFileCode(filePath);
     } else if (filePath.endsWith('.cpp') || filePath.endsWith('.h')) {
-        code = extractMarkerCode(filePath);
+        // Zero-arg factory marker first, then the @dali-preview-begin/end region.
+        code = extractDaliPreviewMarker(filePath) ?? extractMarkerCode(filePath);
     }
     return code === null ? null : sanitizeEmoji(code);
 }
@@ -140,6 +245,7 @@ async function runSample(
     const metadataPath = path.join(ACTUAL_DIR, `${name}.metadata.json`);
 
     const { width, height } = parseConfigSize(filePath);
+    const focusId = parseFocusId(filePath);
     const opts = {
         userCode: code,
         width,
@@ -149,6 +255,7 @@ async function runSample(
         templatePath: TEMPLATE_PATH,
         daliPrefix,
         display,
+        focusId,
     };
     const buildResult = useDocker
         ? await buildAndCaptureDocker(opts, image)

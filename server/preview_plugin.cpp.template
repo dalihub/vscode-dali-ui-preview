@@ -60,8 +60,43 @@ extern "C" void __SetPreviewProgress(float p) // p in [0,1]
     }
 }
 {{USER_GLOBALS}}
+// === Focus resolution fallback (ADR-006 step 3): first keyboard-focusable
+// View via DFS, so an unbound `focus=<id>` still focuses something. Mirrors the
+// harness helper. Dead code unless the POST_BUILD_FOCUS slot is filled. ===
+static Dali::Ui::View __FindFirstFocusable(Dali::Actor actor)
+{
+    Dali::Ui::View view = Dali::Ui::View::DownCast(actor);
+    if(view && view.IsFocusable())
+    {
+        return view;
+    }
+    for(uint32_t i = 0; i < actor.GetChildCount(); i++)
+    {
+        Dali::Ui::View found = __FindFirstFocusable(actor.GetChildAt(i));
+        if(found)
+        {
+            return found;
+        }
+    }
+    return Dali::Ui::View();
+}
+
 // === User preview code — exported symbol for dlopen ===
 extern "C" View CreatePreview()
 {
 {{USER_CODE}}
+}
+
+// === Focus install hook (ADR-006, plugin/warm-server path) ===
+// Symmetric with the harness POST_BUILD_FOCUS slot. The warm dlopen server
+// owns the returned tree, so focus is applied here (on `root`) AFTER the server
+// adds CreatePreview()'s result to its window — runtime FocusManager calls are
+// warm-server safe. NOTE: SetAlwaysShowFocus is NOT set here (frozen-after-Apply
+// — the warm server already called UiConfig::Apply()), so the plugin focus ring
+// depends on the server's UiConfig. M2's golden uses the harness path; this slot
+// keeps the templates symmetric. Substituted with focus code or '' (no-op body).
+extern "C" void __ApplyPreviewFocus(Dali::Actor root)
+{
+    (void)root;
+{{POST_BUILD_FOCUS}}
 }

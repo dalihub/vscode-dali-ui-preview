@@ -148,16 +148,20 @@ export class BuildRunner {
             fontSetup: string;
             includes?: string;
             globals?: string;
+            /** `// @preview-state: focus=<id>` target (ADR-006). undefined →
+             *  {{POST_BUILD_FOCUS}} becomes '' (no focus ring; byte-identical). */
+            focusId?: string;
             extra?: Record<string, string>;
         },
     ): string {
         let out = template
             .replace(/\{\{USER_INCLUDES\}\}/g, opts.includes ?? '')
             .replace(/\{\{USER_GLOBALS\}\}/g, opts.globals ?? '')
-            .replace(/\{\{USER_CODE\}\}/g, opts.userCode)
+            .replace(/\{\{USER_CODE\}\}/g, BuildRunner.injectFocusName(opts.userCode, opts.focusId))
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
             .replace(/\{\{BACKGROUND_COLOR\}\}/g, opts.bgColorVec)
+            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuildFocus(opts.focusId))
             .replace(/\{\{FONT_SETUP\}\}/g, opts.fontSetup);
         if (opts.extra) {
             for (const [key, value] of Object.entries(opts.extra)) {
@@ -165,6 +169,78 @@ export class BuildRunner {
             }
         }
         return out;
+    }
+
+    /**
+     * Build the C++ for the harness/plugin {{POST_BUILD_FOCUS}} slot (ADR-006).
+     * `root` is in scope at the slot. Resolution: FindChildByName(<id>) → if not a
+     * View, DFS first-focusable (__FindFirstFocusable, defined in the template) →
+     * SetCurrentFocusView. '' when no focusId, so focus-less builds are unchanged.
+     *
+     * Duplicated (intentionally) in test/e2e/standaloneBuildRunner.ts: that file
+     * must not import vscode-dependent modules, and this one pulls in vscode.
+     */
+    static buildPostBuildFocus(focusId?: string): string {
+        if (!focusId) {
+            return '';
+        }
+        const id = focusId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return [
+            '    {',
+            `        Dali::Actor __ft = root.FindChildByName("${id}");`,
+            '        Dali::Ui::View __fv = Dali::Ui::View::DownCast(__ft);',
+            '        if(!__fv) { __fv = __FindFirstFocusable(root); }',
+            '        if(__fv) { Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv); }',
+            '    }',
+        ].join('\n');
+    }
+
+    /**
+     * Targeted NAME injection (ADR-006 step 2): so root.FindChildByName("<id>")
+     * resolves the variable the user wrote (`View card2 = ...;`). If `focusId` is a
+     * bare identifier AND user code declares `<type> <focusId> = ...;`, append
+     * `<focusId>.SetProperty(Dali::Actor::Property::NAME, "<focusId>");` after that
+     * statement. Only the focus variable is touched; unchanged when no such decl
+     * (Nth-focusable fallback handles it). Duplicated in standaloneBuildRunner.ts.
+     */
+    static injectFocusName(userCode: string, focusId?: string): string {
+        if (!focusId || !/^[A-Za-z_]\w*$/.test(focusId)) {
+            return userCode;
+        }
+        const declRe = new RegExp(`(?:^|\\n)[^\\n]*?\\b(?:auto|[\\w:]+(?:<[^>]*>)?)\\s+${focusId}\\s*=`, 'g');
+        const m = declRe.exec(userCode);
+        if (!m) {
+            return userCode;
+        }
+        const eqIdx = m.index + m[0].length;
+        const semiIdx = BuildRunner.findStatementEnd(userCode, eqIdx);
+        if (semiIdx < 0) {
+            return userCode;
+        }
+        const insertAt = semiIdx + 1;
+        const tag = `\n${focusId}.SetProperty(Dali::Actor::Property::NAME, Dali::String("${focusId}"));`;
+        return userCode.slice(0, insertAt) + tag + userCode.slice(insertAt);
+    }
+
+    /** Index of the statement-terminating `;` at/after `from`, skipping `;` inside
+     *  (), {}, [], and string/char literals. -1 if none. */
+    private static findStatementEnd(code: string, from: number): number {
+        let depth = 0;
+        let inStr = false;
+        let strCh = '';
+        for (let i = from; i < code.length; i++) {
+            const ch = code[i];
+            if (inStr) {
+                if (ch === '\\') { i++; }
+                else if (ch === strCh) { inStr = false; }
+                continue;
+            }
+            if (ch === '"' || ch === '\'') { inStr = true; strCh = ch; }
+            else if (ch === '(' || ch === '{' || ch === '[') { depth++; }
+            else if (ch === ')' || ch === '}' || ch === ']') { depth--; }
+            else if (ch === ';' && depth <= 0) { return i; }
+        }
+        return -1;
     }
 
     /**
@@ -208,7 +284,12 @@ export class BuildRunner {
         const pluginCode = this.pluginTemplateContent
             .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
             .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
-            .replace(/\{\{USER_CODE\}\}/g, BuildRunner.instrumentAnimations(userCode));
+            .replace(/\{\{USER_CODE\}\}/g, BuildRunner.instrumentAnimations(userCode))
+            // Plugin focus is server-driven (warm path); the orchestrator does not
+            // yet plumb focus into the dlopen path, so default the slot to '' (the
+            // __ApplyPreviewFocus hook becomes a no-op). Keeps the template
+            // compilable now that the placeholder exists.
+            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, '');
 
         if (!this.backend.compilePlugin) {
             return { success: false, error: `Plugin (dlopen) compile is not supported by the ${this.backend.kind} runtime backend.` };

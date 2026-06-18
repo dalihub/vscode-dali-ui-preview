@@ -32,7 +32,9 @@ function substituteTemplate(
         .replace(/\{\{OUTPUT_PATH\}\}/g, outputPath)
         .replace(/\{\{METADATA_PATH\}\}/g, metadataPath)
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColor)
-        .replace(/\{\{FONT_SETUP\}\}/g, fontSetup);
+        .replace(/\{\{FONT_SETUP\}\}/g, fontSetup)
+        // M2: focus slot is empty on the self-contained (no-focus) path.
+        .replace(/\{\{POST_BUILD_FOCUS\}\}/g, '');
 }
 
 describe('harnessGeneration', () => {
