@@ -6,13 +6,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
 #
 # Or with a custom repo:
-#   DALI_PREVIEW_REPO="nicejackg/generativeUI" bash install.sh
+#   DALI_PREVIEW_REPO="owner/repo" bash install.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 # Configurable repository (owner/repo)
-PRIMARY_REPO="${DALI_PREVIEW_REPO:-dalihub/vscode-dali-ui-preview}"
-FALLBACK_REPO="nicejackg/generativeUI"
+REPO="${DALI_PREVIEW_REPO:-dalihub/vscode-dali-ui-preview}"
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -24,14 +23,22 @@ ok()    { printf '\033[1;32m[ok]\033[0m    %s\n' "$*"; }
 warn()  { printf '\033[1;33m[warn]\033[0m  %s\n' "$*"; }
 err()   { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 
-check_cmd() {
-    if command -v "$1" &>/dev/null; then
-        ok "$1 found: $(command -v "$1")"
-        return 0
-    else
-        warn "$1 not found"
-        return 1
-    fi
+# curl wrapper that retries a few times to ride out transient network blips or
+# GitHub 5xx responses (common behind a flaky corporate proxy). Passes args and
+# stdout straight through, so it is a drop-in replacement for curl.
+curl_retry() {
+    local n=1 max=3
+    while [ "$n" -le "$max" ]; do
+        if curl "$@"; then
+            return 0
+        fi
+        if [ "$n" -lt "$max" ]; then
+            warn "network attempt ${n}/${max} failed; retrying ..."
+            sleep 2
+        fi
+        n=$((n + 1))
+    done
+    return 1
 }
 
 download_vsix() {
@@ -48,7 +55,7 @@ download_vsix() {
 
     # 1. Resolve the latest tag from the releases/latest redirect.
     local final_url tag
-    final_url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    final_url=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
         "https://github.com/${repo}/releases/latest") || return 1
     tag=$(printf '%s' "$final_url" | sed -E 's#.*/tag/([^/?#]+).*#\1#')
 
@@ -60,7 +67,7 @@ download_vsix() {
 
     # 2. Find the .vsix asset URL from the (non-API) expanded_assets fragment.
     local path
-    path=$(curl -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" \
+    path=$(curl_retry -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" \
         | grep -oE "/${repo}/releases/download/[^\"]+\.vsix" \
         | head -1)
 
@@ -70,7 +77,7 @@ download_vsix() {
 
     local asset_url="https://github.com${path}"
     info "Downloading ${asset_url} ..."
-    curl -fSL -o "${TMPDIR}/dali-preview.vsix" "$asset_url"
+    curl_retry -fSL -o "${TMPDIR}/dali-preview.vsix" "$asset_url"
 }
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -91,21 +98,11 @@ if ! command -v code &>/dev/null; then
 fi
 
 # 2. Download the .vsix
-downloaded=false
-
-if download_vsix "$PRIMARY_REPO"; then
-    downloaded=true
-else
-    warn "Could not fetch from ${PRIMARY_REPO}, trying fallback ..."
-    if download_vsix "$FALLBACK_REPO"; then
-        downloaded=true
-    fi
-fi
-
-if [[ "$downloaded" != "true" ]]; then
-    err "Failed to download the .vsix from either repository."
-    err "You can set a custom repo: DALI_PREVIEW_REPO=\"owner/repo\" bash install.sh"
-    err "Or download manually from the GitHub Releases page."
+if ! download_vsix "$REPO"; then
+    err "Failed to download the .vsix from ${REPO}."
+    err "Set a custom repo with: DALI_PREVIEW_REPO=\"owner/repo\" bash install.sh"
+    err "Or download it manually from the GitHub Releases page:"
+    err "  https://github.com/${REPO}/releases/latest"
     exit 1
 fi
 
@@ -114,32 +111,13 @@ info "Installing extension ..."
 code --install-extension "${TMPDIR}/dali-preview.vsix" --force
 ok "Extension installed successfully."
 
-# 4. Install missing dependencies automatically
-echo ""
-info "Checking build dependencies ..."
-
-missing_pkgs=()
-check_cmd g++    || missing_pkgs+=("g++")
-check_cmd Xvfb   || missing_pkgs+=("xvfb")
-check_cmd ccache || missing_pkgs+=("ccache")
-
-if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
-    echo ""
-    info "Installing missing packages: ${missing_pkgs[*]} ..."
-    sudo apt install -y "${missing_pkgs[@]}"
-    ok "Dependencies installed."
-else
-    ok "All dependencies are already installed."
-fi
-
-# 5. Done
+# 4. Done — the extension's first-run guided setup handles the runtime
+#    (Docker by default), so the installer never touches system packages.
 ok "Installation complete!"
 echo ""
-echo "  Quick start:"
-echo "    1. Open a DALi C++ project in VS Code"
-echo "    2. Open the Command Palette (Ctrl+Shift+P)"
-echo "    3. Run \"DALi: Open Preview\""
-echo ""
-echo "  If DALi is installed in a non-standard location, set:"
-echo "    Settings → daliPreview.daliPrefix → /path/to/dali-env/opt"
+echo "  Next steps:"
+echo "    1. Open (or reload) VS Code — DALi Preview guides you through runtime"
+echo "       setup (Docker by default; no DALi build needed on your machine)."
+echo "    2. Run \"DALi Preview: Open Sample File\" (Ctrl+Shift+P) for your"
+echo "       first live preview."
 echo ""

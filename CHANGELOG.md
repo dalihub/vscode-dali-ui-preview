@@ -20,6 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `releases/expanded_assets/<tag>` fragment for the `.vsix` download URL. Neither endpoint
   is subject to the API rate limit, so the installer needs no token and no login.
   (`install.sh`)
+- **The installer no longer aborts after the extension is already installed.** Run via
+  `curl … | bash`, the script's stdin is the pipe, so the trailing
+  `sudo apt install xvfb ccache` step could not read a password and — under
+  `set -euo pipefail` — aborted the whole run with exit 1 *after* the extension had
+  installed successfully, making a working install look like a failure. (`install.sh`)
+- Network calls in `download_vsix()` now retry up to 3× to ride out transient GitHub `5xx`
+  / proxy blips instead of failing the install on the first hiccup. (`install.sh`)
+
+### Removed
+
+- **The unrelated `nicejackg/generativeUI` fallback repository.** It was a leftover from
+  before the extension moved to `dalihub/vscode-dali-ui-preview`; it no longer resolves and
+  only surfaced as a confusing log line whenever the primary repo had a transient blip.
+  (`install.sh`)
+- **Automatic `apt install` of `xvfb`/`ccache` from `install.sh`.** The default Docker
+  runtime renders inside the container and needs neither on the host, and the native
+  runtime's dependencies are offered by the extension's own guided setup. The installer now
+  only installs the extension and never touches system packages — so it no longer needs
+  `sudo` at all. (`install.sh`)
 
 ## [0.40.0] - 2026-06-10 — Curl-free Docker setup, preview-time install prompt & a calmer panel
 
