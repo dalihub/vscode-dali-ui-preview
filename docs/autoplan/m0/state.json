@@ -1,8 +1,10 @@
 {
   "milestone": "M0",
-  "current": "WU-M0.1",
-  "completed": [],
-  "milestone_done": false,
+  "current": null,
+  "completed": ["WU-M0.1", "WU-M0.2", "WU-M0.3"],
+  "milestone_done": true,
   "base_sha": "5c88b68",
-  "wus": ["WU-M0.1", "WU-M0.2", "WU-M0.3"]
+  "wus": ["WU-M0.1", "WU-M0.2", "WU-M0.3"],
+  "verdict": "PASS",
+  "commits": ["e0befe0", "3239dfb", "4036f13"]
 }
