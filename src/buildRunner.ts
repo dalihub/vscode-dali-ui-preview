@@ -324,10 +324,14 @@ export class BuildRunner {
         bgColor?: string,
         font?: string,
         sliceGlobals = '',
-        sliceIncludes = ''
+        sliceIncludes = '',
+        /** `// @preview-state: focus=<id>` target (ADR-006). When set, the harness
+         *  fills its {{POST_BUILD_FOCUS}} slot + NAME-injects the focus var so the
+         *  focus ring renders on that node. undefined → byte-identical to before. */
+        focusId?: string,
     ): Promise<BuildResult> {
         const log = getLogger();
-        log.debug('Build', 'buildAndRun start', { width, height, theme, backend: this.backend.kind });
+        log.debug('Build', 'buildAndRun start', { width, height, theme, backend: this.backend.kind, focusId });
 
         const cfg = ConfigurationService.getInstance();
         if (!width || !height) {
@@ -352,7 +356,7 @@ export class BuildRunner {
         const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
         const harness = this.renderHarness(this.templateContent, {
             userCode, width, height, bgColorVec, fontSetup,
-            includes: sliceIncludes, globals: sliceGlobals,
+            includes: sliceIncludes, globals: sliceGlobals, focusId,
             extra: { OUTPUT_PATH: out.pngEmbed, METADATA_PATH: out.metadataEmbed },
         });
 

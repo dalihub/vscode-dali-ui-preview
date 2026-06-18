@@ -207,7 +207,7 @@ class HarnessStrategy implements PreviewStrategy {
 
     async execute(
         code: string,
-        _extraction: ExtractionResult,
+        extraction: ExtractionResult,
         width: number,
         height: number,
         theme: 'light' | 'dark',
@@ -222,9 +222,14 @@ class HarnessStrategy implements PreviewStrategy {
         // model types) fails with "not declared" whenever the preview server is
         // down and we fall back here.
         const useSlice = slice?.rung === 'heuristic';
+        // `// @preview-state: focus=<id>` (ADR-006): the harness is the proven
+        // focus-capable path. runBuildStrategies routes focus-bearing previews
+        // here (skipping parser/dlopen), so pass the target through to fill the
+        // {{POST_BUILD_FOCUS}} slot. undefined when no focus directive → unchanged.
         const result = await this.getBuildRunner().buildAndRun(
             code, width, height, theme, bgColor, undefined,
             useSlice ? slice!.globals : '', useSlice ? slice!.includes : '',
+            extraction.state?.focus,
         );
         this.outputChannel.appendLine(
             `[Perf]    buildAndRun (full harness): ${Date.now() - harnessStart}ms`,
@@ -689,7 +694,13 @@ export class PreviewOrchestrator {
         // only the static scene tree and emits no >>>ANIM, so the scrubber would
         // never appear — route to the dlopen path which loads + scrubs it.
         const hasAnimation = /\.\s*Play\s*\(/.test(instrumented);
-        if (slice.rung === 'single-fn' && !hasAnimation && this.parserStrategy.canHandle(this.deps.previewServer)) {
+        // `// @preview-state: focus=<id>` (ADR-006): force the full-harness path.
+        // The harness is the proven focus-capable build (it fills {{POST_BUILD_FOCUS}}
+        // + NAME-injects the focus var); the T1 parser/scene-builder can't focus, and
+        // the dlopen plugin's server-side focus hook is not wired. A focus directive is
+        // a deliberate "show me this state" action, so the slower harness render is OK.
+        const hasFocus = !!extraction.state?.focus;
+        if (!hasFocus && slice.rung === 'single-fn' && !hasAnimation && this.parserStrategy.canHandle(this.deps.previewServer)) {
             log.debug('Build', 'trying parser path', { opId });
             const stratResult = await this.parserStrategy.execute(
                 instrumented, extraction, this.currentWidth_, this.currentHeight_,
@@ -710,8 +721,10 @@ export class PreviewOrchestrator {
             }
         }
 
-        // Phase 2: dlopen server mode
-        if (!usedServerMode && this.dlopenStrategy.canHandle(this.deps.previewServer)) {
+        // Phase 2: dlopen server mode. Skipped for focus-bearing previews
+        // (hasFocus) — the plugin's server-side focus hook is not wired, so we
+        // fall through to the harness path which can render the focus ring.
+        if (!hasFocus && !usedServerMode && this.dlopenStrategy.canHandle(this.deps.previewServer)) {
             log.debug('Build', 'trying server/dlopen path', { opId });
             const stratResult = await this.dlopenStrategy.execute(
                 instrumented, extraction, this.currentWidth_, this.currentHeight_,
