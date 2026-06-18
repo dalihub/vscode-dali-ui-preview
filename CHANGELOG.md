@@ -5,6 +5,22 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The one-line installer (`install.sh`) no longer fails with `HTTP 403` behind a
+  shared corporate proxy or VPN.** It previously queried the GitHub REST API
+  (`api.github.com/repos/…/releases/latest`), which is rate-limited to **60 requests/hour
+  per IP**. When many people egress through one corporate NAT/proxy IP that quota is
+  exhausted collectively, so every user gets `403 API rate limit exceeded` — regardless of
+  whether they are logged into GitHub, because the request is anonymous. `download_vsix()`
+  now resolves the latest release entirely through `github.com`: it follows the
+  `releases/latest` redirect to read the tag, then parses the
+  `releases/expanded_assets/<tag>` fragment for the `.vsix` download URL. Neither endpoint
+  is subject to the API rate limit, so the installer needs no token and no login.
+  (`install.sh`)
+
 ## [0.40.0] - 2026-06-10 — Curl-free Docker setup, preview-time install prompt & a calmer panel
 
 ### Fixed

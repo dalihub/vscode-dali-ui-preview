@@ -87,6 +87,8 @@ curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main
 ```
 
 GitHub Releases에서 최신 `.vsix` 를 받아 VS Code에 설치합니다.
+릴리스를 `github.com` 으로 직접 해석하므로 — GitHub API 토큰이 필요 없고, 공용 사내
+프록시/VPN 뒤에서도 속도 제한 `403` 오류가 나지 않습니다.
 
 ### 방법 2 — GitHub Releases에서 직접
 
@@ -247,6 +249,11 @@ return MyScreen();
 
 ## 문제 해결
 
+- **한 줄 설치가 `HTTP 403` / "API rate limit exceeded" 로 실패** — 예전 `install.sh` 는
+  GitHub REST API를 호출했는데, 이 API는 **IP당 60회/시간** 으로 제한됩니다. 여러 사람이
+  하나의 사내 프록시/NAT IP를 공유하면 금방 소진됩니다. 위의 한 줄 설치를 다시 실행하세요 —
+  현재 스크립트는 최신 릴리스를 `github.com` 으로 직접 해석(API 미사용)하므로 이 제한과
+  무관하며 토큰도 필요 없습니다.
 - **설정 안내가 안 떴거나, 닫아버렸음** — Docker 모드는 Docker 설치**와** 런타임 이미지
   다운로드가 **모두** 끝나야 렌더링됩니다. `.preview.dali.cpp` 파일을 열면(예: **DALi
   Preview: Open Sample File**) 안내가 다시 뜨고, **DALi Preview: Run Setup Walkthrough** 로도

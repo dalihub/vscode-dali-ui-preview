@@ -36,19 +36,39 @@ check_cmd() {
 
 download_vsix() {
     local repo="$1"
-    local api_url="https://api.github.com/repos/${repo}/releases/latest"
 
-    info "Querying latest release from ${repo} ..."
-    local asset_url
-    asset_url=$(curl -fsSL "$api_url" \
-        | grep '"browser_download_url".*\.vsix"' \
-        | head -1 \
-        | sed -E 's/.*"(https[^"]+\.vsix)".*/\1/')
+    info "Resolving latest release of ${repo} ..."
 
-    if [[ -z "$asset_url" ]]; then
+    # NOTE: We deliberately avoid the GitHub REST API
+    # (api.github.com/repos/.../releases/latest). Anonymous API requests are
+    # capped at 60/hour *per IP*; behind a shared corporate proxy/NAT that
+    # limit is exhausted collectively, returning HTTP 403 to everyone.
+    # The endpoints below are served by github.com (not api.github.com) and
+    # are NOT subject to that rate limit.
+
+    # 1. Resolve the latest tag from the releases/latest redirect.
+    local final_url tag
+    final_url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        "https://github.com/${repo}/releases/latest") || return 1
+    tag=$(printf '%s' "$final_url" | sed -E 's#.*/tag/([^/?#]+).*#\1#')
+
+    if [[ -z "$tag" || "$tag" == http* ]]; then
+        # No /tag/ in the final URL => repo has no releases.
+        return 1
+    fi
+    info "Latest release: ${tag}"
+
+    # 2. Find the .vsix asset URL from the (non-API) expanded_assets fragment.
+    local path
+    path=$(curl -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" \
+        | grep -oE "/${repo}/releases/download/[^\"]+\.vsix" \
+        | head -1)
+
+    if [[ -z "$path" ]]; then
         return 1
     fi
 
+    local asset_url="https://github.com${path}"
     info "Downloading ${asset_url} ..."
     curl -fSL -o "${TMPDIR}/dali-preview.vsix" "$asset_url"
 }

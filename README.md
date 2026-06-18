@@ -93,6 +93,8 @@ curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main
 ```
 
 Downloads the latest `.vsix` from GitHub Releases and installs it into VS Code.
+It resolves the release through `github.com` directly — no GitHub API token required, and
+no rate-limit `403` errors behind a shared corporate proxy or VPN.
 
 ### Option 2 — From GitHub Releases
 
@@ -257,6 +259,11 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 
 ## Troubleshooting
 
+- **One-line installer fails with `HTTP 403` / "API rate limit exceeded"** — older copies of
+  `install.sh` queried the GitHub REST API, which is capped at **60 requests/hour per IP** and
+  is quickly exhausted when many people share one corporate proxy/NAT IP. Re-run the one-line
+  installer above — the current script resolves the latest release through `github.com`
+  directly (no API), so it isn't affected by that limit and needs no token.
 - **The setup prompt didn't appear, or I dismissed it** — Docker mode can't render until
   Docker is installed **and** the runtime image is downloaded. Bring the prompt back by
   opening any `.preview.dali.cpp` file (e.g. via **DALi Preview: Open Sample File**), or run
