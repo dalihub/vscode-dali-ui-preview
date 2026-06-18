@@ -1,8 +1,11 @@
 {
   "milestone": "M1",
-  "current": "WU-M1.1",
-  "completed": [],
-  "milestone_done": false,
+  "current": null,
+  "completed": ["WU-M1.1", "WU-M1.2", "WU-M1.3", "WU-M1.4"],
+  "milestone_done": true,
   "base_sha": "65693ed",
-  "wus": ["WU-M1.1", "WU-M1.2", "WU-M1.3", "WU-M1.4"]
+  "verdict": "PASS",
+  "external_review": "PASS (mutation-tested)",
+  "notes": "6 server-fidelity features, 7 server-path goldens (6 pixel + 1 render-only), all renders visually confirmed. SetVisibility coverage added per external-review.",
+  "commits": ["4af3a4e", "1a9f3fa"]
 }
