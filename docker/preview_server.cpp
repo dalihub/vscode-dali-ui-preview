@@ -437,19 +437,79 @@ static float SBParseFloat(const std::string& s)
 
 static UiColor SBParseUiColor(const std::string& s)
 {
-    // "UiColor(0x1e1e2e)" or "UiColor(0xFF0000FF)"
-    const std::string prefix = "UiColor(";
-    if (s.size() > prefix.size() && s.substr(0, prefix.size()) == prefix)
+    // A trailing ".WithAlpha(<f>)" (e.g. "Color::CYAN.WithAlpha(0.5f)") overrides
+    // the base color's alpha. Strip it off first, remember the alpha to re-apply.
+    std::string base = s;
+    bool        hasAlpha   = false;
+    float       alphaValue = 1.0f;
     {
-        std::string hex = s.substr(prefix.size(), s.size() - prefix.size() - 1);
+        const std::string marker = ".WithAlpha(";
+        size_t mpos = base.find(marker);
+        if (mpos != std::string::npos)
+        {
+            size_t open  = mpos + marker.size();
+            size_t close = base.find(')', open);
+            if (close != std::string::npos)
+            {
+                alphaValue = SBParseFloat(base.substr(open, close - open));
+                hasAlpha   = true;
+                base       = base.substr(0, mpos); // color expression without .WithAlpha
+            }
+        }
+    }
+
+    UiColor result(0x000000);
+    bool    resolved = false;
+
+    // "UiColor(0x1e1e2e)" or "UiColor(0xFF0000FF)" — unchanged hex behavior.
+    const std::string prefix = "UiColor(";
+    if (base.size() > prefix.size() && base.substr(0, prefix.size()) == prefix &&
+        base.back() == ')')
+    {
+        std::string hex = base.substr(prefix.size(), base.size() - prefix.size() - 1);
         try
         {
             unsigned long v = std::stoul(hex, nullptr, 16);
-            return UiColor(static_cast<uint32_t>(v));
+            result   = UiColor(static_cast<uint32_t>(v));
+            resolved = true;
         }
         catch (...) {}
     }
-    return UiColor(0x000000);
+
+    // Named Dali::Color::* constants (RGBA matching dali-core color-table).
+    if (!resolved)
+    {
+        struct NamedColor { const char* name; float r, g, b, a; };
+        static const NamedColor kNamed[] = {
+            {"Color::RED",         1.0f, 0.0f, 0.0f, 1.0f},
+            {"Color::GREEN",       0.0f, 1.0f, 0.0f, 1.0f},
+            {"Color::BLUE",        0.0f, 0.0f, 1.0f, 1.0f},
+            {"Color::WHITE",       1.0f, 1.0f, 1.0f, 1.0f},
+            {"Color::BLACK",       0.0f, 0.0f, 0.0f, 1.0f},
+            {"Color::YELLOW",      1.0f, 1.0f, 0.0f, 1.0f},
+            {"Color::CYAN",        0.0f, 1.0f, 1.0f, 1.0f},
+            {"Color::MAGENTA",     1.0f, 0.0f, 1.0f, 1.0f},
+            {"Color::TRANSPARENT", 0.0f, 0.0f, 0.0f, 0.0f},
+        };
+        for (const auto& nc : kNamed)
+        {
+            if (base == nc.name)
+            {
+                result   = UiColor(nc.r, nc.g, nc.b, nc.a);
+                resolved = true;
+                break;
+            }
+        }
+    }
+
+    // Unknown non-hex token → loud debug magenta (NOT black, so the bug is visible).
+    if (!resolved)
+        result = UiColor(1.0f, 0.0f, 1.0f, 1.0f);
+
+    if (hasAlpha)
+        result = result.WithAlpha(alphaValue);
+
+    return result;
 }
 
 static Extents SBParseExtents(const std::string& s)
@@ -501,6 +561,11 @@ static void SBApplyCommonProps(View& view,
         else if (n == "SetBackgroundColor") view.SetBackgroundColor(SBParseUiColor(a0));
         else if (n == "SetPadding" || n == "SetViewPadding") view.SetPadding(SBParseExtents(a0));
         else if (n == "SetMargin"  || n == "SetViewMargin")  view.SetMargin(SBParseExtents(a0));
+        else if (n == "SetCornerRadius")    view.SetCornerRadius(SBParseFloat(a0));
+        else if (n == "SetOpacity")         view.SetOpacity(SBParseFloat(a0));
+        else if (n == "SetVisibility")      view.SetVisibility(a0.find("true") != std::string::npos);
+        else if (n == "SetBorderlineWidth") view.SetBorderlineWidth(SBParseFloat(a0));
+        else if (n == "SetBorderlineColor") view.SetBorderlineColor(SBParseUiColor(a0));
     }
 }
 
@@ -571,6 +636,23 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
         if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
             text = text.substr(1, text.size() - 2);
         Label lbl = Label::New(text.c_str());
+
+        // Method-form text/markup: a `.SetText("...")` or `.SetMarkupEnabled(true)`
+        // chained after `Label::New()` lands in properties, not the constructor arg.
+        // Enable markup BEFORE assigning method-form text so tags are parsed.
+        auto itMarkup = node.properties.find("SetMarkupEnabled");
+        if (itMarkup != node.properties.end() && !itMarkup->second.empty())
+            lbl.SetMarkupEnabled(itMarkup->second[0].find("true") != std::string::npos);
+
+        auto itText = node.properties.find("SetText");
+        if (itText != node.properties.end() && !itText->second.empty())
+        {
+            std::string mt = itText->second[0];
+            if (mt.size() >= 2 && mt.front() == '"' && mt.back() == '"')
+                mt = mt.substr(1, mt.size() - 2);
+            lbl.SetText(mt.c_str());
+        }
+
         for (const auto& kv : node.properties)
         {
             if (kv.second.empty()) continue;
@@ -619,6 +701,14 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
     else if (type == "ImageView")
     {
         std::string url = node.constructorArgs.empty() ? "" : node.constructorArgs[0];
+        // Method-form URL: `.SetResourceUrl("...")` chained after `ImageView::New()`
+        // lands in properties, not the constructor arg.
+        if (url.empty())
+        {
+            auto itUrl = node.properties.find("SetResourceUrl");
+            if (itUrl != node.properties.end() && !itUrl->second.empty())
+                url = itUrl->second[0];
+        }
         if (url.size() >= 2 && url.front() == '"' && url.back() == '"')
             url = url.substr(1, url.size() - 2);
         ImageView iv = url.empty() ? ImageView::New() : ImageView::New(url.c_str());

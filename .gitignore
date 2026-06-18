@@ -24,3 +24,4 @@ test/samples/assets/*.out
 
 # Nested sibling repo that sometimes lives under the project during dev
 dali-ui-preview/
+test/e2e/server-actual/

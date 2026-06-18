@@ -127,6 +127,15 @@ async function runSample(
         return { name, passed: false, error: 'Server reported OK but produced no PNG' };
     }
 
+    // `// @render-only` samples carry async / non-deterministic content (e.g. an
+    // ImageView loading a remote/missing URL → the async broken-image placeholder),
+    // whose pixels are NOT statically reproducible (form L). They are verified by
+    // the fact that they parse + render to a PNG, not by a flaky pixel golden.
+    if (/\/\/\s*@render-only/.test(code)) {
+        console.log('  [RENDER-ONLY] parsed + rendered (async content; no pixel golden)');
+        return { name, passed: true };
+    }
+
     if (updateGoldens) {
         fs.copyFileSync(actualPng, goldenPng);
         console.log(`  [UPDATED] ${name}.png`);
