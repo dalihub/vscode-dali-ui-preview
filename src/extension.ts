@@ -8,7 +8,7 @@ import { extractFunctionBody, isPreviewable } from './codeExtractor';
 import { PreviewCodeLensProvider } from './previewCodeLens';
 import { LivePreviewDebouncer } from './livePreviewDebouncer';
 import { initLogger, getLogger } from './logger';
-import { ConfigurationService } from './configurationService';
+import { ConfigurationService, hostXvfbNeeded } from './configurationService';
 import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand, decidePreviewDockerGate, DockerAccessResult } from './dockerAccessCheck';
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
@@ -101,21 +101,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     themeStatusBar = new ThemeStatusBarItem(context);
     themeStatusBar.update(initialTheme);
 
-    // Xvfb (start in background)
-    xvfbManager = new XvfbManager();
-    const xvfbStarted = await xvfbManager.start();
-    if (xvfbStarted) {
-        outputChannel.appendLine(`Xvfb started on display ${xvfbManager.getDisplay()}`);
-    } else {
-        outputChannel.appendLine('Xvfb not available, using real display (window may flash)');
-    }
-
     // Select the build backend from runtimeMode. Default 'docker' renders inside
     // the container image (no host DALi install needed). 'local' compiles against
     // a host-installed DALi prefix and runs under Xvfb — for uifw developers who
     // rebuild DALi itself and want previews to reflect their fresh .so files.
     const runtimeMode = ConfigurationService.getInstance().runtimeMode;
     const isLocalRuntime = runtimeMode === 'local';
+
+    // The xvfbManager instance is always created (the orchestrator and
+    // getDisplay() fallbacks reference it), but host Xvfb is only STARTED when the
+    // runtime actually renders on the host. In docker mode the container carries
+    // its own X server, so starting host Xvfb here would do nothing useful and
+    // only pop a spurious "Xvfb is not installed" warning to users who never need
+    // it. Switching to local reloads the window (see localRuntimeCommand), so
+    // activate() re-runs and starts Xvfb then.
+    xvfbManager = new XvfbManager();
+    if (hostXvfbNeeded(runtimeMode)) {
+        const xvfbStarted = await xvfbManager.start();
+        outputChannel.appendLine(
+            xvfbStarted
+                ? `Xvfb started on display ${xvfbManager.getDisplay()}`
+                : 'Xvfb not available, using real display (window may flash)',
+        );
+    }
+
     let backend: BuildBackend;
     if (isLocalRuntime) {
         backend = new LocalBackend(xvfbManager);

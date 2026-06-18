@@ -91,3 +91,15 @@ export class ConfigurationService {
         await this.getConfig().update(key, value, target);
     }
 }
+
+/**
+ * Whether the host needs a virtual X server (Xvfb) for the given runtime mode.
+ *
+ * Only the 'local' runtime renders on the host (compiling against a host DALi
+ * prefix under Xvfb). In 'docker' mode the container image carries its own X
+ * server, so the extension must NOT start host Xvfb — doing so only emits a
+ * spurious "Xvfb is not installed" warning to users who never need it.
+ */
+export function hostXvfbNeeded(runtimeMode: 'docker' | 'local'): boolean {
+    return runtimeMode === 'local';
+}

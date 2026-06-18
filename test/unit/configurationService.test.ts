@@ -1,6 +1,15 @@
 import { expect } from 'chai';
 import * as vscode from 'vscode';
-import { ConfigurationService } from '../../src/configurationService';
+import { ConfigurationService, hostXvfbNeeded } from '../../src/configurationService';
+
+describe('hostXvfbNeeded', () => {
+    it('returns false for docker mode (container has its own X server)', () => {
+        expect(hostXvfbNeeded('docker')).to.equal(false);
+    });
+    it('returns true for local mode (host renders under Xvfb)', () => {
+        expect(hostXvfbNeeded('local')).to.equal(true);
+    });
+});
 
 describe('ConfigurationService — runtimeUpdatePolicy', () => {
     it('defaults to "notify" (matching the package.json manifest)', () => {

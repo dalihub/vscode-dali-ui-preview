@@ -5,6 +5,21 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.1] - 2026-06-18
+
+### Fixed
+
+- **Docker mode no longer pops a spurious "Xvfb is not installed" warning on
+  startup.** Activation started a host Xvfb display *unconditionally*, even in the
+  default `docker` runtime where rendering happens inside the container (which
+  carries its own X server). Hosts without `xvfb` — i.e. most docker users — got a
+  misleading *"Xvfb is not installed. Install it with: sudo apt install xvfb"*
+  toast they never needed to act on. Host Xvfb is now started only when
+  `runtimeMode` is `local` (the host-rendering path that actually uses it).
+  Switching to local reloads the window, so Xvfb starts then. Added a
+  `hostXvfbNeeded()` predicate with unit tests. (`src/extension.ts`,
+  `src/configurationService.ts`)
+
 ## [0.43.0] - 2026-06-17
 
 ### Added
