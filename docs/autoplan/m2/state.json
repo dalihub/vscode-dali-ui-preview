@@ -1,0 +1,13 @@
+{
+  "milestone": "M2",
+  "current": "WU-M2.1",
+  "completed": [],
+  "milestone_done": false,
+  "base_sha": "47f8955",
+  "wus": ["WU-M2.1", "WU-M2.2", "WU-M2.3", "WU-M2.4", "WU-M2.5"],
+  "impl_passes": {
+    "pass1": "M2.1+M2.2 parsing (TS)",
+    "pass2": "M2.4 focus install (templates+buildRunner)",
+    "pass3": "M2.3+M2.5 golden plumbing+render"
+  }
+}
