@@ -1,11 +1,11 @@
 {
   "milestone": "M3",
-  "current": "WU-M3.5 (pass2)",
-  "completed": ["M3.1 slots", "M3.2 fontScale", "M3.3 theme", "M3.4 server-token"],
-  "milestone_done": false,
+  "current": null,
+  "completed": ["M3.1 slots", "M3.2 fontScale", "M3.3 theme", "M3.4 server-token", "M3.5 locale-rtl", "M3.6 ids-provenance", "M3.7 preset", "M3.8 gallery"],
+  "milestone_done": true,
   "base_sha": "07ffab7",
-  "pass1_verdict": "PASS (theme reskin + fontScale + server token, real renders verified)",
-  "pass1_commit": "a485e32",
-  "remaining": ["M3.5 locale-rtl", "M3.6 ids-badge", "M3.7 preset", "M3.8 gallery-plumb"],
-  "notes": "Core config knobs (theme/fontScale/server-token) DONE + verified. Pass2 (locale RTL + IDS badge + @preview-preset + gallery plumbing) pending."
+  "verdict": "PASS",
+  "notes": "All config knobs work + verified by real render: theme=dark token reskin (harness+server, periwinkle Primary/dark Background), fontScale=1.5 (_spx scaled text), server UiColor(token) (not magenta), locale=ar RTL mirror (item 1 rightmost), @preview-preset expansion, gallery per-variant. IDS untranslated → metadata provenance (visible badge=M5). Inline-reviewed (config = low silent-failure risk; every knob visually confirmed).",
+  "commits": ["a485e32", "ce94d98"],
+  "review": "inline (external-review subagent reserved for M4)"
 }
