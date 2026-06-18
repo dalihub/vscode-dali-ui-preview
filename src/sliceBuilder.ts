@@ -87,6 +87,20 @@ function lineOf(src: string, offset: number): number {
     return line;
 }
 
+/**
+ * Emit a `#line N "path"` preprocessing directive (WU-M4.5). `#line N "f"` tells
+ * the compiler "the NEXT source line is line N of file f", so a def collected from
+ * its original 0-based `line` L is preceded by `#line L+1 "path"` — then g++ reports
+ * any error inside that def at its REAL file:line (not the generated harness line).
+ * #line is STANDARD and semantically INERT: it relabels diagnostics only, never the
+ * compiled/rendered output. The path is emitted as a C string literal (backslashes
+ * and quotes escaped) so a Windows-style path or an odd character can't break it.
+ */
+function lineDirective(line0Based: number, srcPath: string): string {
+    const escaped = srcPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return `#line ${line0Based + 1} "${escaped}"`;
+}
+
 interface PreviewFn {
     body: string;       // inside the outer braces (no surrounding { })
     bodyLine: number;   // 0-based line where the body starts
@@ -177,6 +191,7 @@ interface CollectedDef {
     name: string;
     text: string;   // full definition text
     line: number;   // 0-based source line of the definition
+    srcPath: string; // absolute path of the file this def came from (for #line)
 }
 
 /**
@@ -185,7 +200,7 @@ interface CollectedDef {
  * and single-line const/constexpr. Refs with no same-file definition are returned
  * as `unresolved` (members, cross-file helpers, external models).
  */
-export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange?: [number, number]):
+export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange?: [number, number], srcPath = ''):
     { collected: CollectedDef[]; unresolved: string[] } {
     const collected: CollectedDef[] = [];
     const unresolved: string[] = [];
@@ -201,7 +216,7 @@ export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange
             const brace = src.indexOf('{', nm.index);
             const close = matchBrace(src, brace);
             if (close !== -1) {
-                found = { name, text: src.slice(nm.index, close + 1), line: lineOf(src, nm.index) };
+                found = { name, text: src.slice(nm.index, close + 1), line: lineOf(src, nm.index), srcPath };
             }
         }
 
@@ -216,7 +231,7 @@ export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange
                     // include trailing ';'
                     let end = close + 1;
                     if (src[end] === ';') { end++; }
-                    found = { name, text: src.slice(tm.index, end), line: lineOf(src, tm.index) };
+                    found = { name, text: src.slice(tm.index, end), line: lineOf(src, tm.index), srcPath };
                 }
             }
         }
@@ -230,7 +245,9 @@ export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange
                 const brace = src.indexOf('{', sigStart);
                 const close = matchBrace(src, brace);
                 if (close !== -1 && (!excludeRange || sigStart < excludeRange[0] || sigStart >= excludeRange[1])) {
-                    found = { name, text: src.slice(sigStart, close + 1).trim(), line: lineOf(src, sigStart) };
+                    // Keep the ORIGINAL source line of the (untrimmed) signature start,
+                    // not the trimmed text — `#line` must point at the def's real line.
+                    found = { name, text: src.slice(sigStart, close + 1).trim(), line: lineOf(src, sigStart), srcPath };
                 }
             }
         }
@@ -240,7 +257,7 @@ export function collectSameFileDefs(src: string, refs: Set<string>, excludeRange
             const cRe = new RegExp(`\\b(?:constexpr|const)\\s+[\\w:<>]+\\s+${esc}\\s*=\\s*[^;]+;`, 'g');
             const cm = cRe.exec(src);
             if (cm) {
-                found = { name, text: cm[0], line: lineOf(src, cm.index) };
+                found = { name, text: cm[0], line: lineOf(src, cm.index), srcPath };
             }
         }
 
@@ -402,9 +419,10 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     // Prefer the already-extracted (and possibly instrumented) preview body the
     // orchestrator passes in; standalone use / tests locate it in `src` instead.
     // entryParams (from a CodeLens targeting a specific fn) wins over the first-fn guess.
+    const located = findPreviewFunction(src);
     const entry = entryBody !== undefined
-        ? { body: entryBody, params: entryParams ?? findPreviewFunction(src)?.params ?? [] }
-        : findPreviewFunction(src);
+        ? { body: entryBody, params: entryParams ?? located?.params ?? [], bodyLine: located?.bodyLine ?? 0 }
+        : located;
     if (!entry) {
         // Nothing to slice — treat the whole input as the body (Rung3 passthrough).
         return { includes: '', globals: '', body: src, sourcePaths: [entrySrcPath], unresolvedStubs: [], rung: 'single-fn', helpers: [] };
@@ -437,7 +455,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         }
     }
 
-    let { collected, unresolved } = collectSameFileDefs(src, refs);
+    let { collected, unresolved } = collectSameFileDefs(src, refs, undefined, entrySrcPath);
     const sourcePaths = [entrySrcPath];
 
     // Rung1 (heuristic cross-file): resolve the refs still unresolved after the
@@ -446,7 +464,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     // inlined into the globals slot — no header mount needed (ADR-006).
     for (const extra of extraSources) {
         if (unresolved.length === 0) { break; }
-        const r = collectSameFileDefs(extra.text, new Set(unresolved));
+        const r = collectSameFileDefs(extra.text, new Set(unresolved), undefined, extra.path);
         if (r.collected.length > 0) {
             collected = collected.concat(r.collected);
             sourcePaths.push(extra.path);
@@ -470,7 +488,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
         let rem = more;
         for (const s of allSources) {
             if (rem.size === 0) { break; }
-            const rr = collectSameFileDefs(s.text, rem);
+            const rr = collectSameFileDefs(s.text, rem, undefined, s.path);
             for (const d of rr.collected) {
                 if (!have.has(d.name)) { collected.push(d); have.add(d.name); }
             }
@@ -498,18 +516,34 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
 
     const paramStubs = entry.params.map((p) => `__attribute__((weak)) ${synthParamStub(p.type, p.name)}`);
     const stubs = unresolved.map((u) => synthWeakStub(u, entry.body));
+    // WU-M4.5: prefix each collected def with a `#line` pointing at its ORIGINAL
+    // file:line, so a g++ error inside an inlined def (e.g. cards.cpp's MakeStatCard)
+    // is reported at cards.cpp:N — not the generated harness line the offset
+    // arithmetic could never map back (globals sit ABOVE {{USER_CODE}}). The synthetic
+    // stubs (member/param/weak) carry no original source, so they get no directive —
+    // they inherit the previous def's labeling, which is harmless (stubs rarely error;
+    // #line never changes codegen). Defs with an empty srcPath (no known origin) emit
+    // no directive, preserving the existing globals byte-for-byte for that path.
     const globalsParts = [
-        ...ordered.map((d) => d.text),   // collected defs (incl. struct types) first
+        ...ordered.map((d) => d.srcPath ? `${lineDirective(d.line, d.srcPath)}\n${d.text}` : d.text),
         ...memberStubs,                  // then member instances of those types
         ...paramStubs,
         ...stubs,
     ];
     const globals = globalsParts.length ? '\n' + globalsParts.join('\n\n') + '\n' : '';
 
+    // Prefix the extracted body with a `#line` pointing at the entry file's body
+    // start, so an error in the user's own preview body maps to wallet_screen.cpp:N.
+    // (The orchestrator overwrites `body` with the instrumented string for the LIVE
+    // path; this keeps the standalone/unit contract honest and the directive is inert.)
+    const body = entrySrcPath
+        ? `${lineDirective(entry.bodyLine ?? 0, entrySrcPath)}\n${entry.body}`
+        : entry.body;
+
     return {
         includes,
         globals,
-        body: entry.body,
+        body,
         sourcePaths,
         unresolvedStubs: unresolved,
         rung: 'heuristic',

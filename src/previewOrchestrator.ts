@@ -731,6 +731,7 @@ export class PreviewOrchestrator {
         doc: vscode.TextDocument,
         startLine: number,
         buildRunner: BuildRunner,
+        sourcePaths?: string[],
     ): void {
         const log = getLogger();
         const templatePath = path.join(
@@ -738,7 +739,10 @@ export class PreviewOrchestrator {
         let template = '';
         try { template = fs.readFileSync(templatePath, 'utf-8'); } catch (err) { log.trace('Extension', 'harness template read failed', { error: String(err) }); }
         const offset = getHarnessCodeOffset(template);
-        const diag = diagnoseGccErrors(result.error || '', offset, doc, startLine, false);
+        // WU-M4.5: pass the slice's sourcePaths so a `#line`-relabeled cross-file/
+        // member error (e.g. cards.cpp:38) maps to the user's real file:line instead
+        // of being dropped by the harness-only filename gate.
+        const diag = diagnoseGccErrors(result.error || '', offset, doc, startLine, false, false, sourcePaths);
         if (diag) {
             this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
             this.scheduleShowError(diag.displayMessage);
@@ -843,7 +847,10 @@ export class PreviewOrchestrator {
                 const pluginTemplate = buildRunner.getPluginTemplateContent();
                 const offset = getPluginCodeOffset(pluginTemplate);
                 const buildTimeMs = Date.now() - startTime;
-                const diag = diagnoseGccErrors(stratResult.result.error || '', offset, doc, extraction.startLine, true);
+                // WU-M4.5: thread the slice's sourcePaths so a `#line`-relabeled
+                // cross-file/member error in the plugin compile maps to the user's
+                // real file:line (the globals slot's inlined defs carry `#line`).
+                const diag = diagnoseGccErrors(stratResult.result.error || '', offset, doc, extraction.startLine, true, false, slice.sourcePaths);
                 if (diag) {
                     this.deps.diagnosticCollection.set(doc.uri, diag.diagnostics);
                     this.scheduleShowError(diag.displayMessage);
@@ -1052,7 +1059,7 @@ export class PreviewOrchestrator {
                     buildTimeMs, startTime, previewManager, provenance,
                 });
             } else {
-                this.reportHarnessFailure(result, doc, extraction.startLine, buildRunner);
+                this.reportHarnessFailure(result, doc, extraction.startLine, buildRunner, slice.sourcePaths);
             }
         } catch (err: any) {
             if (myGeneration === this.buildGeneration) {

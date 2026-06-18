@@ -5,6 +5,14 @@ export interface ParsedError {
     column: number;
     message: string;
     severity: 'error' | 'warning' | 'note';
+    /**
+     * Absolute path of the ORIGINAL source file this error belongs to, set only
+     * for a `#line`-relabeled cross-file/member error (WU-M4.5) whose file matched
+     * one of the slice's `sourcePaths`. When set, `line` is already the 0-based line
+     * in THAT file (the `#line` coords are original) — no harness-offset arithmetic
+     * was applied. Undefined for ordinary harness/plugin errors (existing behavior).
+     */
+    file?: string;
 }
 
 /**
@@ -29,9 +37,11 @@ export function parseGccErrors(
     harnessCodeOffset: number,
     isPlugin = false,
     isInteractive = false,
+    sourcePaths?: string[],
 ): ParsedError[] {
     const results: ParsedError[] = [];
     const lines = stderr.split('\n');
+    const sources = sourcePaths ?? [];
 
     for (const line of lines) {
         const m = line.match(GCC_DIAG_RE);
@@ -40,6 +50,27 @@ export function parseGccErrors(
         }
 
         const [, filePath, lineStr, colStr, severity, message] = m;
+        const gccLine = parseInt(lineStr, 10);
+        const column = parseInt(colStr, 10);
+
+        // WU-M4.5: a `#line` directive relabeled this error to one of the user's
+        // REAL source files (the slice's sourcePaths). g++ echoes the directive's
+        // path verbatim, so its coords are ALREADY original — pass it through with
+        // (file, line) as-is (line 1-based -> 0-based), NO harness-offset math, and
+        // do NOT drop it (the static harness/plugin gate below would have). Only the
+        // first matching source wins. Skipped entirely when sourcePaths is empty, so
+        // existing behavior is byte-identical.
+        const matchedSource = sources.find((sp) => pathsMatch(filePath, sp));
+        if (matchedSource) {
+            results.push({
+                line: gccLine - 1,            // #line coords are 1-based original lines
+                column,
+                message,
+                severity: severity as ParsedError['severity'],
+                file: matchedSource,
+            });
+            continue;
+        }
 
         // Accept errors from the appropriate generated file
         const isHarness = filePath.includes('preview_harness');
@@ -59,9 +90,6 @@ export function parseGccErrors(
             continue;
         }
 
-        const gccLine = parseInt(lineStr, 10);
-        const column = parseInt(colStr, 10);
-
         // Map harness line -> user code line (0-based)
         const mappedLine = gccLine - harnessCodeOffset;
 
@@ -79,6 +107,23 @@ export function parseGccErrors(
     }
 
     return results;
+}
+
+/**
+ * True if a g++-reported `filePath` refers to the slice source `sp`. g++ echoes
+ * the `#line` directive's path verbatim, so exact equality is the common case;
+ * the basename fallback tolerates a compiler that normalizes the path (e.g. makes
+ * it relative). Only matches when basenames agree, so an unrelated file in another
+ * directory with a coincidental suffix never matches.
+ */
+function pathsMatch(filePath: string, sp: string): boolean {
+    if (filePath === sp) {
+        return true;
+    }
+    const base = (p: string): string => p.split(/[\\/]/).pop() ?? p;
+    const fb = base(filePath);
+    const sb = base(sp);
+    return fb === sb && (filePath.endsWith(sp) || sp.endsWith(filePath));
 }
 
 /**
@@ -171,7 +216,10 @@ export function errorsToDiagnostics(
     startLine: number,
 ): vscode.Diagnostic[] {
     return errors.map((e) => {
-        const docLine = e.line + startLine;
+        // A `#line`-relabeled cross-file/member error (WU-M4.5) already carries the
+        // 0-based line in its OWN file — it must NOT be shifted by the entry doc's
+        // `startLine` (that offset only applies to user-code-relative harness errors).
+        const docLine = e.file !== undefined ? e.line : e.line + startLine;
         const col = Math.max(0, e.column - 1); // GCC columns are 1-based
 
         // Try to underline the whole line; fall back to a zero-width range if
@@ -219,8 +267,9 @@ export function diagnoseGccErrors(
     startLine: number,
     isPlugin = false,
     isInteractive = false,
+    sourcePaths?: string[],
 ): { diagnostics: vscode.Diagnostic[]; displayMessage: string } | null {
-    const errors = parseGccErrors(stderr, harnessCodeOffset, isPlugin, isInteractive);
+    const errors = parseGccErrors(stderr, harnessCodeOffset, isPlugin, isInteractive, sourcePaths);
     if (errors.length === 0) {
         return null;
     }
