@@ -28,6 +28,12 @@ T __tag(T obj, const char* name)
     return obj;
 }
 
+// === Build-time install palette definitions (ADR-004 PALETTE_DEFS slot) ===
+// Static free-function color/locale palettes emitted here by the build step
+// (theme=dark dark-palette, locale overrides). Empty when no config installs a
+// palette -> byte-identical. Must be free functions (no captures): the dali-ui
+// override APIs take a plain bool(*)(...) function pointer (ui-color-manager.h).
+
 // === User preview code ===
 View CreatePreviewUI()
 {
@@ -347,6 +353,9 @@ int main(int argc, char* argv[])
   // focus indicator in a static (non-interactive) render. frozen-after-Apply
   // (ui-config.h), so it must be chained BEFORE Apply(). Harmless when no focus
   // directive is present (nothing is focused → nothing drawn). ADR-004/ADR-006.
+  // The UI_CONFIG_SETUP slot injects additional frozen setters (e.g.
+  // SetScalingFactor for fontScale, SetTextLayoutDirectionMode for RTL) into the
+  // chain before Apply(). Empty by default → byte-identical to the M2 harness.
   UiConfig::New().SetAlwaysShowFocus(true).Apply();
   PreviewApp preview(app);
   app.MainLoop();

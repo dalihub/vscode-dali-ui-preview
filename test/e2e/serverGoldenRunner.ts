@@ -71,6 +71,21 @@ function readSampleCode(filePath: string): string {
         .join('\n');
 }
 
+/**
+ * Read `theme=light|dark` from the sample's `@preview-config:` line so the
+ * server installs the matching color override before resolving UiColor tokens
+ * (F3.3). readSampleCode strips config lines, so theme is parsed separately and
+ * passed through renderJson. Defaults to 'dark' (the server/runner default).
+ */
+function parseTheme(filePath: string): 'light' | 'dark' {
+    const line = fs
+        .readFileSync(filePath, 'utf-8')
+        .split('\n')
+        .find((l) => PREVIEW_CONFIG_RE.test(l.trim()));
+    const m = line ? line.match(/theme\s*=\s*(light|dark)/) : null;
+    return m ? (m[1] as 'light' | 'dark') : 'dark';
+}
+
 function sampleName(filePath: string): string {
     return path.basename(filePath).replace(/\.preview\.dali\.cpp$/, '');
 }
@@ -118,6 +133,7 @@ async function runSample(
         metadataPath,
         PREVIEW_WIDTH,
         PREVIEW_HEIGHT,
+        parseTheme(filePath),
     );
 
     if (!result.success) {

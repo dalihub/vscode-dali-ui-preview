@@ -26,6 +26,10 @@ function substituteTemplate(
         // (restores the original blank line → byte-identical).
         .replace(/\{\{USER_INCLUDES\}\}/g, '')
         .replace(/\{\{USER_GLOBALS\}\}/g, '')
+        // M3 (ADR-004) install slots: all empty on the no-config path → byte-identical.
+        .replace(/\{\{PALETTE_DEFS\}\}/g, '')
+        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, '')
+        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, '')
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${height}.0f`)
@@ -56,6 +60,10 @@ describe('harnessGeneration', () => {
         expect(template).to.include('{{METADATA_PATH}}');
         expect(template).to.include('{{BACKGROUND_COLOR}}');
         expect(template).to.include('{{FONT_SETUP}}');
+        // M3 (ADR-004) install slots.
+        expect(template).to.include('{{PALETTE_DEFS}}');
+        expect(template).to.include('{{UI_CONFIG_SETUP}}');
+        expect(template).to.include('{{PRE_BUILD_INSTALL}}');
     });
 
     it('substitution replaces all placeholders', () => {

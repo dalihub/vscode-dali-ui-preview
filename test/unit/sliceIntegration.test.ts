@@ -58,6 +58,10 @@ describe('slice orchestrator path (instrumented body)', () => {
             const cpp = tpl
                 .replace(/\{\{USER_INCLUDES\}\}/g, slice.includes)
                 .replace(/\{\{USER_GLOBALS\}\}/g, slice.globals)
+                // M3 (ADR-004) install slots — empty on the slice path (byte-neutral).
+                .replace(/\{\{PALETTE_DEFS\}\}/g, '')
+                .replace(/\{\{UI_CONFIG_SETUP\}\}/g, '')
+                .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, '')
                 .replace(/\{\{USER_CODE\}\}/g, slice.body);
             fs.writeFileSync(`/tmp/slicechk/instr_${f}.cpp`, cpp);
         }

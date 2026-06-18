@@ -435,6 +435,73 @@ static float SBParseFloat(const std::string& s)
     try { return std::stof(t); } catch (...) { return 0.0f; }
 }
 
+// Dark-theme token palette for the server scene-builder path (F3.3).
+// MUST stay in sync with src/buildRunner.ts DARK_PALETTE_TOKENS and
+// test/e2e/standaloneBuildRunner.ts (same token→RGBA rows). Installed as the
+// runtime color override (UiColorManager::SetColorOverride) when a RENDER_JSON
+// carries theme=dark; a plain free function (no captures) per ColorOverrideFunc.
+static bool __DarkServerPalette(Dali::StringView id, Dali::Vector4& out)
+{
+    struct Row { const char* k; Dali::Vector4 v; };
+    static const Row table[] = {
+        {"Primary",    Dali::Vector4(0.49f, 0.55f, 0.99f, 1.0f)},
+        {"Background", Dali::Vector4(0.10f, 0.10f, 0.12f, 1.0f)},
+        {"Outline",    Dali::Vector4(0.45f, 0.45f, 0.52f, 1.0f)},
+        {"Surface",    Dali::Vector4(0.16f, 0.16f, 0.20f, 1.0f)},
+        {"OnSurface",  Dali::Vector4(0.92f, 0.92f, 0.96f, 1.0f)},
+        {"OnPrimary",  Dali::Vector4(1.0f,  1.0f,  1.0f,  1.0f)},
+    };
+    for (const auto& r : table)
+        if (id == r.k) { out = r.v; return true; }
+    return false;
+}
+
+// Predefined UiColor token-id constants (UiColor::PRIMARY etc., ui-color.h:56-58).
+// Mapped to their string ids so `UiColor::PRIMARY` parses the same as
+// `UiColor("Primary")` through the UiColorManager (override or theme).
+static bool SBResolveColorToken(const std::string& token, UiColor& out)
+{
+    static const struct { const char* expr; const char* id; } kTokenAliases[] = {
+        {"UiColor::PRIMARY",    "Primary"},
+        {"UiColor::BACKGROUND", "Background"},
+        {"UiColor::OUTLINE",    "Outline"},
+    };
+    std::string id;
+    for (const auto& a : kTokenAliases)
+        if (token == a.expr) { id = a.id; break; }
+
+    // `UiColor("Name")` string-id form — extract the quoted token name.
+    if (id.empty())
+    {
+        const std::string pfx = "UiColor(\"";
+        if (token.size() > pfx.size() + 1 &&
+            token.compare(0, pfx.size(), pfx) == 0 && token.back() == ')')
+        {
+            // strip `UiColor("` ... `")`
+            size_t closeQuote = token.rfind('"');
+            if (closeQuote != std::string::npos && closeQuote > pfx.size() - 1)
+                id = token.substr(pfx.size(), closeQuote - pfx.size());
+        }
+    }
+
+    if (id.empty()) return false;
+
+    // Resolve through the manager: honors the installed dark override, else the
+    // default theme. GetColor returns false if the id is unknown to both.
+    // (StringView has no std::string ctor — go via c_str().)
+    Dali::Vector4 v;
+    if (Dali::Ui::UiColorManager::Get().GetColor(Dali::StringView(id.c_str()), v))
+    {
+        out = UiColor(v);
+        return true;
+    }
+    // Token recognized but unresolved (no override + not in theme): still build a
+    // token-carrying UiColor so it resolves lazily at GetRgba() against whatever
+    // override is active at render time.
+    out = UiColor(Dali::String(id.c_str()));
+    return true;
+}
+
 static UiColor SBParseUiColor(const std::string& s)
 {
     // A trailing ".WithAlpha(<f>)" (e.g. "Color::CYAN.WithAlpha(0.5f)") overrides
@@ -474,6 +541,21 @@ static UiColor SBParseUiColor(const std::string& s)
             resolved = true;
         }
         catch (...) {}
+    }
+
+    // UiColor token ids — `UiColor("Primary")` (string form) or `UiColor::PRIMARY`
+    // (predefined constant). Resolved through UiColorManager so the installed
+    // dark override (theme=dark) reskins them; falls back to the theme otherwise.
+    // Honest boundary: hex `UiColor(0x..)` already resolved above and never
+    // reaches here, so hex colors are theme-independent.
+    if (!resolved)
+    {
+        UiColor tokenColor;
+        if (SBResolveColorToken(base, tokenColor))
+        {
+            result   = tokenColor;
+            resolved = true;
+        }
     }
 
     // Named Dali::Color::* constants (RGBA matching dali-core color-table).
@@ -984,6 +1066,16 @@ public:
             return;
         }
         SceneNodeJson sceneNode = JParseNode(json, pos);
+
+        // Install/clear the dark token override per-render (warm-server safe —
+        // SetColorOverride refreshes all bindings, ui-color-manager.h:237). When
+        // theme=dark, UiColor("Primary") etc. resolve to the dark palette; any
+        // other theme clears the override so tokens fall back to the theme
+        // (honest: hex colors never route through the override). F3.3.
+        if (req.theme == "dark")
+            Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkServerPalette);
+        else
+            Dali::Ui::UiColorManager::Get().ClearColorOverride();
 
         // Apply background
         mWindow.SetBackgroundColor(

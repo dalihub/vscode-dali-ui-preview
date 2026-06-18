@@ -187,6 +187,42 @@ function parseConfigSize(filePath: string): { width: number; height: number } {
     return { width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT };
 }
 
+// fontScale validation range, mirrored from codeExtractor.ts (FONTSCALE_MIN/MAX).
+const FONTSCALE_MIN = 0.5;
+const FONTSCALE_MAX = 2.0;
+
+/**
+ * Read theme / fontScale / locale from the sample's first `@preview-config:`
+ * line and thread them into the harness build (ADR-004 install knobs). Mirrors
+ * codeExtractor's CONFIG_THEME_RE / CONFIG_FONTSCALE_RE / CONFIG_LOCALE_RE — the
+ * golden runner can't import codeExtractor (vscode dep), so it parses inline,
+ * exactly like parseConfigSize / parseFocusId. Only the FIRST (single-config)
+ * line is read; multi-config gallery rendering is a separate path (not golden).
+ */
+function parseConfigKnobs(filePath: string): { theme?: 'light' | 'dark'; fontScale?: number; locale?: string } {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const configLines = content.split('\n').filter(l => PREVIEW_CONFIG_RE.test(l.trim()));
+    const knobs: { theme?: 'light' | 'dark'; fontScale?: number; locale?: string } = {};
+    // Only single-config samples get their knobs threaded into the golden render.
+    // A MULTI-config file is a gallery sample (rendered side-by-side by the
+    // orchestrator, verified by visual sign-off — not by this 1-image-per-sample
+    // golden runner). Threading e.g. its first `theme=light` would change the
+    // existing golden, so multi-config samples keep the runner's dark default.
+    if (configLines.length !== 1) { return knobs; }
+    const line = configLines[0];
+    if (!line) { return knobs; }
+    const t = line.match(/theme\s*=\s*(light|dark)/);
+    if (t) { knobs.theme = t[1] as 'light' | 'dark'; }
+    const fs2 = line.match(/fontScale\s*=\s*([\d.]+)/);
+    if (fs2) {
+        const v = parseFloat(fs2[1]);
+        if (v >= FONTSCALE_MIN && v <= FONTSCALE_MAX) { knobs.fontScale = v; }
+    }
+    const l = line.match(/locale\s*=\s*([a-zA-Z][a-zA-Z0-9_\-]+)/);
+    if (l) { knobs.locale = l[1]; }
+    return knobs;
+}
+
 // Mirror the live preview's font sanitize (codeExtractor.sanitizeUnsupportedGlyphs)
 // so docker goldens behave like real preview: emoji with no glyph in the runtime
 // font become □ instead of aborting DALi (free(): invalid pointer). Inlined here
@@ -246,6 +282,7 @@ async function runSample(
 
     const { width, height } = parseConfigSize(filePath);
     const focusId = parseFocusId(filePath);
+    const { theme, fontScale, locale } = parseConfigKnobs(filePath);
     const opts = {
         userCode: code,
         width,
@@ -256,6 +293,9 @@ async function runSample(
         daliPrefix,
         display,
         focusId,
+        theme,
+        fontScale,
+        locale,
     };
     const buildResult = useDocker
         ? await buildAndCaptureDocker(opts, image)

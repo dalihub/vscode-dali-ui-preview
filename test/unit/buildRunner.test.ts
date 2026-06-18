@@ -236,3 +236,60 @@ describe('BuildRunner.sanitizeConfigName()', () => {
         expect(BuildRunner.sanitizeConfigName('_test_')).to.equal('test');
     });
 });
+
+describe('BuildRunner ADR-004 install slots (M3)', () => {
+    describe('buildPaletteDefs()', () => {
+        it('is empty by default (no theme) — byte-neutral', () => {
+            expect(BuildRunner.buildPaletteDefs()).to.equal('');
+            expect(BuildRunner.buildPaletteDefs('light')).to.equal('');
+        });
+
+        it('emits a no-capture __DarkPalette free function for theme=dark', () => {
+            const out = BuildRunner.buildPaletteDefs('dark');
+            expect(out).to.include('static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)');
+            // Maps the dali-ui token ids so UiColor::PRIMARY / UiColor("Background") reskin.
+            expect(out).to.include('{"Primary", Dali::Vector4(');
+            expect(out).to.include('{"Background", Dali::Vector4(');
+            expect(out).to.include('{"OnSurface", Dali::Vector4(');
+            // Honest boundary: unmapped ids fall through (return false), hex untouched.
+            expect(out).to.include('return false;');
+            // No captures (plain function — required by ColorOverrideFunc).
+            expect(out).to.not.include('[&]');
+            expect(out).to.not.include('[=]');
+        });
+    });
+
+    describe('buildUiConfigSetup()', () => {
+        it('is empty by default — byte-neutral', () => {
+            expect(BuildRunner.buildUiConfigSetup()).to.equal('');
+            expect(BuildRunner.buildUiConfigSetup(0)).to.equal('');
+        });
+
+        it('chains .SetScalingFactor(f) for fontScale (scales _spx units)', () => {
+            expect(BuildRunner.buildUiConfigSetup(1.5)).to.equal('.SetScalingFactor(1.5f)');
+            // Integer scale gets a decimal point so it is a valid float literal.
+            expect(BuildRunner.buildUiConfigSetup(2)).to.equal('.SetScalingFactor(2.0f)');
+        });
+    });
+
+    describe('buildPreBuildInstall()', () => {
+        it('is empty by default — byte-neutral', () => {
+            expect(BuildRunner.buildPreBuildInstall()).to.equal('');
+        });
+
+        it('installs the dark color override for theme=dark (harness path)', () => {
+            const out = BuildRunner.buildPreBuildInstall('dark');
+            expect(out).to.include('Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
+            // Harness path does NOT emit the runtime SetScale (it uses the frozen
+            // SetScalingFactor in {{UI_CONFIG_SETUP}} instead).
+            expect(out).to.not.include('SetScale');
+        });
+
+        it('emits the runtime SetScale only on the plugin/warm path', () => {
+            const plugin = BuildRunner.buildPreBuildInstall('dark', 1.5, true);
+            expect(plugin).to.include('Dali::Ui::UiScaleManager::Get().SetScale(1.5f);');
+            const harness = BuildRunner.buildPreBuildInstall('dark', 1.5, false);
+            expect(harness).to.not.include('SetScale');
+        });
+    });
+});

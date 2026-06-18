@@ -88,6 +88,120 @@ export class BuildRunner {
     }
 
     /**
+     * Build the C++ for the harness/plugin {{PALETTE_DEFS}} slot (ADR-004).
+     * When theme==='dark', emits the static dark-palette free function
+     * `__DarkPalette` (no captures — required by ColorOverrideFunc, a plain
+     * `bool(*)(StringView, Vector4&)`; ui-color-manager.h:52,232). Maps the
+     * dali-ui token ids (UiColor::PRIMARY/BACKGROUND/OUTLINE → "Primary"/
+     * "Background"/"Outline", plus common semantic ids) to dark RGBA. Unknown
+     * tokens return false → fall through to the theme (honest: only mapped
+     * tokens reskin; hex colors are never touched). '' otherwise → byte-identical.
+     *
+     * Duplicated (intentionally) in test/e2e/standaloneBuildRunner.ts — that file
+     * must not import vscode; this one pulls it in. The token→RGBA rows are
+     * SHARED with docker/preview_server.cpp's __DarkServerPalette (same constants,
+     * desync-guarded by the DARK_PALETTE_TOKENS list).
+     */
+    static buildPaletteDefs(theme?: 'light' | 'dark'): string {
+        if (theme !== 'dark') {
+            return '';
+        }
+        return BuildRunner.darkPaletteFreeFunction();
+    }
+
+    /**
+     * Build the harness {{UI_CONFIG_SETUP}} slot (ADR-004) — frozen UiConfig
+     * setters chained BEFORE Apply(). For fontScale, emits `.SetScalingFactor(f)`
+     * which scales the _spx/_sdp units (ui-config.h:177; unit.h: _spx "is
+     * multiplied by a scaling-factor configured via UiConfig"). Plain pixel
+     * SetFontSize(px) is NOT affected — a sample must size text in _spx to scale.
+     * '' when no frozen knob is set → byte-identical. N/A for the plugin (warm
+     * server is already past Apply()).
+     */
+    static buildUiConfigSetup(fontScale?: number): string {
+        if (typeof fontScale === 'number' && fontScale > 0) {
+            return `.SetScalingFactor(${BuildRunner.formatFloat(fontScale)})`;
+        }
+        return '';
+    }
+
+    /**
+     * Build the harness/plugin {{PRE_BUILD_INSTALL}} slot (ADR-004) — runtime
+     * singleton installs applied just before the tree is built. theme=dark
+     * installs the dark color override; fontScale installs the runtime scale
+     * (UiScaleManager::SetScale — warm-server-safe, ui-scale-manager.h:124).
+     * `isPlugin` controls whether the runtime fontScale install is emitted (the
+     * plugin/warm path needs SetScale; the harness already froze SetScalingFactor
+     * in {{UI_CONFIG_SETUP}}). '' when nothing installs → byte-identical.
+     */
+    static buildPreBuildInstall(
+        theme?: 'light' | 'dark',
+        fontScale?: number,
+        isPlugin = false,
+    ): string {
+        const lines: string[] = [];
+        if (theme === 'dark') {
+            lines.push('    Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
+        }
+        // Runtime scale only on the warm/plugin path; the harness uses the frozen
+        // SetScalingFactor in {{UI_CONFIG_SETUP}} (both wired per ADR-004 §2).
+        if (isPlugin && typeof fontScale === 'number' && fontScale > 0) {
+            lines.push(`    Dali::Ui::UiScaleManager::Get().SetScale(${BuildRunner.formatFloat(fontScale)});`);
+        }
+        return lines.join('\n');
+    }
+
+    /** Format a float for a C++ literal: always a decimal point + trailing `f`. */
+    private static formatFloat(v: number): string {
+        const s = Number.isInteger(v) ? `${v}.0` : `${v}`;
+        return `${s}f`;
+    }
+
+    /**
+     * The dark-theme token ids that get reskinned. Each maps a dali-ui color
+     * token string (what UiColor::PRIMARY / UiColor("Primary") resolve through)
+     * to a dark RGBA. Kept SMALL and as a code constant (ADR-004 §3 honest scope):
+     * only token-based colors reskin; hex colors never do. SHARED with the
+     * server's __DarkServerPalette — keep both in sync.
+     */
+    private static readonly DARK_PALETTE_TOKENS: ReadonlyArray<{ id: string; rgba: [number, number, number, number] }> = [
+        { id: 'Primary',    rgba: [0.49, 0.55, 0.99, 1.0] }, // indigo-ish accent
+        { id: 'Background', rgba: [0.10, 0.10, 0.12, 1.0] }, // near-black surface
+        { id: 'Outline',    rgba: [0.45, 0.45, 0.52, 1.0] }, // muted border
+        { id: 'Surface',    rgba: [0.16, 0.16, 0.20, 1.0] }, // raised surface
+        { id: 'OnSurface',  rgba: [0.92, 0.92, 0.96, 1.0] }, // light text on dark
+        { id: 'OnPrimary',  rgba: [1.0,  1.0,  1.0,  1.0] }, // text on accent
+    ];
+
+    /**
+     * Emit the static `__DarkPalette` free function (no captures) backing the
+     * dark theme color override. Shared shape with the server's palette.
+     */
+    private static darkPaletteFreeFunction(): string {
+        const rows = BuildRunner.DARK_PALETTE_TOKENS.map(
+            (t) => `        {"${t.id}", Dali::Vector4(${t.rgba.map((c) => BuildRunner.formatFloat(c)).join(', ')})},`,
+        ).join('\n');
+        return [
+            '// Dark-theme token palette (theme=dark). Free function — no captures —',
+            '// as required by ColorOverrideFunc (ui-color-manager.h). Returns false',
+            '// for unmapped ids so they fall through to the theme (hex colors never',
+            '// reach here, so they are unaffected — honest reskin boundary).',
+            'static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)',
+            '{',
+            '    struct Row { const char* k; Dali::Vector4 v; };',
+            '    static const Row table[] = {',
+            rows,
+            '    };',
+            '    for(const auto& r : table)',
+            '    {',
+            '        if(id == r.k) { out = r.v; return true; }',
+            '    }',
+            '    return false;',
+            '}',
+        ].join('\n');
+    }
+
+    /**
      * Converts a #RRGGBB hex color string to a DALi Vector4 literal.
      * Returns the dark-theme fallback if the input is not a valid #RRGGBB string.
      */
@@ -151,12 +265,22 @@ export class BuildRunner {
             /** `// @preview-state: focus=<id>` target (ADR-006). undefined →
              *  {{POST_BUILD_FOCUS}} becomes '' (no focus ring; byte-identical). */
             focusId?: string;
+            /** theme=dark installs the dark token palette (ADR-004). undefined/
+             *  'light' → {{PALETTE_DEFS}}/{{PRE_BUILD_INSTALL}} stay ''. The
+             *  window background color is handled separately via `bgColorVec`. */
+            theme?: 'light' | 'dark';
+            /** fontScale → frozen `.SetScalingFactor(f)` in {{UI_CONFIG_SETUP}}
+             *  (scales _spx units). undefined → slot is '' (byte-identical). */
+            fontScale?: number;
             extra?: Record<string, string>;
         },
     ): string {
         let out = template
             .replace(/\{\{USER_INCLUDES\}\}/g, opts.includes ?? '')
             .replace(/\{\{USER_GLOBALS\}\}/g, opts.globals ?? '')
+            .replace(/\{\{PALETTE_DEFS\}\}/g, BuildRunner.buildPaletteDefs(opts.theme))
+            .replace(/\{\{UI_CONFIG_SETUP\}\}/g, BuildRunner.buildUiConfigSetup(opts.fontScale))
+            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, BuildRunner.buildPreBuildInstall(opts.theme, opts.fontScale, false))
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.injectFocusName(opts.userCode, opts.focusId))
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
             .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
@@ -284,6 +408,11 @@ export class BuildRunner {
         const pluginCode = this.pluginTemplateContent
             .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
             .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
+            // {{PALETTE_DEFS}}/{{PRE_BUILD_INSTALL}} are the ADR-004 install slots
+            // for the warm/dlopen path. config→install plumbing into this path is
+            // M3.8 (pass 2); default to '' now so the template compiles unchanged.
+            .replace(/\{\{PALETTE_DEFS\}\}/g, '')
+            .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, '')
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.instrumentAnimations(userCode))
             // Plugin focus is server-driven (warm path); the orchestrator does not
             // yet plumb focus into the dlopen path, so default the slot to '' (the
@@ -329,9 +458,16 @@ export class BuildRunner {
          *  fills its {{POST_BUILD_FOCUS}} slot + NAME-injects the focus var so the
          *  focus ring renders on that node. undefined → byte-identical to before. */
         focusId?: string,
+        /** `// @preview-config: fontScale=<f>` (ADR-004). When set, the harness
+         *  chains `.SetScalingFactor(f)` before Apply() so _spx-sized text scales.
+         *  undefined → {{UI_CONFIG_SETUP}} stays '' (byte-identical). */
+        fontScale?: number,
+        /** `// @preview-config: locale=<l>` (ADR-004). Parsed for plumbing; RTL
+         *  install is M3.5 (pass 2). Accepted here so the signature is stable. */
+        locale?: string,
     ): Promise<BuildResult> {
         const log = getLogger();
-        log.debug('Build', 'buildAndRun start', { width, height, theme, backend: this.backend.kind, focusId });
+        log.debug('Build', 'buildAndRun start', { width, height, theme, backend: this.backend.kind, focusId, fontScale, locale });
 
         const cfg = ConfigurationService.getInstance();
         if (!width || !height) {
@@ -357,6 +493,7 @@ export class BuildRunner {
         const harness = this.renderHarness(this.templateContent, {
             userCode, width, height, bgColorVec, fontSetup,
             includes: sliceIncludes, globals: sliceGlobals, focusId,
+            theme, fontScale,
             extra: { OUTPUT_PATH: out.pngEmbed, METADATA_PATH: out.metadataEmbed },
         });
 

@@ -24,6 +24,97 @@ export interface StandaloneBuildOptions {
      *  fallback) and the matching variable declaration is NAME-tagged so
      *  FindChildByName("<id>") works. Undefined → slot becomes '' (no ring). */
     focusId?: string;
+    /** `// @preview-config: theme=dark` (ADR-004). Installs the dark token
+     *  palette via {{PALETTE_DEFS}}/{{PRE_BUILD_INSTALL}} AND switches the window
+     *  background to dark. Undefined → slots stay '' and the existing hardcoded
+     *  dark background is kept (byte-identical to pre-M3 goldens). */
+    theme?: 'light' | 'dark';
+    /** `// @preview-config: fontScale=<f>` (ADR-004). Chains `.SetScalingFactor(f)`
+     *  before Apply() in {{UI_CONFIG_SETUP}} so _spx-sized text scales. Undefined
+     *  → slot is '' (byte-identical). */
+    fontScale?: number;
+    /** `// @preview-config: locale=<l>` (ADR-004). Parsed for plumbing; RTL
+     *  install is M3.5 (pass 2). Accepted so the option shape is stable. */
+    locale?: string;
+}
+
+/**
+ * Build the harness {{PALETTE_DEFS}} slot — the dark-theme token palette free
+ * function. Duplicated (intentionally) from src/buildRunner.ts.buildPaletteDefs:
+ * this file must NOT import vscode. The token→RGBA rows are SHARED with
+ * src/buildRunner.ts AND docker/preview_server.cpp (keep all three in sync).
+ */
+export function buildPaletteDefs(theme?: 'light' | 'dark'): string {
+    if (theme !== 'dark') {
+        return '';
+    }
+    const rows = DARK_PALETTE_TOKENS.map(
+        (t) => `        {"${t.id}", Dali::Vector4(${t.rgba.map(formatFloat).join(', ')})},`,
+    ).join('\n');
+    return [
+        '// Dark-theme token palette (theme=dark). Free function — no captures —',
+        '// as required by ColorOverrideFunc (ui-color-manager.h). Returns false',
+        '// for unmapped ids so they fall through to the theme (hex colors never',
+        '// reach here, so they are unaffected — honest reskin boundary).',
+        'static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)',
+        '{',
+        '    struct Row { const char* k; Dali::Vector4 v; };',
+        '    static const Row table[] = {',
+        rows,
+        '    };',
+        '    for(const auto& r : table)',
+        '    {',
+        '        if(id == r.k) { out = r.v; return true; }',
+        '    }',
+        '    return false;',
+        '}',
+    ].join('\n');
+}
+
+/** Build the harness {{UI_CONFIG_SETUP}} slot (frozen, pre-Apply). Mirrors
+ *  src/buildRunner.ts.buildUiConfigSetup. */
+export function buildUiConfigSetup(fontScale?: number): string {
+    if (typeof fontScale === 'number' && fontScale > 0) {
+        return `.SetScalingFactor(${formatFloat(fontScale)})`;
+    }
+    return '';
+}
+
+/** Build the harness {{PRE_BUILD_INSTALL}} slot (runtime, pre-tree). Mirrors
+ *  src/buildRunner.ts.buildPreBuildInstall (harness variant — no plugin SetScale,
+ *  the harness froze SetScalingFactor instead). */
+export function buildPreBuildInstall(theme?: 'light' | 'dark'): string {
+    const lines: string[] = [];
+    if (theme === 'dark') {
+        lines.push('    Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
+    }
+    return lines.join('\n');
+}
+
+/** Shared dark token list — keep in sync with src/buildRunner.ts and
+ *  docker/preview_server.cpp. */
+const DARK_PALETTE_TOKENS: ReadonlyArray<{ id: string; rgba: [number, number, number, number] }> = [
+    { id: 'Primary',    rgba: [0.49, 0.55, 0.99, 1.0] },
+    { id: 'Background', rgba: [0.10, 0.10, 0.12, 1.0] },
+    { id: 'Outline',    rgba: [0.45, 0.45, 0.52, 1.0] },
+    { id: 'Surface',    rgba: [0.16, 0.16, 0.20, 1.0] },
+    { id: 'OnSurface',  rgba: [0.92, 0.92, 0.96, 1.0] },
+    { id: 'OnPrimary',  rgba: [1.0,  1.0,  1.0,  1.0] },
+];
+
+/** Format a float for a C++ literal: decimal point + trailing `f`. */
+function formatFloat(v: number): string {
+    const s = Number.isInteger(v) ? `${v}.0` : `${v}`;
+    return `${s}f`;
+}
+
+/** Window background Vector4 literal for the standalone harness. theme=light →
+ *  white; everything else keeps the existing hardcoded dark literal so pre-M3
+ *  goldens stay byte-identical. */
+function bgColorLiteral(theme?: 'light' | 'dark'): string {
+    return theme === 'light'
+        ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
+        : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
 }
 
 /**
@@ -198,12 +289,15 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
     const harness = templateContent
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
+        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme))
+        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
+        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, escapeCppString(opts.outputPngPath))
         .replace(/\{\{METADATA_PATH\}\}/g, escapeCppString(opts.metadataPath))
-        .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
+        .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
         .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 
@@ -244,12 +338,15 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
     const harness = template
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
+        .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme))
+        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
+        .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
         .replace(/\{\{PREVIEW_HEIGHT\}\}/g, `${opts.height}.0f`)
         .replace(/\{\{OUTPUT_PATH\}\}/g, '/work/render.png')
         .replace(/\{\{METADATA_PATH\}\}/g, '/work/meta.json')
-        .replace(/\{\{BACKGROUND_COLOR\}\}/g, 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)')
+        .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
         .replace(/\{\{POST_BUILD_FOCUS\}\}/g, buildPostBuildFocus(opts.focusId))
         .replace(/\{\{FONT_SETUP\}\}/g, '');
 

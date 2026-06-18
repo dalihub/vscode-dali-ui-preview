@@ -60,6 +60,11 @@ extern "C" void __SetPreviewProgress(float p) // p in [0,1]
     }
 }
 {{USER_GLOBALS}}
+// === Build-time install palette definitions (ADR-004 PALETTE_DEFS slot) ===
+// Static free-function color/locale palettes (theme=dark, locale overrides),
+// emitted by the build step. Empty by default → byte-identical. The warm server
+// is already past UiConfig::Apply(), so only runtime overrides apply here.
+{{PALETTE_DEFS}}
 // === Focus resolution fallback (ADR-006 step 3): first keyboard-focusable
 // View via DFS, so an unbound `focus=<id>` still focuses something. Mirrors the
 // harness helper. Dead code unless the POST_BUILD_FOCUS slot is filled. ===
@@ -84,6 +89,7 @@ static Dali::Ui::View __FindFirstFocusable(Dali::Actor actor)
 // === User preview code — exported symbol for dlopen ===
 extern "C" View CreatePreview()
 {
+{{PRE_BUILD_INSTALL}}
 {{USER_CODE}}
 }
 
