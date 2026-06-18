@@ -253,4 +253,86 @@ describe('PreviewManager — updateMultiImage() gallery contract', () => {
         expect(msg.images[0].error).to.equal('compile failed: foo');
         expect(msg.images[0].uri).to.equal(undefined);
     });
+
+    // WU-M5.5: host-side provenance (e.g. focus-multiconfig) on a result must be
+    // MERGED into the per-variant metadata the webview receives (ADR-007 host-
+    // merge), so the badge (WU-M5.3) shows it. This holds even when the build
+    // emitted no metadata at all (a fresh object is created).
+    it('merges host-side result.provenance into the variant metadata (focus-multiconfig)', () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mm-prov-'));
+        const meta = writeMeta(tmp, 'dark', { root: { name: 'RootLayer' } });
+        const pngPath = path.join(tmp, 'dark.png');
+        fs.writeFileSync(pngPath, 'PNG');
+
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        const focusProv = [{ kind: 'focus-multiconfig' as const, detail: 'focus=card not applied in multi-config preview' }];
+        const results: MultiPreviewResult[] = [
+            // Has metadata on disk → provenance appended to it.
+            { config: { name: 'Dark' }, success: true, pngPath, metadataPath: meta, buildTimeMs: 1, provenance: focusProv },
+            // No metadataPath → a fresh metadata object is created carrying provenance.
+            { config: { name: 'Light' }, success: true, pngPath, metadataPath: undefined, buildTimeMs: 1, provenance: focusProv },
+        ];
+        mgr.updateMultiImage(results);
+
+        const msg = postedMessages.find(m => m.command === 'updateMultiImage') as any;
+        expect(msg.images[0].metadata.root.name, 'existing metadata preserved').to.equal('RootLayer');
+        expect(msg.images[0].metadata.provenance, 'provenance merged onto existing metadata')
+            .to.deep.equal(focusProv);
+        expect(msg.images[1].metadata.provenance, 'fresh metadata created for provenance-only variant')
+            .to.deep.equal(focusProv);
+
+        fs.rmSync(tmp, { recursive: true, force: true });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// updateImage — provenance message contract (WU-M5.3 / ADR-007)
+// ---------------------------------------------------------------------------
+
+describe('PreviewManager — updateImage() provenance contract (WU-M5.3)', () => {
+    function writeMetaFile(obj: object): string {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'um-prov-'));
+        const p = path.join(tmp, 'meta.json');
+        fs.writeFileSync(p, JSON.stringify(obj));
+        return p;
+    }
+
+    // The badge backbone depends on the channel staying intact: when metadata
+    // carries `provenance`, the host must post it to the webview UNCHANGED so the
+    // chip renderer can consume it. (The chip RENDERING itself is visual / ✋.)
+    it('posts updateImage with metadata.provenance carried through verbatim', () => {
+        const provenance = [
+            { kind: 'untranslated', detail: 'IDS_TITLE shown as key (no ar catalog)' },
+            { kind: 'image-placeholder', detail: 'http://x/p.jpg unreachable — showing gray placeholder' },
+        ];
+        const metadata = { root: { name: 'RootLayer' }, provenance };
+
+        const pngPath = path.join(os.tmpdir(), 'prov-preview.png');
+        fs.writeFileSync(pngPath, 'PNG');
+
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.updateImage(pngPath, 42, metadata, false, 7);
+
+        const msg = postedMessages.find(m => m.command === 'updateImage') as any;
+        expect(msg, 'updateImage posted').to.exist;
+        // The whole metadata object (incl. provenance) reaches the webview intact.
+        expect(msg.metadata).to.deep.equal(metadata);
+        expect(msg.metadata.provenance).to.deep.equal(provenance);
+        // Sanity: the normal fields are still present.
+        expect(msg.epoch).to.equal(7);
+        expect(msg.isScrub).to.equal(false);
+    });
+
+    it('posts updateImage with no provenance field when metadata has none (clean preview)', () => {
+        const metadata = { root: { name: 'RootLayer' } };
+        const pngPath = path.join(os.tmpdir(), 'noprov-preview.png');
+        fs.writeFileSync(pngPath, 'PNG');
+
+        const { mgr, postedMessages } = makeManagerWithSpy();
+        mgr.updateImage(pngPath, 1, metadata, false, 1);
+
+        const msg = postedMessages.find(m => m.command === 'updateImage') as any;
+        expect(msg.metadata).to.deep.equal(metadata);
+        expect((msg.metadata as any).provenance).to.equal(undefined);
+    });
 });

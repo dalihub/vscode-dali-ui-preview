@@ -975,6 +975,62 @@
     border-radius: 3px;
     margin-left: 4px;
   }
+
+  /* Provenance badges (WU-M5.3 / ADR-007): a row of small pill labels surfacing
+     what the tool synthesized/approximated for THIS frame, so a "silent fix" is
+     visible without dominating. Empty (no approximation) → the bar collapses
+     (display:none via :empty), so a clean preview shows zero badges. */
+  .provenance-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px 0 8px;
+    pointer-events: none; /* don't block clicks on the preview; chips re-enable */
+  }
+  .provenance-bar:empty { display: none; }
+  /* Per-tile variant in the multi grid: tighter, no top padding. */
+  .provenance-bar.grid {
+    padding: 4px 0 0 0;
+  }
+  .provenance-chip {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    line-height: 1.4;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.10);
+    color: var(--vscode-foreground, #ddd);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    cursor: default;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A small leading warning dot, tinted per kind, keeps the chip subtle while
+     still flagging it as an approximation. */
+  .provenance-chip::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.85;
+  }
+  /* kind → accent color (contrast-first against the dark webview; see ADR-007 §3).
+     The chip body stays neutral; only the dot + a faint tint signal severity. */
+  .provenance-chip.kind-sample-data       { color: #b0b6bf; border-color: rgba(176,182,191,0.35); }
+  .provenance-chip.kind-image-substitute  { color: #4aa3ff; border-color: rgba(74,163,255,0.40); }
+  .provenance-chip.kind-image-placeholder { color: #b0b6bf; border-color: rgba(176,182,191,0.35); }
+  .provenance-chip.kind-bg-only-theme     { color: #e2c14a; border-color: rgba(226,193,74,0.40); }
+  .provenance-chip.kind-focus-approx      { color: #b48ce8; border-color: rgba(180,140,232,0.40); }
+  .provenance-chip.kind-focus-multiconfig { color: #b48ce8; border-color: rgba(180,140,232,0.40); }
+  .provenance-chip.kind-untranslated      { color: #e8954a; border-color: rgba(232,149,74,0.40); }
+  .provenance-chip.kind-stub              { color: #e86a6a; border-color: rgba(232,106,106,0.45); }
   /* Animation scrubber */
   .anim-bar {
     flex: 0 0 auto;
@@ -1088,6 +1144,9 @@
 
       <!-- Main preview area -->
       <div class="preview-area" id="previewArea">
+        <!-- Provenance badges (WU-M5.3): "what the tool synthesized/approximated"
+             for this frame. Empty → collapses (no badges on a clean preview). -->
+        <div class="provenance-bar" id="provenanceBar"></div>
         <!-- Image container -->
         <div class="preview-container bg-dark" id="previewContainer">
           <img id="previewImage" class="hidden" alt="DALi Preview" draggable="false">
@@ -1168,6 +1227,7 @@
   var previewArea = document.getElementById('previewArea');
   var previewContainer = document.getElementById('previewContainer');
   var previewImage = document.getElementById('previewImage');
+  var provenanceBar = document.getElementById('provenanceBar');
 
   // === Animation scrubber + smooth playback (frame cache) ===
   // Frames are rendered lazily on demand and cached by index, then reused so
@@ -1631,6 +1691,61 @@
     renderMetadataOverlayInto(previewImage, elementOverlay, metadata);
     updateFlexOverlay();
     updateFlexButtonVisibility();
+  }
+
+  // ── Provenance badges (WU-M5.3 / ADR-007) ──
+  // metadata.provenance[] is a CLOSED-enum list of "the tool filled/approximated
+  // this" signals (host-populated). We render each as a small pill near the
+  // preview. The map is a local constant (closed enum → safe); an unknown kind
+  // falls back to a neutral chip showing the raw kind, so a future host kind never
+  // crashes the webview.
+  var PROVENANCE_LABELS = {
+    'sample-data':       'sample data',
+    'image-substitute':  'image substituted',
+    'image-placeholder': 'image placeholder',
+    'bg-only-theme':     'background-only theme',
+    'focus-approx':      'focus approximated',
+    'focus-multiconfig': 'focus not in multi-config',
+    'untranslated':      'untranslated',
+    'stub':              'stubbed'
+  };
+
+  // Build one chip element for a {kind, detail} entry. The visible label is the
+  // friendly name; the full detail (when present) is the title/tooltip so the
+  // chip stays compact but the specifics are one hover away.
+  function makeProvenanceChip(entry) {
+    var kind = (entry && entry.kind) ? String(entry.kind) : 'unknown';
+    var chip = document.createElement('span');
+    chip.className = 'provenance-chip kind-' + kind;
+    chip.textContent = PROVENANCE_LABELS[kind] || kind;
+    if (entry && entry.detail) {
+      chip.title = entry.detail;
+    }
+    return chip;
+  }
+
+  // Render provenance chips for a single-preview metadata into #provenanceBar.
+  // No provenance / empty array → clears the bar (it collapses via :empty CSS).
+  function renderProvenance(metadata) {
+    if (!provenanceBar) { return; }
+    provenanceBar.innerHTML = '';
+    var list = metadata && metadata.provenance;
+    if (!Array.isArray(list) || list.length === 0) { return; }
+    for (var i = 0; i < list.length; i++) {
+      provenanceBar.appendChild(makeProvenanceChip(list[i]));
+    }
+  }
+
+  // Render provenance chips for a multi-grid tile into the given container
+  // (a fresh .provenance-bar.grid element placed under the tile header).
+  function renderProvenanceInto(barEl, metadata) {
+    if (!barEl) { return; }
+    barEl.innerHTML = '';
+    var list = metadata && metadata.provenance;
+    if (!Array.isArray(list) || list.length === 0) { return; }
+    for (var i = 0; i < list.length; i++) {
+      barEl.appendChild(makeProvenanceChip(list[i]));
+    }
   }
 
   // Re-render overlay when image resizes
@@ -2179,6 +2294,10 @@
           // reset the cache, show it.
           currentEpoch = msg.epoch;
           resetFrameCache();
+          // Provenance badges (WU-M5.3): render as soon as the message arrives —
+          // they don't depend on image dimensions, so a "silent fix" is visible
+          // immediately. Empty/absent → the bar collapses (no badges).
+          renderProvenance(msg.metadata);
           previewImage.src = msg.uri + '?t=' + Date.now();
           previewImage.onload = function () {
             dimensionsLabel.textContent = previewImage.naturalWidth + ' x ' + previewImage.naturalHeight;
@@ -2269,6 +2388,13 @@
           header.className = 'preview-grid-header';
           header.textContent = imgInfo.name;
           item.appendChild(header);
+          // Per-tile provenance badges (WU-M5.3 / M5.5): each config variant can
+          // carry its own provenance (e.g. only the Dark variant is bg-only-theme,
+          // or every variant shows focus-multiconfig when focus was dropped).
+          var provBar = document.createElement('div');
+          provBar.className = 'provenance-bar grid';
+          renderProvenanceInto(provBar, imgInfo.metadata || null);
+          item.appendChild(provBar);
           if (!imgInfo.success) {
             var errDiv = document.createElement('div');
             errDiv.className = 'preview-grid-error';
@@ -2316,6 +2442,8 @@
         overlayWelcome.classList.remove('hidden');
         previewArea.classList.remove('hidden');
         previewGrid.classList.add('hidden');
+        // Clear any stale provenance badges from a prior preview (WU-M5.3).
+        if (provenanceBar) { provenanceBar.innerHTML = ''; }
         setInspectorAvailable(false);
         buildTimeText.textContent = '';
         timestampText.textContent = '';

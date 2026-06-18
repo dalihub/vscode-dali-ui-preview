@@ -1,3 +1,4 @@
+// @render-only — async ImageView loads (form L): pixel non-deterministic across env/timing (broke broken-image→real-photo in M5); verified by compile+render, not a flaky pixel golden.
 // @preview-config: name="Music Player", width=2520, height=4480
 return StackLayout::New(StackOrientation::VERTICAL)
     .SetSpacing(0.0f)

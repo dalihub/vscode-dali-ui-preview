@@ -36,6 +36,12 @@ export interface StandaloneBuildOptions {
     /** `// @preview-config: locale=<l>` (ADR-004). Parsed for plumbing; RTL
      *  install is M3.5 (pass 2). Accepted so the option shape is stable. */
     locale?: string;
+    /** WU-M5.1: absolute host path of the bundled gray broken-image placeholder.
+     *  When set, the build stages it into the render dir and chains
+     *  SetBrokenImageUrl so an unreachable ImageView URL keeps its layout box.
+     *  Gated per-sample (a `// @broken-image` marker) so the existing goldens —
+     *  which never load a broken image — stay byte-identical. */
+    brokenImagePath?: string;
 }
 
 /**
@@ -91,12 +97,19 @@ export function buildPaletteDefs(theme?: 'light' | 'dark', locale?: string): str
 }
 
 /** Build the harness {{UI_CONFIG_SETUP}} slot (frozen, pre-Apply). Mirrors
- *  src/buildRunner.ts.buildUiConfigSetup. */
-export function buildUiConfigSetup(fontScale?: number): string {
+ *  src/buildRunner.ts.buildUiConfigSetup. `brokenImagePath` (WU-M5.1) chains
+ *  SetBrokenImageUrl so an unreachable ImageView URL renders the bundled gray
+ *  placeholder at its requested size. undefined → byte-identical to pre-M5. */
+export function buildUiConfigSetup(fontScale?: number, brokenImagePath?: string): string {
+    let chain = '';
     if (typeof fontScale === 'number' && fontScale > 0) {
-        return `.SetScalingFactor(${formatFloat(fontScale)})`;
+        chain += `.SetScalingFactor(${formatFloat(fontScale)})`;
     }
-    return '';
+    if (brokenImagePath) {
+        const p = brokenImagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        chain += `.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}")`;
+    }
+    return chain;
 }
 
 /** Build the harness {{PRE_BUILD_INSTALL}} slot (runtime, pre-tree). Mirrors
@@ -343,7 +356,8 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
         .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme, opts.locale))
-        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
+        // Native path: the binary reads the host placeholder path directly.
+        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale, opts.brokenImagePath))
         .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme, opts.locale))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
@@ -387,12 +401,25 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
     try { template = fs.readFileSync(opts.templatePath, 'utf-8'); }
     catch (e) { return { success: false, error: `Failed to read template: ${(e as Error).message}` }; }
 
+    // WU-M5.1: stage the bundled placeholder into the WORK bind-mount so the
+    // container sees it at /work/<asset> for SetBrokenImageUrl. Gated per-sample
+    // (opts.brokenImagePath set only for `// @broken-image` samples), so the
+    // existing goldens stay byte-identical.
+    let dockerBrokenPath: string | undefined;
+    if (opts.brokenImagePath) {
+        try {
+            const assetName = path.basename(opts.brokenImagePath);
+            fs.copyFileSync(opts.brokenImagePath, path.join(WORK, assetName));
+            dockerBrokenPath = `/work/${assetName}`;
+        } catch (e) { return { success: false, error: `Failed to stage broken-image placeholder: ${(e as Error).message}` }; }
+    }
+
     const userCode = injectFocusName(opts.userCode, opts.focusId);
     const harness = template
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
         .replace(/\{\{PALETTE_DEFS\}\}/g, buildPaletteDefs(opts.theme, opts.locale))
-        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale))
+        .replace(/\{\{UI_CONFIG_SETUP\}\}/g, buildUiConfigSetup(opts.fontScale, dockerBrokenPath))
         .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, buildPreBuildInstall(opts.theme, opts.locale))
         .replace(/\{\{USER_CODE\}\}/g, userCode)
         .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)

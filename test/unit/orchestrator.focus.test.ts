@@ -122,3 +122,92 @@ describe('PreviewOrchestrator — focus directive routing (M2 IMPL PASS 4)', () 
         expect(buildAndRunCalls.length, 'no-focus code should NOT hit the harness').to.equal(0);
     });
 });
+
+// WU-M5.5 — multi-config × focus → focus-multiconfig provenance. focus only
+// renders on the single-config harness path, so a focus directive in a gallery is
+// dropped. The orchestrator must promote that silent-drop to a `focus-multiconfig`
+// provenance on EACH successful variant so the webview badge (WU-M5.3) shows it.
+
+function makeMultiFocusOrch() {
+    // Capture the results array the manager would render so we can assert the
+    // per-variant provenance the host attached.
+    const updateMultiCalls: any[][] = [];
+    const previewManager = {
+        updateImage: () => {},
+        updateMultiImage: (results: any[]) => { updateMultiCalls.push(results); },
+        showLoading: () => {},
+        showError: () => {},
+        clearError: () => {},
+        showAnimationControls: () => {},
+        hideAnimationControls: () => {},
+        notifyScrubDropped: () => {},
+    } as any;
+
+    const buildRunner = {
+        getTmpDir: () => '/tmp/dali_test',
+        getExtensionPath: () => '/ext',
+        getPluginTemplateContent: () => '',
+        // Multi-config harness fallback path (no server): each variant succeeds.
+        buildAndRun: () => Promise.resolve({ success: true, pngPath: '/v.png', metadataPath: undefined }),
+        compilePlugin: () => Promise.resolve({ success: true, soPath: '/p.so' }),
+    } as any;
+
+    const deps: OrchestratorDeps = {
+        buildRunner,
+        previewManager,
+        // No resident server → multi-config goes through the harness fallback, which
+        // still attaches the host-side provenance (the path under test).
+        previewServer: undefined,
+        xvfbManager: undefined,
+        statusBar: undefined,
+        outputChannel: { appendLine: () => {} } as any,
+        diagnosticCollection: { delete: () => {}, set: () => {} } as any,
+    };
+    const orch = new PreviewOrchestrator(deps, { width: 480, height: 320, theme: 'dark' });
+    return { orch, updateMultiCalls };
+}
+
+describe('PreviewOrchestrator — multi-config × focus → focus-multiconfig (WU-M5.5)', () => {
+    const CODE = 'return View::New();';
+    function multiFocusExtraction(focus: string | undefined): ExtractionResult {
+        return {
+            code: CODE,
+            startLine: 0,
+            mode: 'preview-file',
+            configs: [
+                { name: 'Light', theme: 'light' },
+                { name: 'Dark', theme: 'dark' },
+            ],
+            state: focus ? { focus } : undefined,
+        };
+    }
+
+    it('attaches focus-multiconfig provenance to every successful variant', async () => {
+        const { orch, updateMultiCalls } = makeMultiFocusOrch();
+        const doc = createMockDocument('/proj/gallery.preview.dali.cpp', CODE) as any;
+
+        await orch.runPreview(doc, false, multiFocusExtraction('card'));
+
+        expect(updateMultiCalls.length, 'updateMultiImage called once').to.equal(1);
+        const results = updateMultiCalls[0];
+        expect(results).to.have.length(2);
+        for (const r of results) {
+            expect(r.success).to.equal(true);
+            expect(r.provenance, `${r.config.name} carries provenance`).to.have.length(1);
+            expect(r.provenance[0].kind).to.equal('focus-multiconfig');
+            expect(r.provenance[0].detail).to.include('card');
+        }
+    });
+
+    it('control: WITHOUT focus the variants carry NO focus-multiconfig provenance', async () => {
+        const { orch, updateMultiCalls } = makeMultiFocusOrch();
+        const doc = createMockDocument('/proj/gallery.preview.dali.cpp', CODE) as any;
+
+        await orch.runPreview(doc, false, multiFocusExtraction(undefined));
+
+        const results = updateMultiCalls[0];
+        for (const r of results) {
+            expect(r.provenance, `${r.config.name} has no provenance`).to.equal(undefined);
+        }
+    });
+});

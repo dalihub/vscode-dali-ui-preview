@@ -342,6 +342,72 @@ export function buildUntranslatedProvenance(locale: string | undefined, code: st
 }
 
 /**
+ * Detect ImageView URLs in preview code that are remote/unreachable, so the host
+ * can record an `image-placeholder` provenance (WU-M5.1 / ADR-007). The harness's
+ * SetBrokenImageUrl makes such a URL render the bundled gray placeholder at the
+ * view's requested size; this badge tells the user those pixels are a stand-in.
+ *
+ * Honest heuristic (static — no network): an `ImageView::New("...")` /
+ * `.SetResourceUrl("...")` argument is flagged when it is a remote scheme
+ * (http/https/ftp) OR a custom/unknown scheme (`foo://`), since neither resolves
+ * in the sandbox. Plain local paths/filenames are NOT flagged — they may resolve
+ * (and if they don't, the placeholder still shows; we just don't over-claim).
+ * Returns the de-duplicated, in-order list of flagged URLs.
+ */
+function findUnreachableImageUrls(code: string): string[] {
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    // Match the string literal argument of ImageView::New(...) or SetResourceUrl(...).
+    const re = /(?:ImageView\s*::\s*New|SetResourceUrl)\s*\(\s*"([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(code)) !== null) {
+        const url = m[1];
+        // Remote scheme or any custom scheme `name://` — neither fetches offline.
+        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) && !seen.has(url)) {
+            seen.add(url);
+            urls.push(url);
+        }
+    }
+    return urls;
+}
+
+/**
+ * Build the `image-placeholder` provenance for a preview (WU-M5.1 / ADR-007).
+ * When the code references one or more remote/unreachable ImageView URLs, the
+ * harness renders the bundled gray placeholder in their place (layout preserved),
+ * so we record ONE entry naming the URLs. The host merges it into the metadata;
+ * the visible badge chip is WU-M5.3. Returns [] when no such URL (→ no badge).
+ */
+export function buildImagePlaceholderProvenance(code: string): ProvenanceEntry[] {
+    const urls = findUnreachableImageUrls(code);
+    if (urls.length === 0) {
+        return [];
+    }
+    const shown = urls.slice(0, 2).join(', ') + (urls.length > 2 ? ', …' : '');
+    return [{
+        kind: 'image-placeholder',
+        detail: `${shown} unreachable — showing gray placeholder`,
+    }];
+}
+
+/**
+ * Build the `focus-multiconfig` provenance for a multi-config preview that
+ * carried a `// @preview-state: focus=` (WU-M5.5 / ADR-007). focus only renders
+ * on the single-config harness path, so in a gallery the ring is dropped; this
+ * promotes the old warn-log to a per-variant badge so the silent-drop is VISIBLE.
+ * Returns [] when no focus id (→ no badge, single-config focus is unaffected).
+ */
+export function buildFocusMulticonfigProvenance(focusId: string | undefined): ProvenanceEntry[] {
+    if (!focusId) {
+        return [];
+    }
+    return [{
+        kind: 'focus-multiconfig',
+        detail: `focus=${focusId} not applied in multi-config preview`,
+    }];
+}
+
+/**
  * Merge a provenance array into a (possibly null) metadata object as the
  * top-level `provenance` field (ADR-007 §1/§2 host-merge). No-op when there is
  * nothing to merge. Existing entries (e.g. a future runtime `>>>PROV:` marker)
@@ -686,6 +752,38 @@ export class PreviewOrchestrator {
             this.deps.previewManager.notifyScrubDropped(epoch);
             return;
         }
+        await this.renderAtProgress(progress, epoch);
+    }
+
+    /**
+     * WU-M5.4: apply a declared `// @preview-state: progress=<f>` after a build by
+     * scrubbing the resident plugin to that position ONCE. Unlike the interactive
+     * `scrubAnimation`, this is invoked by the build itself (the reload just
+     * completed) so it does NOT consult the `building` guard — the build owns the
+     * server right now and `activeEpoch_` is current. Still epoch-guarded after the
+     * await so a newer preview can't be overwritten. No-op when the server is down.
+     */
+    private async applyDeclaredProgress(progress: number, epoch: number): Promise<void> {
+        if (!this.deps.previewServer?.isRunning) {
+            return;
+        }
+        const p = Math.max(0, Math.min(1, progress));
+        await this.renderAtProgress(p, epoch);
+    }
+
+    /**
+     * Shared scrub render: RENDER_AT the resident plugin at `progress` and push the
+     * frame to the webview (marked isScrub so the webview caches it without
+     * re-adopting the epoch). The bucketed filename keeps each cached frame on a
+     * stable backing file. Epoch-re-checked after the await so a frame for a
+     * superseded preview is dropped. Callers gate entry (the `building` guard for
+     * interactive scrubs; the just-finished build for declared progress).
+     */
+    private async renderAtProgress(progress: number, epoch: number): Promise<void> {
+        const server = this.deps.previewServer;
+        if (!server?.isRunning) {
+            return;
+        }
         const tmpDir = this.deps.buildRunner.getTmpDir();
         // Name the frame by a quantized progress bucket so each cached frame keeps a
         // STABLE backing file (a rotating mod-N name aliases distinct cached frames
@@ -796,12 +894,23 @@ export class PreviewOrchestrator {
         // only the static scene tree and emits no >>>ANIM, so the scrubber would
         // never appear — route to the dlopen path which loads + scrubs it.
         const hasAnimation = /\.\s*Play\s*\(/.test(instrumented);
+        // `// @preview-state: progress=<f>` (WU-M5.4): force the SERVER/dlopen path
+        // — the OPPOSITE of focus. The animation scrubber (__SetPreviewProgress /
+        // RENDER_AT) lives ONLY in the resident plugin, so a progress frame needs the
+        // dlopen path that loads it. progress is applied after the build (scrubAnimation).
+        const hasProgress = typeof extraction.state?.progress === 'number';
         // `// @preview-state: focus=<id>` (ADR-006): force the full-harness path.
         // The harness is the proven focus-capable build (it fills {{POST_BUILD_FOCUS}}
         // + NAME-injects the focus var); the T1 parser/scene-builder can't focus, and
         // the dlopen plugin's server-side focus hook is not wired. A focus directive is
         // a deliberate "show me this state" action, so the slower harness render is OK.
-        const hasFocus = !!extraction.state?.focus;
+        //
+        // CONFLICT (WU-M5.4): focus forces harness, progress forces server — mutually
+        // exclusive paths. POLICY: progress WINS (a runtime-state request is more
+        // specific). When both are set we suppress the harness-force here so the
+        // dlopen path runs and the scrubber exists; runPreview emits a `focus-approx`
+        // provenance recording that focus was dropped in favor of progress.
+        const hasFocus = !!extraction.state?.focus && !hasProgress;
         if (!hasFocus && slice.rung === 'single-fn' && !hasAnimation && this.parserStrategy.canHandle(this.deps.previewServer)) {
             log.debug('Build', 'trying parser path', { opId });
             const stratResult = await this.parserStrategy.execute(
@@ -1005,17 +1114,19 @@ export class PreviewOrchestrator {
         try {
             // Multi-config path: build each config independently (2+ configs)
             if (extraction.configs && extraction.configs.length > 1) {
-                // Honesty: focus is not applied per-variant in multi-config yet
-                // (focus routes to the single harness path). Warn instead of
-                // silently dropping the ring. Per-variant focus / provenance badge
-                // is queued for M5.
+                // Honesty (WU-M5.5): focus is not applied per-variant in multi-config
+                // (focus routes to the single harness path). A warn-log alone is
+                // invisible (the user doesn't watch the panel), so promote it to a
+                // `focus-multiconfig` provenance badge on each variant (ADR-007). Keep
+                // the cheap log too. undefined focus → no badge.
                 if (extraction.state?.focus) {
                     this.deps.outputChannel.appendLine(
-                        `[Preview] ⚠ // @preview-state: focus=${extraction.state.focus} is not applied in multi-config preview (${extraction.configs.length} configs). The focus ring is only shown in single-config previews.`,
+                        `[Preview] ⚠ // @preview-state: focus=${extraction.state.focus} is not applied in multi-config preview (${extraction.configs.length} configs). The focus ring is only shown in single-config previews. (Shown as a 'focus-multiconfig' badge on each variant.)`,
                     );
                 }
                 await this.runMultiPreview(
                     doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime,
+                    extraction.state?.focus,
                 );
                 return;
             }
@@ -1049,15 +1160,40 @@ export class PreviewOrchestrator {
 
             if (result.success && result.pngPath) {
                 // WU-M3.6: honest untranslated signal for a single-config preview
-                // with a locale + IDS_ keys (no catalog → raw key). Merged into the
-                // metadata for the M5 badge channel (ADR-007); no badge yet in M3.
+                // with a locale + IDS_ keys (no catalog → raw key). WU-M5.1: an
+                // image-placeholder signal when the code references a remote/
+                // unreachable ImageView URL (rendered as the bundled placeholder).
+                // Both merged into the metadata for the M5 badge channel (ADR-007).
                 const singleCfg = extraction.configs && extraction.configs.length === 1
                     ? extraction.configs[0] : undefined;
-                const provenance = buildUntranslatedProvenance(singleCfg?.locale, extraction.code);
+                const provenance = [
+                    ...buildUntranslatedProvenance(singleCfg?.locale, extraction.code),
+                    ...buildImagePlaceholderProvenance(extraction.code),
+                ];
+                // WU-M5.4 conflict: focus + progress are mutually exclusive paths;
+                // progress wins (see runBuildStrategies). Record that focus was
+                // dropped so the user SEES it (focus-approx badge, ADR-007).
+                const hasProgress = typeof extraction.state?.progress === 'number';
+                if (extraction.state?.focus && hasProgress) {
+                    provenance.push({
+                        kind: 'focus-approx',
+                        detail: `focus=${extraction.state.focus} ignored — progress=${extraction.state.progress} took the scrubber path`,
+                    });
+                }
                 this.applySuccessfulBuild({
                     result, parserScene, usedServerMode, usedParserMode,
                     buildTimeMs, startTime, previewManager, provenance,
                 });
+                // WU-M5.4: apply `progress=<f>` by scrubbing the resident plugin to
+                // that normalized position ONCE (clamped to [0,1] in
+                // applyDeclaredProgress). Only meaningful on the server/dlopen path
+                // with a registered animation — that is where the scrubber
+                // (__SetPreviewProgress / RENDER_AT) exists. On the harness fallback
+                // (server down) there is no scrubber, so the first frame (progress 0)
+                // stands; the directive is then a no-op.
+                if (hasProgress && usedServerMode && result.animationCount && result.animationCount > 0) {
+                    await this.applyDeclaredProgress(extraction.state!.progress!, this.activeEpoch_);
+                }
             } else {
                 this.reportHarnessFailure(result, doc, extraction.startLine, buildRunner, slice.sourcePaths);
             }
@@ -1089,13 +1225,22 @@ export class PreviewOrchestrator {
         startLine: number,
         myGeneration: number,
         startTime: number,
+        /** WU-M5.5: a `// @preview-state: focus=` that was dropped because focus
+         *  only renders on the single-config harness path. When set, each variant
+         *  result carries a `focus-multiconfig` provenance so the webview shows the
+         *  silent-drop as a badge (ADR-007). undefined → no badge. */
+        focusId?: string,
     ): Promise<void> {
         const log = getLogger();
-        log.debug('Extension', 'runMultiPreview start', { configCount: configs.length });
+        log.debug('Extension', 'runMultiPreview start', { configCount: configs.length, focusId });
         const { buildRunner, previewManager } = this.deps;
         if (!buildRunner || !previewManager) {
             return;
         }
+
+        // WU-M5.5: focus-multiconfig provenance, merged onto every variant's
+        // metadata by previewManager.updateMultiImage. [] when no dropped focus.
+        const focusProvenance = buildFocusMulticonfigProvenance(focusId);
 
         const results: MultiPreviewResult[] = [];
 
@@ -1196,6 +1341,17 @@ export class PreviewOrchestrator {
 
         if (myGeneration !== this.buildGeneration) {
             return;
+        }
+
+        // WU-M5.5: tag each successful variant with the dropped-focus provenance so
+        // every tile shows the `focus-multiconfig` badge (host-merge per ADR-007;
+        // previewManager merges it into the metadata it reads). No-op when [].
+        if (focusProvenance.length > 0) {
+            for (const r of results) {
+                if (r.success) {
+                    r.provenance = [...(r.provenance ?? []), ...focusProvenance];
+                }
+            }
         }
 
         previewManager.updateMultiImage(results);

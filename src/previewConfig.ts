@@ -33,15 +33,29 @@ export interface MultiPreviewResult {
     buildTimeMs: number;
     frameCount?: number;
     error?: string;
+    /** WU-M5.5 (ADR-007): host-side provenance to merge into this variant's
+     *  metadata before it reaches the webview (e.g. `focus-multiconfig` when a
+     *  focus directive was dropped in a gallery). previewManager.updateMultiImage
+     *  merges these on top of the metadata read from `metadataPath`. */
+    provenance?: ProvenanceEntry[];
 }
 
 /**
  * Provenance entry (ADR-007) — one "the tool filled/approximated this" signal.
- * `kind` is a CLOSED enum of 6 (sample-data, image-substitute, bg-only-theme,
- * focus-approx, untranslated, stub); adding a kind means amending ADR-007. The
- * host merges these into the metadata JSON's top-level `provenance` array (no
+ * The host merges these into the metadata JSON's top-level `provenance` array (no
  * new IPC channel); the visible badge chip is consumed by the webview in M5
- * (F5.3). M3 only PREPARES the `untranslated` channel (WU-M3.6).
+ * (F5.3, WU-M5.3). M3 PREPARES the `untranslated` channel (WU-M3.6).
+ *
+ * `kind` is a CLOSED enum; adding a kind means amending ADR-007. The original 6
+ * (ADR-007 §1) are sample-data / image-substitute / bg-only-theme / focus-approx
+ * / untranslated / stub. M5 adds two more, registered here:
+ *   - `image-placeholder` (WU-M5.1): an ImageView's remote/unreachable URL was
+ *     rendered as the bundled gray broken-image placeholder (layout preserved,
+ *     pixels are a stand-in). Distinct from `image-substitute` (M5.2), which
+ *     swaps in a *real* bundled image via `// @preview-asset:`.
+ *   - `focus-multiconfig` (WU-M5.5): a `// @preview-state: focus=` was dropped in
+ *     a multi-config (gallery) preview because focus only renders on the single-
+ *     config harness path. Promotes the old warn-log to a visible badge.
  */
 export interface ProvenanceEntry {
     kind:
@@ -50,7 +64,9 @@ export interface ProvenanceEntry {
         | 'bg-only-theme'
         | 'focus-approx'
         | 'untranslated'
-        | 'stub';
+        | 'stub'
+        | 'image-placeholder'
+        | 'focus-multiconfig';
     detail: string;
 }
 

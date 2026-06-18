@@ -115,6 +115,16 @@ export class PreviewManager {
                 } catch (err) { getLogger().trace('Webview', 'multi-preview metadata read skipped', { error: String(err) }); }
             }
 
+            // WU-M5.5 (ADR-007 host-merge): fold any host-side provenance for this
+            // variant (e.g. `focus-multiconfig`) into the metadata's top-level
+            // `provenance` array so the webview badge (WU-M5.3) shows it. Creates a
+            // metadata object if the build emitted none. Existing entries preserved.
+            if (r.provenance && r.provenance.length > 0) {
+                const meta = (item.metadata ?? {}) as { provenance?: unknown[] };
+                meta.provenance = [...(meta.provenance ?? []), ...r.provenance];
+                item.metadata = meta;
+            }
+
             return item;
         });
 

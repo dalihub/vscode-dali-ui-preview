@@ -170,14 +170,29 @@ export class BuildRunner {
      * which scales the _spx/_sdp units (ui-config.h:177; unit.h: _spx "is
      * multiplied by a scaling-factor configured via UiConfig"). Plain pixel
      * SetFontSize(px) is NOT affected — a sample must size text in _spx to scale.
+     *
+     * WU-M5.1 (ADR-007 image-placeholder): when `brokenImagePath` is given, also
+     * chains `.SetBrokenImageUrl(BrokenImageType::NORMAL, "<path>")` so an
+     * ImageView whose URL is remote/unreachable renders the bundled gray
+     * placeholder at its requested SIZE (layout preserved) instead of an empty
+     * box (ui-config.h: SetBrokenImageUrl is frozen-after-Apply, so it must be in
+     * this pre-Apply chain). The path must resolve at render time — the caller
+     * stages the bundled asset into a path the binary can read (the docker mount
+     * /work, or a host path in local mode).
+     *
      * '' when no frozen knob is set → byte-identical. N/A for the plugin (warm
      * server is already past Apply()).
      */
-    static buildUiConfigSetup(fontScale?: number): string {
+    static buildUiConfigSetup(fontScale?: number, brokenImagePath?: string): string {
+        let chain = '';
         if (typeof fontScale === 'number' && fontScale > 0) {
-            return `.SetScalingFactor(${BuildRunner.formatFloat(fontScale)})`;
+            chain += `.SetScalingFactor(${BuildRunner.formatFloat(fontScale)})`;
         }
-        return '';
+        if (brokenImagePath) {
+            const p = brokenImagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            chain += `.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}")`;
+        }
+        return chain;
     }
 
     /**
@@ -212,6 +227,34 @@ export class BuildRunner {
             lines.push(`    Dali::Ui::UiScaleManager::Get().SetScale(${BuildRunner.formatFloat(fontScale)});`);
         }
         return lines.join('\n');
+    }
+
+    /**
+     * Stage the bundled gray broken-image placeholder (WU-M5.1 / ADR-007) into the
+     * work dir and return the path the rendered binary should pass to
+     * SetBrokenImageUrl. The asset ships at `media/broken-image-placeholder.png`;
+     * it is copied into `tmpDir` (which the docker backend bind-mounts at /work, so
+     * the container sees `/work/broken-image-placeholder.png`; the local backend
+     * reads the host path directly). Returns undefined if the asset is missing or
+     * the copy fails — the caller then omits SetBrokenImageUrl (byte-identical,
+     * graceful: a missing placeholder just falls back to DALi's default behavior).
+     */
+    private stageBrokenImagePlaceholder(): string | undefined {
+        const ASSET = 'broken-image-placeholder.png';
+        const src = path.join(this.extensionPath, 'media', ASSET);
+        try {
+            if (!fs.existsSync(src)) {
+                return undefined;
+            }
+            const dst = path.join(this.tmpDir, ASSET);
+            fs.copyFileSync(src, dst);
+            // The docker backend bind-mounts tmpDir at /work, so the in-container
+            // path is /work/<asset>; the local backend uses the host path as-is.
+            return this.backend.kind === 'docker' ? `/work/${ASSET}` : dst;
+        } catch (err) {
+            getLogger().trace('Build', 'broken-image placeholder stage failed', { error: String(err) });
+            return undefined;
+        }
     }
 
     /** Format a float for a C++ literal: always a decimal point + trailing `f`. */
@@ -340,6 +383,11 @@ export class BuildRunner {
              *  honest untranslated override (WU-M3.5/M3.6). undefined → slots stay
              *  '' (byte-identical). */
             locale?: string;
+            /** WU-M5.1: path (resolvable at render time) of the bundled gray
+             *  broken-image placeholder, chained into {{UI_CONFIG_SETUP}} via
+             *  SetBrokenImageUrl so unreachable ImageView URLs keep their layout
+             *  box. undefined → no SetBrokenImageUrl (byte-identical). */
+            brokenImagePath?: string;
             extra?: Record<string, string>;
         },
     ): string {
@@ -347,7 +395,7 @@ export class BuildRunner {
             .replace(/\{\{USER_INCLUDES\}\}/g, opts.includes ?? '')
             .replace(/\{\{USER_GLOBALS\}\}/g, opts.globals ?? '')
             .replace(/\{\{PALETTE_DEFS\}\}/g, BuildRunner.buildPaletteDefs(opts.theme, opts.locale))
-            .replace(/\{\{UI_CONFIG_SETUP\}\}/g, BuildRunner.buildUiConfigSetup(opts.fontScale))
+            .replace(/\{\{UI_CONFIG_SETUP\}\}/g, BuildRunner.buildUiConfigSetup(opts.fontScale, opts.brokenImagePath))
             .replace(/\{\{PRE_BUILD_INSTALL\}\}/g, BuildRunner.buildPreBuildInstall(opts.theme, opts.fontScale, false, opts.locale))
             .replace(/\{\{USER_CODE\}\}/g, BuildRunner.injectFocusName(opts.userCode, opts.focusId))
             .replace(/\{\{PREVIEW_WIDTH\}\}/g, `${opts.width}.0f`)
@@ -580,11 +628,18 @@ export class BuildRunner {
             }
         }
 
+        // WU-M5.1: stage the bundled gray broken-image placeholder so an
+        // unreachable ImageView URL keeps its layout box. Live preview is never
+        // golden-compared, so this is enabled unconditionally here (pure upside);
+        // the standalone golden runner gates it per-sample to keep existing goldens
+        // byte-identical. undefined (asset missing) → SetBrokenImageUrl omitted.
+        const brokenImagePath = this.stageBrokenImagePlaceholder();
+
         const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
         const harness = this.renderHarness(this.templateContent, {
             userCode, width, height, bgColorVec, fontSetup,
             includes: sliceIncludes, globals: sliceGlobals, focusId,
-            theme, fontScale, locale,
+            theme, fontScale, locale, brokenImagePath,
             extra: { OUTPUT_PATH: out.pngEmbed, METADATA_PATH: out.metadataEmbed },
         });
 

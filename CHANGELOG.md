@@ -5,6 +5,70 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-06-19
+
+> Closes the research-identified gaps so **real, production-shaped dali-ui app code
+> previews without being rewritten** — member-function screens, cross-file helpers,
+> injected view-models, TV focus, and theme/locale/fontScale config. Every visible
+> change is verified by an actual render (golden) plus mutation tests.
+>
+> ⚠️ **Docker users:** the server-side fidelity fixes (rounded corners, named
+> colors, markup, dark token resolution) live in `docker/preview_server.cpp`, which
+> is pre-compiled into the runtime image. They are verified via the **local**
+> backend; to reach docker-mode users the `dali-preview-runtime` image must be
+> rebuilt. Local runtime mode (`daliPreview.runtimeMode: local`) gets them now.
+
+### Added
+
+- **Preview real multi-file app code without rewriting it.** A member-function
+  screen (`View Screen::Build()`) that reads member state and calls
+  helper/factory functions defined in *other* `.cpp` files — using project
+  `#include`d theme tokens — now previews directly: the slicer collects the
+  cross-file helpers/types and auto-synthesizes sample data for the injected
+  view-model. Demonstrated end-to-end on `samples/flow-wallet/` (a 6-file
+  commercial-shaped app) via the new `npm run test:e2e:multifile`. This is the
+  dominant real-world form (member screen + cross-file factories + MVVM + theme
+  tokens + multi-file).
+- **`// @dali-preview` entry point** — mark a zero-argument factory
+  (`View MakeXxxPreview()`) as the preview target; the C++ analog of Compose's
+  parameterless `@Preview` wrapper.
+- **`// @preview-state: focus=<view>` — focus ring.** Render one item in its
+  keyboard-focus state (the highlight TV / D-pad UIs revolve around, previously
+  absent from any static render), resolved by the variable name you already wrote.
+  `progress=<0..1>` renders an animation already at a given frame.
+- **`// @preview-config` knobs now actually apply** (were parse-only / stub):
+  `theme=dark` reskins token colors (`UiColor::PRIMARY` / `UiColor("…")`) via a
+  dark palette, `fontScale=1.5` scales `_spx`-sized text, `locale=ar` mirrors the
+  layout right-to-left (layout only — no fake translation). `// @preview-preset:
+  light-dark` (also `locales` / `font-sizes` / `screen-sizes`) expands to several
+  config variants shown together in the gallery.
+- **Provenance badges.** When the tool synthesizes or approximates something, a
+  small pill badge appears above the preview (sample data / untranslated /
+  background-only theme / focus approximated / image placeholder / focus not in
+  multi-config) so the "silent fix" is visible. A clean preview shows none.
+- **Broken-image placeholder.** An unreachable `ImageView` URL renders a sized gray
+  placeholder (keeps the layout box) via `UiConfig::SetBrokenImageUrl`, instead of
+  collapsing to an empty view.
+
+### Fixed
+
+- **Server fast-path render fidelity (silent-wrong rendering).** The resident
+  scene-builder now honors setters it previously dropped on the parser fast path:
+  `SetCornerRadius` (rounded corners were square), named / `.WithAlpha` colors
+  (were black), method-form `SetText` / `SetResourceUrl` / `SetMarkupEnabled`, and
+  `SetOpacity` / `SetVisibility` / borderline. An unknown color now renders a loud
+  magenta (never black) so the gap stays visible. (`docker/preview_server.cpp`)
+- **Cross-file compile errors map to your real file.** A typo in a helper in
+  another `.cpp` now reports at that file's actual line (e.g.
+  `widgets/cards.cpp:38`) — via injected `#line` directives — instead of an
+  unmappable line inside the generated harness.
+
+### Internal
+
+- New execution-test infrastructure: `test:e2e:server` (renders the server
+  scene-builder path via the local backend — distinct from the harness path) and
+  `test:e2e:multifile` (compiles + renders a multi-file app). Unit suite 559 → 654.
+
 ## [0.43.1] - 2026-06-18
 
 ### Fixed

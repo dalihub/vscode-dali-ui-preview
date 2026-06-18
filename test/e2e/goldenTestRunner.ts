@@ -16,6 +16,11 @@ const GOLDEN_DIR = path.join(REPO_ROOT, 'test', 'golden', 'screenshots');
 const ACTUAL_DIR = path.join(REPO_ROOT, 'test', 'e2e', 'actual');
 const DIFF_DIR = path.join(REPO_ROOT, 'test', 'e2e', 'diff');
 const TEMPLATE_PATH = path.join(REPO_ROOT, 'server', 'preview_harness.cpp.template');
+// WU-M5.1: bundled gray broken-image placeholder. Passed to the build ONLY for
+// samples carrying a `// @broken-image` marker, so SetBrokenImageUrl is chained
+// just for them and every other golden stays byte-identical.
+const BROKEN_IMAGE_ASSET = path.join(REPO_ROOT, 'media', 'broken-image-placeholder.png');
+const BROKEN_IMAGE_RE = /^\/\/\s*@broken-image\s*$/m;
 
 const PREVIEW_WIDTH = 480;
 const PREVIEW_HEIGHT = 320;
@@ -34,6 +39,11 @@ const DALI_PREVIEW_MARKER = '// @dali-preview';
 // identically. Drift is locked by codeExtractor's unit tests + this e2e golden.
 const PREVIEW_STATE_RE = /^\/\/\s*@preview-state:\s*(.+)$/;
 const STATE_FOCUS_RE = /(?:^|,)\s*focus\s*=\s*(?:"([^"]*)"|([A-Za-z_]\w*))/;
+// NB (WU-M5.4): there is no STATE_PROGRESS_RE here on purpose. progress is applied
+// ONLY on the server/dlopen scrubber path (RENDER_AT / __SetPreviewProgress), which
+// this harness golden runner does not exercise — so it neither parses nor applies
+// progress. `@preview-state` lines are comments and never leak into the rendered
+// code regardless. progress routing is covered by previewOrchestrator.progress.test.
 
 // Same leading-var-declaration matcher codeExtractor uses to rewrite
 // `View card = ...` → `return ...`.
@@ -283,6 +293,11 @@ async function runSample(
     const { width, height } = parseConfigSize(filePath);
     const focusId = parseFocusId(filePath);
     const { theme, fontScale, locale } = parseConfigKnobs(filePath);
+    // WU-M5.1: only `// @broken-image` samples chain SetBrokenImageUrl (so the
+    // unreachable-URL sample renders the bundled placeholder); all others keep the
+    // slot empty and stay byte-identical. Read against the raw file (the marker is
+    // a comment, stripped from `code`).
+    const wantsBrokenImage = BROKEN_IMAGE_RE.test(fs.readFileSync(filePath, 'utf-8'));
     const opts = {
         userCode: code,
         width,
@@ -296,6 +311,7 @@ async function runSample(
         theme,
         fontScale,
         locale,
+        brokenImagePath: wantsBrokenImage ? BROKEN_IMAGE_ASSET : undefined,
     };
     const buildResult = useDocker
         ? await buildAndCaptureDocker(opts, image)
@@ -307,6 +323,17 @@ async function runSample(
 
     if (!fs.existsSync(actualPng)) {
         return { name, passed: false, error: 'Binary ran but produced no PNG' };
+    }
+
+    // `// @render-only` samples carry async / non-deterministic content (e.g. an
+    // ImageView whose remote URL fails to load → DALi swaps in the broken-image
+    // placeholder, but the timing of that swap vs. the capture is not statically
+    // reproducible). They are verified by the fact that they compile + render to a
+    // PNG (the SetBrokenImageUrl chain is valid + the layout box is built), not by
+    // a flaky pixel golden. Mirrors serverGoldenRunner's @render-only handling.
+    if (/\/\/\s*@render-only/m.test(fs.readFileSync(filePath, 'utf-8'))) {
+        console.log('  [RENDER-ONLY] compiled + rendered (async content; no pixel golden)');
+        return { name, passed: true };
     }
 
     if (updateGoldens) {
