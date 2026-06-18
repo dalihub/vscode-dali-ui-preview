@@ -1,0 +1,8 @@
+{
+  "milestone": "M0",
+  "current": "WU-M0.1",
+  "completed": [],
+  "milestone_done": false,
+  "base_sha": "5c88b68",
+  "wus": ["WU-M0.1", "WU-M0.2", "WU-M0.3"]
+}
