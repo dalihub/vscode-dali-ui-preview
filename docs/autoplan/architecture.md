@@ -1,315 +1,157 @@
-# Architecture — zero-annotation 자동추출 preview (M0..M3)
+# Architecture — dali-ui preview gap-closing
 
-> 입력: `project-goal.md`, `research.md`, `plan.md`, `Docs/auto_extract_strategy_0610.md`,
-> `/tmp/wf2_pipeline.json`, `/tmp/wf2_critique.json`. 본 문서는 그 8단계 파이프라인을
-> **plan.md의 4 마일스톤이 실제로 필요로 하는 부분만** 구체 선택으로 좁힌다.
-> 모든 코드 주장은 직접 읽은 `파일:라인`을 인용한다(프롬프트 힌트가 아니라 검증값).
+> 한 줄 요약: 이 캠페인(M0~M5)은 **새 컴포넌트를 만들지 않는다.** 기존 4개 결합 지점만 확장한다 —
+> ① `codeExtractor.ts`의 디렉티브 문법(ADR-001), ② `docker/preview_server.cpp`의 setter-dispatch(ADR-003),
+> ③ 템플릿(`preview_harness/plugin.cpp.template`)의 "트리 빌드 직전" install site(ADR-004), ④ `sliceBuilder.ts`/
+> orchestrator의 cross-file 수집(ADR-005). 검증 게이트는 **새 server-path 골든 러너**(ADR-002) — 기존 harness
+> 골든은 server scene-builder를 전혀 안 거치기 때문. 가짜/스텁 금지: 모든 디렉티브는 실제 dali-ui API로
+> 내려간다(헤더 시그니처 인용). 측정값은 metadata-JSON 채널(ADR-007)로 webview에 흐른다.
 
-핵심 한 줄: **결합 지점은 한 곳** — `compilePlugin`에 들어가는 *C++ 소스 문자열* 을 더 똑똑하게 만드는 것뿐이다.
-그래서 `server/*.cpp`(렌더 서버·하니스 본문 로직)는 **건드리지 않고**, 템플릿 텍스트 + 호스트 TS만 바꾼다 → **이미지 재빌드 0**.
-
----
-
-## 1. Stack — 최종 선택 (why over alternatives)
-
-| 영역 | 선택 | 대안 | 왜 이 선택인가 (검증 인용) |
-|---|---|---|---|
-| 슬라이스/추출 엔진 | 신규 `src/sliceBuilder.ts` (TS, 호스트) | 컨테이너 내 libclang / clang `-MM` | `dlopen`은 호스트가 만든 `.so`를 그대로 로드. 컨테이너에 clang(~150MB) 추가는 경량 이미지 정책과 충돌(critique S3). 호스트 TS면 **deps 0, 이미지 변경 0**. |
-| Rung2 의존성 스캔 | host-side **정규식 + `cppParser` 토크나이저 재사용** | host libclang ffi | `cppParser.ts:101` `tokenize()`가 이미 IDENT/SCOPE/STRING/주석을 분해. libclang ffi는 native 빌드 의존 → `package.json` deps 0 결정과 충돌. Tizen 앱은 `compile_commands.json`이 없어(repo에 0개) clang 정밀도 이점도 못 살림. |
-| Rung1 (clangd) | **out-of-scope for M0..M3** (best-effort 후순위) | `vscode.executeDefinitionProvider` 등 | plan.md가 "검증 핵심 타깃은 Rung2"로 명시. clangd 폐포를 매 키스트로크 돌리면 latency 회귀(critique latency 항목). M3 이후 별도 트랙. |
-| stub 합성 | **`__attribute__((weak))` 본문 stub** + 최소 type 휴리스틱 | `--unresolved-symbols=ignore-all` / 선언만 stub | `preview_server.cpp:999` `dlopen(.., RTLD_NOW \| RTLD_LOCAL)`. 미정의 strong=로드 즉사, weak **선언만**=호출 시 SIGSEGV. **본문 필수**가 유일 해법. |
-| 템플릿 | **3-슬롯** `{{USER_INCLUDES}}` / `{{USER_GLOBALS}}` / `{{USER_BODY}}` | 1슬롯 유지(본문만) | `#include`·전역정의·헬퍼함수는 함수 본문 안에 **C++ 문법상 불법**(plugin template L23-26 `extern "C" View CreatePreview(){ ... }`). 슬라이스를 본문에 못 욱여넣음 → 전역 슬롯 필수. |
-| 에러 매핑 | `#line` 주입 + errorParser **동적 출처집합** | 정적 `includes('preview_plugin')` 게이트 유지 | `errorParser.ts:46,58` `filePath.includes('preview_plugin')` 후 미스매치는 `continue`로 드롭. `#line N "원본.cpp"` 삽입 시 본문 에러 파일명이 원본으로 바뀌어 **전부 조용히 드롭**. 동적 경로집합으로 교체. |
-| 빌드 격리/렌더 | **기존 docker 경로 그대로** (`compilePlugin` exec→서버 컨테이너) | run 강등 + 워크스페이스 마운트 | `compilePlugin` exec 분기(`dockerRuntime.ts:517`)는 서버 컨테이너 안에서 컴파일하고, 서버는 `tmpDir:tmpDir` 동일경로 마운트(`previewServer.ts:290`). **정의를 globals에 인라인**하면 마운트 불필요 → exec 빠른 경로 100% 보존. |
-| 샘플 앱 경계 | **dali-ui 경계 안**으로만 (A) 앱 작성 | dali-toolkit/Tizen capi 사용 | 런타임 이미지는 dali-ui 전용. `<dali-toolkit/...>`·`<app_common.h>`가 폐포에 들어오면 sysroot 필요(critique 구조적 한계 #2) → M0..M3 의도적 회피. |
-
-### 새 파일 / 변경 파일 지도
-
-| 파일 | M | 종류 | 역할 |
-|---|---|---|---|
-| `samples/flow-banking/**` (+ `theme/`, `widgets/`, `screens/`, `model/`) | M0 | 신규 | (A) 실전 미니앱 — P1/P2/P4/P5/P6/P11 패턴. dali-ui 경계 안. |
-| `test/fixtures/slice/{helper,member,theme-const}.*` | M0 | 신규 | 비자기완결 최소 픽스처 3종 (slice 경로 실증용). |
-| `test/unit/sliceBuilder.test.ts` | M0/M2 | 신규 | M0=red baseline(현 추출기로 미정의 확정), M2=green 전환. |
-| `server/preview_plugin.cpp.template` | M1 | 변경 | 1슬롯 → 3슬롯 (§2 byte-exact). |
-| `server/preview_harness.cpp.template` | M1 | 변경 | 1슬롯 → 3슬롯 (8 placeholder 보존). |
-| `src/buildRunner.ts` | M1 | 변경 | `{{USER_CODE}}` 치환 6곳 → `applySlots()` 헬퍼; `compilePlugin` 시그니처 `(SliceResult)` 수용(오버로드/하위호환). |
-| `src/errorParser.ts` | M1 | 변경 | 정적 게이트 → 동적 `sourcePaths` 집합 + `getBodyCodeOffset`. |
-| `src/sliceBuilder.ts` | M2 | 신규 | Rung 결정 + 정규식 폐포 수집 + weak-stub 합성 + emit. |
-| `src/previewOrchestrator.ts` | M2 | 변경 | `runPreview` L505 instrument 직후 SliceBuilder 진입(§3). |
-| `Docs/auto_extract_validation_0610.md` | M3 | 신규 | Rung 도달 매트릭스 결과 리포트. |
-
-`server/preview_server.cpp` / `*serve*` 바이너리 / `Dockerfile.runtime`: **무변경**(Inv-5).
+이 문서와 7개 ADR은 **append-only**다. 모든 코드 주장은 직접 읽은 `파일:라인`을 인용한다(프롬프트 힌트 아님).
 
 ---
 
-## 2. 3-슬롯 템플릿 EXACT 레이아웃 (M1 불변식)
+## Stack / extension points (existing code the campaign touches)
 
-### 설계 원리 — "placeholder가 기존 빈 줄을 점유한다" (단순치환)
-
-byte-identical을 깨는 전형적 실수는 빈 슬롯이 **빈 줄을 추가로 남기거나, 있던 빈 줄을 없애는**
-것이다(critique missing #6). 이를 막는 단 하나의 규칙:
-
-> **신규 두 placeholder를 템플릿의 *기존 빈 줄 자리* 에 그대로 놓는다.
-> 치환은 단순 `String.replace(/\{\{SLOT\}\}/g, value)` — 개행을 더하거나 빼지 않는다.**
-
-- 빈 슬롯(`value=''`): placeholder 토큰만 사라지고 **그 줄은 빈 줄로 남는다 = 원본의 빈 줄 그대로** → byte-identical. (개행을 함께 삭제하지 **않는다** — 그러면 원본 빈 줄이 줄어들어 오히려 깨짐.)
-- 값 있음: 슬롯 값이 그 줄을 채운다. 값은 **자기 앞뒤 개행을 스스로 포함**(SliceBuilder가 `\n<defs>\n` 형태로 emit)해 전역 영역을 형성.
-
-`{{USER_BODY}}` 는 빈 슬롯이 없고(항상 본문 존재), **기존 `{{USER_CODE}}` 와 동일 위치·동일
-들여쓰기(없음)** 를 유지 → 본문만 보면 1슬롯 시절과 동일.
-
-### `preview_plugin.cpp.template` — 신규 전문
-
-```cpp
-/**
- * DALi Preview Plugin - Auto-generated by DALi Preview Extension
- * Do not edit manually. Compiled as shared library (.so).
- */
-#include <dali/dali.h>
-#include <dali-ui-foundation/dali-ui-foundation.h>
-
-#include <iostream>
-{{USER_INCLUDES}}
-using namespace Dali;
-using namespace Dali::Ui;
-using Dali::Ui::View;
-
-// === Click-to-code helper: tags an actor with a source line name ===
-template<typename T>
-T __tag(T obj, const char* name)
-{
-    obj.SetProperty(Dali::Actor::Property::NAME, Dali::String(name));
-    return obj;
-}
-{{USER_GLOBALS}}
-// === User preview code — exported symbol for dlopen ===
-extern "C" View CreatePreview()
-{
-{{USER_BODY}}
-}
-```
-
-**slot 배치 = 검증된 원본 빈 줄 자리** (plugin template `nl -ba` 확인):
-- 원본 L8 `#include <iostream>` / **L9 빈 줄** / L10 `using namespace Dali;` → L9 빈 줄 자리에 `{{USER_INCLUDES}}` 배치.
-- 원본 L20 `}`(__tag 닫기) / **L21 빈 줄** / L22 주석 → L21 빈 줄 자리에 `{{USER_GLOBALS}}` 배치.
-- 원본 L25 `{{USER_CODE}}` → 그대로 `{{USER_BODY}}` 개명.
-
-**byte-identical 증명 (Inv-1)** — 빈 슬롯 단순치환 후 줄 단위 대조:
-
-| 위치 | 원본(1슬롯) | 신규(3슬롯), 빈 슬롯 치환 후 | 동일? |
-|---|---|---|---|
-| include 뒤 | `#include <iostream>` ⏎ `` (빈 줄) | `#include <iostream>` ⏎ `{{USER_INCLUDES}}`→`` (빈 줄) | ✅ 빈 줄 그대로 |
-| __tag 뒤 | `}` ⏎ `` (빈 줄) | `}` ⏎ `{{USER_GLOBALS}}`→`` (빈 줄) | ✅ 빈 줄 그대로 |
-| 본문 | `{` ⏎ `{{USER_CODE}}` ⏎ `}` | `{` ⏎ `{{USER_BODY}}` ⏎ `}` | ✅ body 동일 좌표 |
-
-핵심: `replace(/\{\{USER_INCLUDES\}\}/g, '')` 는 placeholder **텍스트만** 비우고 **그 줄의 개행은
-건드리지 않으므로**, 원래 빈 줄이었던 그 자리는 빈 줄 그대로 보존된다 → 전체 문자열 동등
-(`harnessGeneration.test.ts:116` 류 골든 통과). buildRunner는 `{{USER_BODY}}`만 기존
-`{{USER_CODE}}` 자리로 매핑.
-
-### `preview_harness.cpp.template` — 변경 위치 (8 placeholder 보존)
-
-하니스는 본문(`CreatePreviewUI`)만 슬라이스 대상. 다른 7개(`PREVIEW_WIDTH/HEIGHT/FONT_SETUP/BACKGROUND_COLOR/OUTPUT_PATH/METADATA_PATH`)는 **무관·무변경**. 변경은 단 3줄 추가 + 본문 슬롯 개명:
-
-```cpp
-#include <dali/devel-api/text-abstraction/font-client.h>
-
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <cmath>
-{{USER_INCLUDES}}
-using namespace Dali;
-using namespace Dali::Ui;
-using Dali::Ui::View;
-
-static const float PREVIEW_WIDTH  = {{PREVIEW_WIDTH}};
-static const float PREVIEW_HEIGHT = {{PREVIEW_HEIGHT}};
-
-// === Click-to-code helper: tags an actor with a source line name ===
-template<typename T>
-T __tag(T obj, const char* name)
-{
-    obj.SetProperty(Dali::Actor::Property::NAME, Dali::String(name));
-    return obj;
-}
-{{USER_GLOBALS}}
-// === User preview code ===
-View CreatePreviewUI()
-{
-{{USER_BODY}}
-}
-```
-
-- `{{USER_INCLUDES}}` = 원본 harness L14 다음 빈 줄(L15) 자리.
-- `{{USER_GLOBALS}}` = 원본 harness L29 `}` 다음 빈 줄(L30) 자리.
-- `{{USER_BODY}}` = 원본 harness L34 `{{USER_CODE}}` 자리.
-
-빈 슬롯 → 단순치환으로 빈 줄 잔존 → harness 골든(`red-box.harness.cpp`, `animation.harness.cpp`)과 byte-identical.
-
-### buildRunner 치환 — 하위호환 어댑터
-
-기존 `compilePlugin(userCode: string)` 호출 6곳은 **단일 코드 문자열**을 넘긴다. 이를 보존:
-
-```
-applySlots(template, { includes='', globals='', body }) =
-  template
-    .replace(/\{\{USER_INCLUDES\}\}/g, includes)   // 빈 문자열이면 빈 줄 잔존
-    .replace(/\{\{USER_GLOBALS\}\}/g,  globals)
-    .replace(/\{\{USER_BODY\}\}/g,     body)        // 기존 USER_CODE 자리
-```
-
-기존 호출은 `applySlots(tpl, { body: userCode })` 로 매핑 → includes/globals 빈 문자열 → byte-identical. `{{USER_CODE}}` 토큰은 4개 템플릿 모두에서 `{{USER_BODY}}` 로 개명(단, errorParser·테스트도 동기화 — §6, Inv-4).
-
-> **주의(critique missing #2)**: `interactive`·`animation` 템플릿도 `{{USER_CODE}}` 보유. M1에서 동일하게 `{{USER_BODY}}` 개명 + slot 어댑터 적용(빈 슬롯 byte-identical 동일 보장). 8 placeholder와의 치환 순서 충돌 없음(서로 다른 토큰).
-
----
-
-## 3. SliceBuilder 배치 + 인터페이스
-
-### runPreview 흐름 내 위치
-
-```
-runPreview(doc)                                    previewOrchestrator.ts
-  ├─ extractPreviewCode(doc)            L460   → ExtractionResult{code,startLine,mode}
-  ├─ instrumentCode(code,startLine)     L505   → instrumented (본문 __tag 주입)
-  │
-  ├─ ★ SliceBuilder.build(doc, extraction, instrumented)   ← 신규 진입점
-  │      └─ SliceResult { includes, globals, body, sourcePaths, unresolvedStubs, rung }
-  │
-  ├─ ParserStrategy   (rung==='single-fn' 이고 server 살아있을 때만; slice면 skip)
-  ├─ DlopenStrategy.execute(slice)      L564   → compilePlugin(slice)
-  │      └─ 실패 시 parseGccErrors(err, offset, {sourcePaths})   ← 동적 출처
-  └─ HarnessStrategy  (fallback)               → buildAndRun(slice)
-```
-
-진입점은 **instrument 직후**(L505 다음). 이유: instrument는 본문의 `Type::New(`만 `__tag` 로 감싸는데(`codeExtractor.ts:388`), 이건 **본문(body) 슬롯에만** 적용돼야 한다. 헬퍼 정의(globals)에 instrument를 걸면 헬퍼의 `View::New()`가 잘못 태그됨(critique missing #3). → 순서: instrument(body) → SliceBuilder가 instrumented body를 `body` 슬롯으로, 수집한 헬퍼 원문(비-instrument)을 `globals` 슬롯으로 분리.
-
-### SliceResult (데이터 소유권)
-
-```ts
-interface SliceResult {
-  includes: string;        // hoist된 #include 줄들 ("" 가능). globals 위로.
-  globals:  string;        // 헬퍼/타입/상수 정의 + weak-stub. 위상정렬됨 ("" 가능).
-  body:     string;        // instrumented 진입 본문 (항상 비어있지 않음).
-  sourcePaths: string[];   // #line 으로 가리킬 원본 파일 경로 집합 (errorParser 동적 게이트용).
-                           //   [0]=entry srcPath, 이후 수집 헬퍼 출처들. 중복 제거.
-  unresolvedStubs: string[]; // weak-stub 으로 메운 식별자명 (진단/배지/매트릭스용).
-  rung: 'single-fn' | 'heuristic';  // Rung3 vs Rung2. (Rung1='lsp'는 M3 이후.)
-}
-```
-
-소유권: SliceBuilder가 **생성·소유**, orchestrator가 strategy로 **전달만**. buildRunner는 `includes/globals/body`를 템플릿 슬롯에 치환하고 `sourcePaths`를 errorParser로 넘긴다. `unresolvedStubs`는 orchestrator가 진단 메시지/매트릭스에 사용.
-
-### Rung2 → Rung3 결정 (핵심 분기)
-
-```
-build(doc, extraction, instrumentedBody):
-  refs = scanUnresolvedRefs(instrumentedBody)        // 정규식: 호출/타입/상수 식별자
-         minus { dali/std 심볼, 키워드, __tag }       // 이미 #include 로 들어옴
-  if refs == ∅:
-     return { body: instrumentedBody, includes:'', globals:'',
-              sourcePaths:[entrySrc], unresolvedStubs:[], rung:'single-fn' }   // ← Rung3, byte-identical
-  else:
-     collected, stillUnresolved = collectSameFileDefs(doc, refs)  // Rung2
-     globals = topoSort(collected) ++ weakStubs(stillUnresolved)
-     return { ..., globals, includes: hoistIncludes(doc, collected),
-              sourcePaths:[entrySrc, ...collected.sources],
-              unresolvedStubs: stillUnresolved, rung:'heuristic' }
-```
-
-- **Rung3 (single-fn)**: 미해결 0 → 현행 동작 그대로. 빈 슬롯 → byte-identical → 579 테스트 무영향. `*.preview.dali.cpp` 데모는 항상 여기(빠른 경로 100% 보존).
-- **Rung2 (heuristic)**: 미해결 존재 → 같은 파일/동반 헤더에서 정규식+토크나이저로 정의 수집·인라인 → 남은 미정의는 weak-stub. 자기완결 .cpp 1덩어리 산출.
-
-> **self-contained passthrough = Rung3**: "본문이 외부심볼 0"이면 슬라이스 합성을 **건너뛰고** instrumented body를 그대로 통과(passthrough). 이게 회귀 0의 메커니즘이자 plan.md "byte-identical" demonstration.
-
----
-
-## 4. AST-분석 위치 결정
-
-| 후보 | 채택 | 근거 (검증) |
+| Layer | File(s) | What changes (어느 ADR / 마일스톤) |
 |---|---|---|
-| **Rung2 = host-side 정규식 + cppParser 토크나이저** | ✅ M2 핵심 | deps 0. `cppParser.ts:101 tokenize()`가 IDENT/SCOPE/STRING/주석 분해를 이미 제공 → 식별자 추출·정의 경계 탐지에 재사용. |
-| 컨테이너 내 clang `-MM`/libclang | ❌ | `Dockerfile.runtime` 경량 정책(critique S3). clang(~150MB) 추가는 이미지 재빌드 + pull 시간 악화 → Inv-5 위반. |
-| Rung1 = clangd via VS Code commands | ⏸ out-of-scope(M3 이후) | container에 clang 없음 + Tizen 앱은 `compile_commands.json` 0개라 Rung1 트리거 거의 미충족(critique 전체). 매 키스트로크 N-hop LSP 폐포는 latency 회귀. **plan.md가 "검증 핵심은 Rung2"로 못박음.** |
-| host libclang ffi | ❌ | native 빌드 의존 → `package.json` deps 0 결정 위반. |
+| Directive parsing (host TS) | `src/codeExtractor.ts` (`PREVIEW_CONFIG_RE` :19, `SINGLE_PREVIEW_MARKER` :17, `MARKER_BEGIN/END` :15-16, `parsePreviewConfigLine` :40, `extractPreviewCode` :115) | **ADR-001**: `@dali-preview`(zero-arg 진입점, M2), `@preview-state: focus=/progress=`(M2/M5), `@preview-config:` 확장(M3), `@preview-preset:`(M3). `PreviewConfig` 인터페이스(`src/previewConfig.ts`)에 필드 추가. |
+| Server scene-builder (C++, baked-in) | `docker/preview_server.cpp` (`SBApplyCommonProps` :491, `SBBuildNodeRaw` :563, `SBParseUiColor` :438, `SBParseFloat` :430, `SBParseDimension` :484, `SBParseExtents` :455) | **ADR-003**: `SetCornerRadius`/`SetOpacity`/`SetVisibility`/Borderline을 `SBApplyCommonProps`에, 메서드형 `SetText`/`SetResourceUrl`/`SetMarkupEnabled`를 per-type 분기에, named-color 테이블+`.WithAlpha`를 `SBParseUiColor`에 (M1). `UiColor("token")`은 ADR-004 override 설치 후(M3). |
+| Build-time install site (templates) | `server/preview_harness.cpp.template` (`{{FONT_SETUP}}` :259 in `OnInit`, `CreatePreviewUI()` :32/:263, `UiConfig::New().Apply()` :318), `server/preview_plugin.cpp.template` (`{{USER_GLOBALS}}` :62, `CreatePreview` :64) | **ADR-004**: theme/locale/fontScale/focus/placeholder를 **트리 빌드 직전** install. 새 placeholder `{{UI_CONFIG_SETUP}}`/`{{PRE_BUILD_INSTALL}}`/`{{POST_BUILD_FOCUS}}`. TS→build 값 plumbing은 `buildRunner.renderHarness` :141. |
+| Build runner / plumbing (host TS) | `src/buildRunner.ts` (`renderHarness` :141, `compilePlugin` :192, `buildAndRun` :238, `instrumentAnimations` :176) | **ADR-004**: directive 값을 새 placeholder로 치환. **ADR-001**: 새 config 필드를 reload/renderJson 인자로 전달(`previewServer.ts` reload :148). |
+| Cross-file resolution (host TS) | `src/sliceBuilder.ts` (`buildSlice` :396, `collectSameFileDefs` :183, `parseMemberFields` :302, `synthSampleInit` :358, `includes=''` :485), `src/previewOrchestrator.ts` (`resolveProjectIncludes` :289 BFS MAX_HOPS=4 :296) | **ADR-005**: include/define 주입(`-I/-D`) + `#line` 매핑. `src/errorParser.ts`(동적 sourcePaths) 연동. |
+| Focus resolution (templates + TS) | `server/*.template` install site, `Actor::FindChildByName` (dali core actor.h:899), `__tag` (template :24/:17 sets `Actor::Property::NAME`) | **ADR-006**: `focus=<id>` → `FindChildByName` on user-tagged/variable name + Nth-focusable fallback. M2. |
+| Server-path render verification (test) | NEW `test/e2e/serverGoldenRunner.ts` (alongside `goldenTestRunner.ts` :18 which uses harness), `src/previewServer.ts` (`renderJson` :219, RENDER_JSON IPC), `LocalBackend` (`src/backends/localBackend.ts` :43), `cppParser.parseChainExpression` :457 | **ADR-002**: 깨끗한 `.preview.dali.cpp` → T1 파서 → `SBBuildNode` 경로(local backend) → PNG → 골든 비교. `npm run test:e2e:server`. M0. |
+| Metadata → webview channel | `src/previewManager.ts` (`updateImage` :63 → `postMessage({command:'updateImage', metadata})` :70-74), `media/preview.html` (`renderMetadataOverlay` :1629, reads `metadata.root` :1566) | **ADR-007**: provenance 배지를 `ExportSceneMetadata`가 top-level `provenance[]` 필드로 emit → webview가 `metadata.root` 옆에서 읽음. M5. |
 
-정직성: **RTLD_NOW가 어차피 stub 본문을 강제**하므로, 정밀 타입(clang)이 없어도 weak void-stub로 "컴파일 통과"는 달성된다. 즉 Rung2는 정밀도는 낮아도(타입 휴리스틱) **목표(컴파일+dlopen+PNG)** 엔 충분. 정밀 타입은 Rung1의 부가가치이지 M3 성공 기준이 아니다.
-
----
-
-## 5. weak void-stub 메커니즘
-
-**문제**: 수집 후에도 미정의로 남는 식별자(멤버필드 `this->mX`, 외부 모델 `vm`, 시그니처 모르는 자유함수)는 `RTLD_NOW`에서 즉사. **선언만으론 불가** — 본문 필수.
-
-**해법**: 각 미해결 식별자에 `__attribute__((weak))` **본문 있는** 정의를 globals 슬롯에 코드생성. weak이므로 동반수집(Rung2)이 진짜 정의를 가져오면 strong이 weak을 덮어쓰는 안전망.
-
-최소 type 휴리스틱 (정밀 타입 모를 때, 토크나이저로 본문 사용맥락만 보고 추정):
-
-| 사용 맥락 (정규식 감지) | 합성 stub | 근거 |
-|---|---|---|
-| `View f(...)` / `Make*`·`Build*` 네이밍 + 본문서 child로 쓰임 | `__attribute__((weak)) Dali::Ui::View f(...) { return Dali::Ui::View::New(); }` | View-반환 헬퍼는 빈 View라도 렌더 트리에 자리. |
-| `for(auto& x : ID)` 의 `ID` (컨테이너 추정) | `auto ID = std::vector<...>{ E, E, E };` (N=3 더미) | vector 비우면 루프 0회 = 빈 화면. N=3이라야 카드 형상. |
-| 문자열 맥락(`Label::New(ID)`, `+` 연결) | `std::string ID = "Sample";` | 빈 문자열=빈 라벨. |
-| 스칼라 맥락(산술/비교) | `int ID = 0;` (또는 `float`) | 컴파일 통과 최소값. |
-| 그 외 식별자 | `__attribute__((weak))` 빈-본문 자유함수 또는 `auto ID = decltype(...){};` | 최후 폴백 — 컴파일 통과 우선, `unresolvedStubs`에 기록해 진단. |
-
-정직성(critique S4/S2): weak-stub 화면은 "컴파일·레이아웃 보존이지 의미 보존 아님". 빈 데이터는 silent-wrong. M2는 **컴파일 통과 우선**, 시각 배지(PNG 오버레이)는 **M3 out-of-scope**(plan.md F3 "성공 기준=컴파일+dlopen+PNG생성"). `unresolvedStubs` 리스트만 outputChannel 진단으로 노출.
-
-> **2분할 안전망 주의(critique overOptimistic)**: "정의 있음→수집" 가지가 transitive 폐포를 놓치면(매크로/템플릿) strong 미정의가 남아 dlopen 즉사 — stub 가지로 자동 흡수되지 **않는다**. 그래서 S7 컴파일 후 `undeclared X` 에러를 1-2회 보정(미해결 X를 weak-stub로 재분류)하는 루프가 Inv-2의 실질 안전장치. (M2 범위: 1회 보정. fixpoint 금지.)
+검증 인프라(불변): `npm test`(unit Gate A), `npm run compile`(tsc), `npm run test:e2e`(harness golden, 기존), **`npm run test:e2e:server`(server golden, 신규 M0)**, `npm run test:golden:update`.
 
 ---
 
-## 6. errorParser 재설계 (정적 게이트 → 동적 출처집합)
+## Module boundaries
 
-**현재(`errorParser.ts:27-60`)**: `parseGccErrors(stderr, offset, isPlugin, isInteractive)`. L46 `isPluginFile = filePath.includes('preview_plugin')`, L58 미스매치면 `continue`. L66 `mappedLine = gccLine - harnessCodeOffset` (단일 offset 가정).
+세 개의 독립 축. 한 축의 변경이 다른 축을 깨지 않는 것이 핵심 불변식이다.
 
-**깨지는 이유**: `#line N "원본.cpp"`를 body 슬롯 앞에 넣으면 본문 에러 파일명이 `원본.cpp` → `includes('preview_plugin')` false → 전부 드롭(critique S6/errorParser). 게다가 globals가 본문을 K줄 밀어 단일 offset 산수도 깨짐.
+```
+                       ┌──────────────────────────────────────────────┐
+   user .cpp           │  HOST (TypeScript, 이미지 변경 0)             │
+   + directives  ───►  │  codeExtractor → cppParser/sliceBuilder       │
+                       │      → previewOrchestrator (tier routing)     │
+                       │      → buildRunner (template fill)            │
+                       └───────┬───────────────────────┬──────────────┘
+                               │ RENDER_JSON (scene)    │ RELOAD (.so) / buildAndRun (bin)
+                               ▼                        ▼
+          ┌──────────────────────────────┐  ┌──────────────────────────────────┐
+          │ AXIS-S  Server scene-builder │  │ AXIS-C  Compiled paths            │
+          │ docker/preview_server.cpp    │  │ plugin.cpp.template (dlopen)      │
+          │ SBBuildNode/SBApplyCommonProps│  │ harness.cpp.template (one-shot)   │
+          │ → clean single-fn T1 ONLY    │  │ → heuristic slice / .Play / focus │
+          │ (ADR-003, M1)                │  │ (ADR-004 install, ADR-006 focus)  │
+          └───────────────┬──────────────┘  └───────────────┬───────────────────┘
+                          └────────────┬───────────────────┘
+                                       ▼
+                          metadata-JSON (root tree + provenance[])
+                                       ▼
+                          previewManager → webview (ADR-007)
+```
 
-**재설계**:
-1. 시그니처 확장(하위호환): `parseGccErrors(stderr, offset, opts?: { sourcePaths?: string[]; isPlugin?; isInteractive? })`. `sourcePaths` 없으면 **기존 정적 게이트 그대로**(579 테스트 무영향).
-2. 게이트 = `isGenerated(filePath) || sourcePaths.some(p => samePath(filePath, p))`. 즉 우리 생성파일(`preview_plugin/harness/interactive`) **또는** SliceBuilder가 아는 원본 경로면 채택. basename `includes` 가 아니라 **경로 정규화 비교**(같은 basename 다른 디렉터리 충돌 회피, critique 지적).
-3. `#line` 2곳 주입(buildRunner가 slot emit 시):
-   - `globals` 슬롯 앞: `#line <헬퍼원본라인> "<헬퍼파일>"` (globals 영역 에러 → 헬퍼 원본).
-   - `body` 슬롯 앞: `#line <entry본문라인> "<entry파일>"` (본문 에러 → entry 원본).
-   `#line`이 있으면 g++ 라인=원본 라인이므로 offset 산수 **불필요**(0). `#line` 없는 Rung3 경로는 기존 offset 산수 유지.
-4. 매핑: `#line`-remapped 에러는 `e.line = gccLine` 을 해당 sourcePath 기준 그대로 사용(이미 원본 좌표). `errorsToDiagnostics`(L168)는 sourcePath별 document로 분기 가능하나, M1 범위는 **entry 문서 기준**만(헬퍼 파일 진단은 best-effort, 메시지로만).
+- **AXIS-S (server scene-builder)**: T1 파서가 만든 scene JSON을 `SBBuildNode`가 view 트리로 짓는다. baked-in
+  C++ → 검증은 local backend 재빌드(ADR-002). **오직 깨끗한 단일식 T1 path만 도달**(`previewOrchestrator.ts:692`
+  `slice.rung==='single-fn' && !hasAnimation`). M1의 setter 추가가 여기. fact 3: 가치는 "데모/첫인상" path로 좁다.
+- **AXIS-C (compiled paths)**: heuristic 슬라이스(`theme::ACCENT`/멤버/헬퍼)·`.Play()`·focus·config install은
+  전부 dlopen(plugin.cpp.template) 또는 one-shot(harness.cpp.template)로 컴파일된다 — full DALi라 충실도 갭 없음.
+  M2(진입점/focus)·M3(config install)·M4(cross-file)·M5(placeholder)가 여기. install은 **트리 빌드 직전**(ADR-004).
+- **HOST (TS)**: 디렉티브 파싱·슬라이스·라우팅·템플릿 치환. 이미지 변경 0. M0 러너·M2 파싱·M4 슬라이스가 여기.
 
-호환: M1에서 Rung3(slice 없음)는 `sourcePaths` 미전달 → 정적 게이트 → 기존 동작·테스트 그대로. Rung2 산출만 동적 게이트.
-
----
-
-## 7. Key invariants (Inv-1..5)
-
-| Inv | 내용 | 검증 메커니즘 | 위반 시 깨지는 마일스톤 |
-|---|---|---|---|
-| **Inv-1** | 빈 슬롯(includes='', globals='') → 생성 .cpp가 기존과 **byte-identical** | `harnessGeneration.test.ts:116` 류 `expect(generated).to.equal(golden)` + plugin 골든 신규 추가. §2 "placeholder가 기존 빈 줄 점유, 빈 슬롯→단순치환으로 빈 줄 잔존". | **M1** demonstration("byte-identical") 직접 붕괴 → 연쇄로 M2/M3 회귀. |
-| **Inv-2** | **모든 외부 심볼이 stub 본문 보유** (선언만 금지) | weak-stub은 항상 `{ ... }` 본문 동반(§5); S7 후 `undeclared X` 1회 보정. | **M3** — dlopen `RTLD_NOW`(server:999) 즉사 → PNG 생성 실패(F3.1 성공기준 미달). |
-| **Inv-3** | (A) 앱은 **dali-ui 경계 안** (Tizen sysroot/dali-toolkit 헤더 미사용) | M0 샘플 작성 규칙 + `#include` 화이트리스트 린트(`dali/`, `dali-ui-foundation/`만). | **M0** 샘플이 sysroot 의존이면 컨테이너 컴파일 불가 → **M3** 실빌드 실패. |
-| **Inv-4** | 기존 **579 테스트 무회귀** (CLAUDE.md MANDATORY) | `npm run compile` 0에러 + `npm test`. errorParser/buildRunner 시그니처 변경은 옵셔널 파라미터로 하위호환. | **전 마일스톤** — autodev safety rail(테스트 3연속 실패 시 정지). |
-| **Inv-5** | `server/*.cpp`·런타임 이미지 **무변경**(재빌드 0) | 변경 파일 지도(§1)에서 `server/preview_server.cpp`/`Dockerfile.runtime` 부재 확인. 슬라이스는 호스트가 `.so` 소스로 인라인 → `tmpDir:tmpDir` 동일경로 마운트(server:290)로 가시. | **M3** — 이미지 재빌드는 무겁고 push 금지(out-of-scope). 위반 시 검증 파이프라인 자체가 중단. |
-
----
-
-## 8. ADR index
-
-| ADR | 제목 | 결정 요지 |
-|---|---|---|
-| [ADR-001](adr/ADR-001-three-slot-template.md) | 3-슬롯 템플릿 (byte-identical) | placeholder가 기존 빈 줄을 점유, 빈 슬롯=단순치환으로 빈 줄 잔존. `{{USER_CODE}}`→`{{USER_BODY}}` 개명. |
-| [ADR-002](adr/ADR-002-slicebuilder-placement.md) | SliceBuilder 배치 + SliceResult | instrument(body) 직후 진입, Rung2↔Rung3 분기, 헬퍼는 비-instrument globals로. |
-| [ADR-003](adr/ADR-003-rung2-regex-not-clang.md) | Rung2 = host 정규식 (not clang) | 컨테이너 clang/host libclang 거부(이미지 비대·deps). cppParser 토크나이저 재사용. |
-| [ADR-004](adr/ADR-004-weak-stub-rtld-now.md) | weak void-stub for RTLD_NOW | 미정의=dlopen 즉사 → `__attribute__((weak))` 본문 stub + type 휴리스틱. |
-| [ADR-005](adr/ADR-005-errorparser-dynamic-sources.md) | errorParser 동적 출처집합 | 정적 `includes('preview_plugin')` → 동적 sourcePaths + `#line` 2곳. 하위호환 옵셔널. |
-| [ADR-006](adr/ADR-006-app-within-dali-ui-boundary.md) | (A) 앱을 dali-ui 경계로 한정 | Tizen sysroot 함정을 M0..M3 out-of-scope로 의도 회피. |
+**경계 규칙**: 디렉티브는 AXIS를 강제하지 않는다 — orchestrator의 기존 routing(`runBuildStrategies` :657)이 정한다.
+M3 config는 AXIS-C에서만 install(컴파일 path); AXIS-S T1은 config 무관(스타일 토큰을 모름) — 단 `UiColor("token")`
+해석(F3.3)은 예외로 ADR-004 override가 설치된 warm 서버에서 동작.
 
 ---
 
-## Spec Self-Review
+## Data flow (directive → extract → slice → build/install → render → metadata → webview)
 
-- **Placeholder scan**: none — 모든 `파일:라인`은 실제로 읽고 인용(plugin template L23-26, harness L14/L29/L34, `buildRunner.ts:166/291/375/564/664/835`, `errorParser.ts:46/58/66`, `dockerRuntime.ts:517/521`, `previewServer.ts:290`, `preview_server.cpp:999`, `codeExtractor.ts:388/505`, `cppParser.ts:101`, `previewCodeLens.ts:14`). 미결정/추정 표기 없음.
-- **Internal consistency**: 일관. 결합 지점 1곳(compilePlugin 소스 문자열)이 §1·§3·§5에서 동일. 3슬롯(M1)→SliceBuilder(M2)→실빌드(M3) 선형 의존이 plan.md와 동일. Inv-1(빈 슬롯)과 §2 치환규칙이 정합. Inv-5(이미지 무변경)와 §1 "정의 인라인 우회"가 정합(critique 마운트 갭 해소: server 컨테이너가 tmpDir 동일경로 마운트 → run 강등 불요).
-- **Scope check**: within range. M0..M3만 다룸. Rung1(clangd)/Tizen sysroot(S5)/시각 배지/증분 캐시(latency)는 명시적 out-of-scope로 §4·§5에 적시 — plan.md "best-effort 후순위"와 일치. 6 ADR이 plan.md 6 비결정 결정과 1:1.
-- **Ambiguity**: 해소. "preview 성공"=컴파일+dlopen+PNG생성(렌더 정확도 아님). "zero-config"=zero-annotation + 환경별 degrade(Tizen 기대 rung=Rung2). 단 1개 잔여 불확실: §6 헬퍼-파일 진단을 "entry 문서 기준만"으로 M1 한정 — 헬퍼 원본 라인 정밀 진단은 M2 이후 best-effort(✋ 큐에 적되 진행 차단 아님).
-</content>
-</invoke>
+1. **directive**: `codeExtractor.extractPreviewCode` (:115)가 파일을 읽고 `@preview-config`/`@preview-state`/
+   `@dali-preview`/`@preview-preset` 줄을 파싱해 `ExtractionResult`(`code`, `configs[]`, 신규 `state`, `params`)로 분리(ADR-001).
+2. **extract**: 마커 모드면 함수 본문 추출 + 선두 변수선언→`return` 재작성(:202). `@dali-preview` zero-arg는
+   팩토리 본문을 추출(ADR-001/M2).
+3. **slice**: `previewOrchestrator.prepareSlice` (:494) → `resolveProjectIncludes`(BFS, :289) → `buildSlice`(:396).
+   Rung 결정: 자기완결=single-fn, 미해결 심볼=heuristic(globals 슬롯에 정의 인라인 + weak stub). cross-file 견고화=ADR-005/M4.
+4. **route**: `runBuildStrategies` (:657) — single-fn & no-anim & 서버 up → **AXIS-S(parser→RENDER_JSON)**;
+   그 외 → **AXIS-C(dlopen → harness fallback)**.
+5. **build/install**:
+   - AXIS-S: `cppParser.parseChainExpression`(:457) → `previewServer.renderJson`(:219) → `SBBuildNode`(:552). setter=ADR-003.
+   - AXIS-C: `buildRunner`가 템플릿 치환(`renderHarness` :141). **트리 빌드 직전** install site(`{{FONT_SETUP}}` :259 위치)에서
+     `UiConfig::SetScalingFactor`/`SetColorOverride`/`SetLocalizedStringOverride`/`SetBrokenImageUrl` 호출, **빌드 직후**
+     `FocusManager::SetCurrentFocusView` 호출(ADR-004/ADR-006).
+6. **render**: Capture → PNG. metadata는 `ExportSceneMetadata`(harness :205 / server :206)가 트리 walk로 생성.
+7. **metadata→webview**: `previewManager.updateImage`(:63)가 `{command:'updateImage', metadata}` postMessage(:70).
+   webview `renderMetadataOverlay`(:1629)가 `metadata.root` 소비. provenance 배지=top-level `metadata.provenance[]`(ADR-007/M5).
+
+---
+
+## Key invariants
+
+- **Inv-1 (server golden gates M1)**: 어떤 server scene-builder setter 추가도 `npm run test:e2e:server`의
+  베이스라인 골든(F0.2: hex색/Flex/Stack/생성자 Label)을 깨면 안 된다 — *위반 시 M1 전체가 silent-regression*.
+  기존 `npm run test:e2e`(harness)는 `SBBuildNode`를 안 거치므로 이 보증을 줄 수 없다(`goldenTestRunner.ts:18`이 harness 템플릿 사용 — fact 1).
+- **Inv-2 (single-marker-per-file)**: 갤러리(M3 `@preview-preset:`)가 존재하기 전까지 한 파일에 진입점 마커
+  (`@dali-preview` / 첫 `@preview` / 첫 `@dali-preview-begin`)는 **하나만** 유효하다. 첫 유효 마커가 이긴다
+  (현 동작: `extractPreviewCode`가 첫 마커에서 return). *위반 시 어느 함수가 프리뷰되는지 모호 — research/usability가
+  지적한 혼란*. M3 multi-config/preset만 한 파일 다중 변형을 허용한다.
+- **Inv-3 (directive coexistence, no new keys)**: `@preview-state`는 **focus와 progress 두 키만** 판다.
+  일반 `key=value`(playing/scroll/selected…)는 CUT — 추가 시 *앱 상태를 주석에 재기술하는 sprawl*(research §CUT 14).
+  새 `@preview-*` prefix는 ADR-001에 등재된 4종(`-config`/`-state`/`-preset` + zero-arg `@dali-preview`)만.
+- **Inv-4 (frozen-config respects Apply ordering)**: `UiConfig::SetScalingFactor`/`SetBrokenImageUrl`/
+  `SetAlwaysShowFocus`/`SetTextLayoutDirectionMode`는 **`Apply()` 전에만** 호출 가능(frozen-after-Apply: ui-config.h:57,
+  :174, :335, :549; `Apply()` 한 번만 :166). 따라서 컴파일 path의 install은 `UiConfig::New()....Apply()` 체인 안 또는
+  그 직전이어야 한다 — *위반 시 debug assert/런타임 실패*(M3/M5). 대조적으로 `UiColorManager::SetColorOverride`(:254)/
+  `UiScaleManager::SetScale`(:124)/`SetLocalizedStringOverride`(:346)/`FocusManager::SetCurrentFocusView`(:90)는
+  runtime-callable(warm-server-safe) — 가능하면 이 경로 우선(ADR-004).
+- **Inv-5 (no captures in override palettes)**: `ColorOverrideFunc`/`LocalizedStringOverrideFunc`는 **plain
+  `bool(*)(...)` 함수 포인터**(ui-color-manager.h:52, ui-localization-manager.h:67) — std::function/캡처 불가.
+  팔레트는 static free function + static 테이블이어야 한다 — *위반 시 컴파일 실패*(M3).
+- **Inv-6 (byte-identical empty slots)**: 새 템플릿 placeholder의 빈 값(`''`) 치환은 단순
+  `String.replace(/\{\{SLOT\}\}/g,'')`로 개행을 더하거나 빼지 않는다(기존 규칙, auto-extract ADR-001). *위반 시
+  모든 기존 harness/server 골든이 한 줄 시프트로 깨짐*. 새 슬롯은 기존 빈 줄 자리에 놓는다.
+- **Inv-7 (fixed entry symbols)**: dlopen 진입점은 `CreatePreview`(server resolves: preview_server.cpp:1011),
+  harness 진입점은 `CreatePreviewUI`(harness :32/:263). M2 zero-arg 진입점은 **이 고정 심볼로 래핑**되어야 한다
+  (새 심볼 추가 금지) — *위반 시 dlsym 실패*.
+
+---
+
+## ADR index
+
+- ADR-001 — Directive grammar contract (가장 중요; M2/M3/M5 모두 부착) → adr/ADR-001-directive-grammar-contract.md
+- ADR-002 — Server-path render verification harness (M0/F0.1; M1의 게이트) → adr/ADR-002-server-path-render-harness.md
+- ADR-003 — Server scene-builder extension pattern (M1) → adr/ADR-003-server-scene-builder-extension.md
+- ADR-004 — Build-time singleton install site (M2/M3/M5) → adr/ADR-004-build-time-install-site.md
+- ADR-005 — Cross-file resolution + error-line mapping (M4) → adr/ADR-005-cross-file-and-error-mapping.md
+- ADR-006 — Focus target resolution (M2) → adr/ADR-006-focus-target-resolution.md
+- ADR-007 — Provenance badge channel (M5) → adr/ADR-007-provenance-badge-channel.md
+
+---
+
+## Self-Review
+
+- **Placeholder scan**: TODO/TBD/??? 없음. 7개 ADR 모두 Status=Accepted, 구체 결정 부여. 미해결은 OPEN_QUESTIONS로 승격.
+  스파이크(M0 F0.4/F0.5)에 의존하는 디테일(fontScale 정확한 API, focus-ring 활성화 여부)은 ADR-004에서 "이미
+  헤더로 frozen/runtime 구분 확정 → 스파이크는 *재확인*용"으로 명시(가정 아님, 헤더 인용).
+- **Internal consistency**: ADR-001(문법)↔ADR-004(install)↔ADR-006(focus)이 `@preview-state focus=`에서 일치 —
+  ADR-001이 파싱, ADR-006이 id→handle, ADR-004가 호출 site. ADR-002(server 러너)↔ADR-003(server setter)이
+  M0→M1 게이트로 일치(Inv-1). ADR-005(cross-file)는 auto-extract ADR-006(include-inlining)을 **명시적으로
+  계승하되 확장**(헤더 마운트 옵션 추가) — 충돌 아님, 상위호환. Inv-4/Inv-5가 ADR-004와 일치(frozen vs runtime, no-capture).
+- **Scope check**: plan.md의 6 마일스톤·32 WU가 필요로 하는 결합 지점만 결정. CUT 3종(9b JSON-fixture/메서드형
+  SetOrientation/일반 state 문법)은 어떤 ADR에도 등장 안 함(ADR-001이 Inv-3로 명시 배제). DEFER 2종(locale=RTL+배지/
+  state=focus+progress)은 정직 버전만(ADR-001 + ADR-004 F3.4). 새 컴포넌트 0 — 전부 기존 파일 확장.
+- **Ambiguity**: (a) M1 "좁은 가치"는 AXIS-S가 single-fn T1 path만 받는다는 routing 인용(:692)으로 정직화 —
+  ADR-002/ADR-003에 박음. (b) M3↔M4 순서는 plan.md가 스왑 여지를 명시 → 두 ADR 모두 "M2에만 의존, 상호 비의존"
+  으로 작성해 순서 무관하게 성립. (c) ADR-005의 cross-file 전략(BFS 유지 vs compile_commands vs clangd)은
+  하나를 선택(BFS 유지 + `-I/-D` 주입)하되 대안을 Alternatives에 기록.
+
+OPEN_QUESTIONS:
+1. `UiConfig::SetScalingFactor`가 fontScale에 충분한지 vs `UiScaleManager::SetScale`(runtime)이 텍스트까지 스케일하는지 —
+   ADR-004는 "warm 서버는 `UiScaleManager::SetScale`, 그래도 텍스트가 안 커지면 harness path의 `UiConfig::SetScalingFactor`
+   fallback"으로 양쪽 다 배선하라 결정. M0 F0.4 스파이크가 어느 쪽이 실제로 텍스트를 키우는지 *확인*(택일 아님 — 둘 다 코드에 둠).
+2. `SetAlwaysShowFocus`(frozen)가 켜져 있어야 focus 링이 보이는지(M0 F0.5) — ADR-006은 harness/plugin install site에서
+   `UiConfig::SetAlwaysShowFocus(true)`를 무조건 켜도록 결정(focus 디렉티브 유무와 무관하게 안전). 스파이크는 링 가시성 *확인*용.
