@@ -9,6 +9,10 @@ using namespace Dali::Ui;
 
 namespace wallet {
 
+// @preview
+// Preview target: the extension slices THIS member function (the marker on the
+// definition makes the .cpp itself previewable; the header declaration's marker
+// alone leaves the .cpp body unreachable to extraction). See M4 spec §2(d).
 View WalletScreen::Build() {
     // P2 + P6: loop over the view-model's data to build transaction rows.
     auto txList = StackLayout::New(StackOrientation::VERTICAL).SetSpacing(theme::GAP_ROW).SetRequestedWidth(MATCH_PARENT);
