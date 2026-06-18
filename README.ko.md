@@ -229,11 +229,36 @@ return MyScreen();
 |---|---|---|
 | `name` | 텍스트 *(필수)* | 프리뷰 위에 표시할 라벨 |
 | `width` / `height` | px | 이 프리뷰의 캔버스 크기 |
-| `theme` | `light` \| `dark` | 배경 / 테마 |
-| `locale` | 예: `ko_KR` | 렌더링 시 `LANG` 설정 |
+| `theme` | `light` \| `dark` | 배경 **+ 토큰 색 reskin** (`UiColor::PRIMARY`, `UiColor("…")`) |
+| `fontScale` | `0.5`–`2.0` | `_spx` 단위 텍스트 스케일 (큰 글꼴 오버플로 조기 발견) |
+| `locale` | 예: `ar`, `ko_KR` | RTL 로케일이면 레이아웃 좌우 미러; `LANG` 설정 |
 | `font` | 파일명 | `daliPreview.fontDirectories` 의 폰트 사용 |
 | `animation` | `true` \| `false` | 애니메이션 GIF 캡처 (실험적) |
 | `duration` / `fps` | ms / 프레임 | 애니메이션 길이와 프레임 레이트 |
+
+**프리셋** — `// @preview-preset: light-dark` (또는 `locales`, `font-sizes`,
+`screen-sizes`)는 여러 config 변형으로 확장되어 갤러리에 나란히 표시됩니다.
+
+#### 기타 디렉티브 *(0.44 신규)*
+
+```cpp
+// @dali-preview                      // 다음 인자 없는 팩토리를 프리뷰 진입점으로 표시
+View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
+
+// @preview-state: focus=card2        // card2 를 포커스된 상태(하이라이트 링)로 렌더
+// @preview-state: progress=0.4       // 애니메이션을 40% 프레임에서 열기
+```
+
+- **`// @dali-preview`** — Compose 의 매개변수 없는 `@Preview` 와 같은 개념: 인자 없는
+  팩토리를 표시하면 반환값을 렌더(슬라이서가 헬퍼를 끌어옴) → view-model 이 필요한
+  화면도 프리뷰 가능.
+- **`// @preview-state: focus=<view>`** — 한 항목을 포커스 상태로(`<view>`=코드의 변수명).
+  `progress=<0..1>` 는 애니메이션 프레임 선택. (`focus` 와 `progress` 는 한 렌더에서 배타.)
+
+> 0.44 신규: **멀티파일 앱 코드 그대로 프리뷰**(다른 `.cpp` 의 헬퍼·멤버 view-model
+> 자동 수집), **포커스 링**(TV/D-pad), **theme/fontScale/locale 실제 적용**,
+> **provenance 배지**(가짜/근사 표시), **깨진 이미지 placeholder**. cross-file 컴파일
+> 에러는 원본 파일·라인(예: `widgets/cards.cpp:38`)으로 매핑.
 
 ## 명령
 

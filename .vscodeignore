@@ -14,10 +14,13 @@ node_modules/**
 dali-ui-preview/**
 .gitignore
 # Internal: coverage artifacts and large test reports.
+# Internal: compiled test output (out/test) — runtime only needs out/src.
+out/test/**
 coverage/**
 .nyc_output/**
 dali_preview_report/**
 Docs/**
+docs/**
 # Internal: shell scripts and CI helpers — not needed at runtime.
 install.sh
 .c8rc.json

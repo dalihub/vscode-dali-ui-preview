@@ -30,6 +30,24 @@ panel. After the first render, text edits update in **~100 ms**.
 - 🖼️ **Multi-preview** — render several sizes / themes / locales side by side from one file.
 - 🌗 **Theme toggle** — flip between dark and light, or set a custom background colour.
 
+**Real-world code** *(new in 0.44)*
+
+- 📂 **Preview real multi-file app code** — a member-function screen
+  (`Screen::Build()`) that calls helpers/factories defined in *other* `.cpp` files
+  and reads an injected view-model now previews **without rewriting**: the slicer
+  collects the cross-file dependencies and synthesizes sample data for the model.
+  Cross-file compile errors map back to *your* real file and line (e.g.
+  `widgets/cards.cpp:38`).
+- 🕹️ **Focus preview (TV / D-pad)** — `// @preview-state: focus=<view>` renders one
+  item in its keyboard-focus state (the highlight ring), referenced by the variable
+  you already wrote. `progress=<0..1>` opens an animation at a chosen frame.
+- 🎨 **Theme / locale / font that actually apply** — `theme=dark` reskins token
+  colours, `fontScale=1.5` scales text, `locale=ar` mirrors the layout
+  right-to-left (layout only — never a fake translation).
+- 🪧 **Honest provenance badges** — when a preview is approximated (sample data, a
+  placeholder image, an unresolved theme token), a small badge says exactly what,
+  so a "silent fix" never looks like your bug.
+
 **Going further**
 
 - 🕹️ **Interactive mode (VNC)** — drive the live app in the panel: click, scroll, type.
@@ -241,11 +259,32 @@ return MyScreen();
 |---|---|---|
 | `name` | text *(required)* | Label shown above the preview |
 | `width` / `height` | px | Canvas size for this preview |
-| `theme` | `light` \| `dark` | Background / theme |
-| `locale` | e.g. `ko_KR` | Sets `LANG` for the render |
+| `theme` | `light` \| `dark` | Background **and** token-colour reskin (`UiColor::PRIMARY`, `UiColor("…")`) |
+| `fontScale` | `0.5`–`2.0` | Scales `_spx`-sized text (catch big-font overflow early) |
+| `locale` | e.g. `ar`, `ko_KR` | Mirrors layout right-to-left for RTL locales; sets `LANG` |
 | `font` | filename | Use a font from `daliPreview.fontDirectories` |
 | `animation` | `true` \| `false` | Capture an animated GIF (experimental) |
 | `duration` / `fps` | ms / frames | Animation length and frame rate |
+
+**Presets** — `// @preview-preset: light-dark` (also `locales`, `font-sizes`,
+`screen-sizes`) expands to several config variants shown together in the gallery.
+
+#### Other directives
+
+```cpp
+// @dali-preview                      // mark the next zero-arg factory as the preview entry
+View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
+
+// @preview-state: focus=card2        // render card2 in its focused state (highlight ring)
+// @preview-state: progress=0.4       // open an animation at the 40% frame
+```
+
+- **`// @dali-preview`** — the C++ analog of Compose's parameterless `@Preview`:
+  mark a zero-argument factory and the extension renders what it returns (pulling in
+  helpers via the slicer), so a screen that normally needs a view-model is previewable.
+- **`// @preview-state: focus=<view>`** — show one item focused (the highlight ring);
+  `<view>` is a variable name from your code. `progress=<0..1>` picks an animation
+  frame. (`focus` and `progress` are mutually exclusive in a single render.)
 
 ## Commands
 
