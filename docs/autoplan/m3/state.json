@@ -1,9 +1,11 @@
 {
   "milestone": "M3",
-  "current": "WU-M3.1",
-  "completed": [],
+  "current": "WU-M3.5 (pass2)",
+  "completed": ["M3.1 slots", "M3.2 fontScale", "M3.3 theme", "M3.4 server-token"],
   "milestone_done": false,
   "base_sha": "07ffab7",
-  "wus": ["M3.1 slots", "M3.2 fontScale", "M3.3 theme", "M3.4 server-token", "M3.5 locale-rtl", "M3.6 ids-badge", "M3.7 preset", "M3.8 gallery-plumb"],
-  "impl_passes": {"pass1": "M3.1+M3.2+M3.3+M3.4 (install base + fontScale + theme + server token)", "pass2": "M3.5+M3.6+M3.7+M3.8 (locale rtl + ids badge + preset + gallery)"}
+  "pass1_verdict": "PASS (theme reskin + fontScale + server token, real renders verified)",
+  "pass1_commit": "a485e32",
+  "remaining": ["M3.5 locale-rtl", "M3.6 ids-badge", "M3.7 preset", "M3.8 gallery-plumb"],
+  "notes": "Core config knobs (theme/fontScale/server-token) DONE + verified. Pass2 (locale RTL + IDS badge + @preview-preset + gallery plumbing) pending."
 }
