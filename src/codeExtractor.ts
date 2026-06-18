@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PreviewConfig } from './previewConfig';
+import { PreviewConfig, PreviewState } from './previewConfig';
 import { getLogger } from './logger';
 
 export interface ExtractionResult {
@@ -7,6 +7,9 @@ export interface ExtractionResult {
     startLine: number;
     mode: 'preview-file' | 'marker' | 'single-marker';
     configs?: PreviewConfig[];
+    /** Parsed `// @preview-state:` directive (focus / progress). Last valid
+     *  state line in the file wins. */
+    state?: PreviewState;
     /** Signature params of the previewed function (when a CodeLens targets a
      *  specific function), so the slice stubs ITS params — not the file's first. */
     params?: { name: string; type: string }[];
@@ -15,6 +18,9 @@ export interface ExtractionResult {
 const MARKER_BEGIN = '// @dali-preview-begin';
 const MARKER_END = '// @dali-preview-end';
 const SINGLE_PREVIEW_MARKER = '// @preview';
+/** Zero-arg factory entry marker (ADR-001). Exact-match only so it does NOT
+ *  collide with `// @dali-preview-begin` (which has a suffix). */
+const DALI_PREVIEW_MARKER = '// @dali-preview';
 
 const PREVIEW_CONFIG_RE = /^\/\/\s*@preview-config:\s*(.+)$/;
 const CONFIG_NAME_RE = /name\s*=\s*"([^"]+)"/;
@@ -28,6 +34,12 @@ const CONFIG_FONT_RE = /(?<![a-zA-Z])font\s*=\s*([\w.\-/]+)/;
 const CONFIG_ANIMATION_RE = /(?<![a-zA-Z])animation\s*=\s*(true|false)/;
 const CONFIG_DURATION_RE = /duration\s*=\s*(\d+)/;
 const CONFIG_FPS_RE = /fps\s*=\s*(\d+)/;
+
+// `// @preview-state:` directive (ADR-001). Only `focus` / `progress` keys are
+// matched; any other token in the body is ignored (general key=value is CUT).
+const PREVIEW_STATE_RE = /^\/\/\s*@preview-state:\s*(.+)$/;
+const STATE_FOCUS_RE = /(?:^|,)\s*focus\s*=\s*(?:"([^"]*)"|([A-Za-z_]\w*))/;
+const STATE_PROGRESS_RE = /(?:^|,)\s*progress\s*=\s*([-+]?[\d.]+)/;
 
 const FONTSCALE_MIN = 0.5;
 const FONTSCALE_MAX = 2.0;
@@ -98,6 +110,48 @@ function parsePreviewConfigLine(line: string): PreviewConfig | null {
 }
 
 /**
+ * Parse a `// @preview-state:` directive (ADR-001), mirroring
+ * `parsePreviewConfigLine`. Grammar: `focus=<id>` and/or `progress=<float>`,
+ * comma-separated. Only `focus` and `progress` are recognised — any other key
+ * is ignored (the general key=value grammar is CUT).
+ *
+ * - `focus` value is an identifier OR a quoted string (quotes stripped). A focus
+ *   value containing whitespace/newline is REJECTED (IPC-injection safety,
+ *   consistent with previewServer.ts's `/[\s\n]/` rejection).
+ * - `progress` is parsed as a float (range-clamping happens at render time — M5).
+ *
+ * Returns null when the line is not a `@preview-state:` directive, or when no
+ * recognised key carries a valid value.
+ */
+function parsePreviewStateLine(line: string): PreviewState | null {
+    const m = PREVIEW_STATE_RE.exec(line.trim());
+    if (!m) {
+        return null;
+    }
+    const body = m[1];
+    const state: PreviewState = {};
+    const focusMatch = STATE_FOCUS_RE.exec(body);
+    if (focusMatch) {
+        // group 1 = quoted value (may be empty), group 2 = bare identifier
+        const value = focusMatch[1] !== undefined ? focusMatch[1] : focusMatch[2];
+        if (value && !/[\s\n]/.test(value)) {
+            state.focus = value;
+        }
+    }
+    const progressMatch = STATE_PROGRESS_RE.exec(body);
+    if (progressMatch) {
+        const p = parseFloat(progressMatch[1]);
+        if (!Number.isNaN(p)) {
+            state.progress = p;
+        }
+    }
+    if (state.focus === undefined && state.progress === undefined) {
+        return null;
+    }
+    return state;
+}
+
+/**
  * Regex matching a variable declaration like `View card = ...`
  * Captures everything after the `=` (trimmed).
  * Handles common DALi types: View, Control, Actor, ImageView, TextLabel, etc.
@@ -122,29 +176,55 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
         const configs: PreviewConfig[] = [];
         const codeLines: string[] = [];
         let configLineCount = 0;
+        let state: PreviewState | undefined;
         for (const line of lines) {
             const cfg = parsePreviewConfigLine(line);
             if (cfg) {
                 configs.push(cfg);
                 configLineCount++;
-            } else {
-                codeLines.push(line);
+                continue;
             }
+            const st = parsePreviewStateLine(line);
+            if (st) {
+                state = st; // last valid state line wins
+                configLineCount++;
+                continue;
+            }
+            codeLines.push(line);
         }
         const result: ExtractionResult = {
             code: codeLines.join('\n'),
             startLine: configLineCount,
             mode: 'preview-file',
             configs: configs.length > 0 ? configs : undefined,
+            state,
         };
         log.debug('Extraction', 'mode selected', { mode: result.mode, fileName, lineCount: codeLines.length });
         return result;
     }
 
-    // --- Mode 2: single // @preview marker → next function body ---
+    // --- Mode 2: single // @preview (or zero-arg // @dali-preview) marker → next function body ---
     if (fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
+        // Collect a `// @preview-state:` directive (last valid wins) and the line
+        // numbers it occupies, so those directive lines are excluded from the
+        // extracted function body (the same way config lines are filtered out
+        // elsewhere). State may sit above the marker or inside the body.
+        let modeState: PreviewState | undefined;
+        const stateLineSet = new Set<number>();
         for (let i = 0; i < document.lineCount; i++) {
-            if (document.lineAt(i).text.trim() !== SINGLE_PREVIEW_MARKER) {
+            const st = parsePreviewStateLine(document.lineAt(i).text);
+            if (st) {
+                modeState = st; // last valid state line wins
+                stateLineSet.add(i);
+            }
+        }
+
+        for (let i = 0; i < document.lineCount; i++) {
+            const markerText = document.lineAt(i).text.trim();
+            // Recognise the single-line `// @preview` marker and the zero-arg
+            // factory entry marker `// @dali-preview` (exact match so it does NOT
+            // match `// @dali-preview-begin`). Both share the body-extraction path.
+            if (markerText !== SINGLE_PREVIEW_MARKER && markerText !== DALI_PREVIEW_MARKER) {
                 continue;
             }
 
@@ -160,22 +240,26 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 break; // marker found but no function below it
             }
 
-            // Find the matching closing brace
+            // Find the matching closing brace (record its column too, so inline
+            // and single-line bodies `Foo() { ... }` are handled).
+            const braceColStart = document.lineAt(braceLineStart).text.indexOf('{');
             let depth = 0;
             let foundOpen = false;
             let braceLineEnd = -1;
+            let braceColEnd = -1;
             for (let j = braceLineStart; j < document.lineCount; j++) {
                 const text = document.lineAt(j).text;
-                for (const ch of text) {
+                for (let c = 0; c < text.length; c++) {
+                    const ch = text[c];
                     if (ch === '{') {
                         depth++;
                         foundOpen = true;
-                    }
-                    if (ch === '}') {
+                    } else if (ch === '}') {
                         depth--;
                     }
                     if (foundOpen && depth === 0) {
                         braceLineEnd = j;
+                        braceColEnd = c;
                         break;
                     }
                 }
@@ -187,11 +271,33 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 break;
             }
 
-            // Extract lines between { and } (exclusive)
+            // Body starts at the line after the opening brace (for error-line
+            // mapping); inline bodies map to the brace line itself closely enough.
             const startLine = braceLineStart + 1;
+
+            // Extract the body between the opening `{` and its matching `}`,
+            // handling inline content on the brace line / close line and
+            // single-line bodies. Drop `// @preview-state:` directive lines.
             const codeLines: string[] = [];
-            for (let j = startLine; j < braceLineEnd; j++) {
-                codeLines.push(document.lineAt(j).text);
+            if (braceLineStart === braceLineEnd) {
+                codeLines.push(
+                    document.lineAt(braceLineStart).text.slice(braceColStart + 1, braceColEnd),
+                );
+            } else {
+                const head = document.lineAt(braceLineStart).text.slice(braceColStart + 1);
+                if (head.trim()) {
+                    codeLines.push(head);
+                }
+                for (let j = braceLineStart + 1; j < braceLineEnd; j++) {
+                    if (stateLineSet.has(j)) {
+                        continue;
+                    }
+                    codeLines.push(document.lineAt(j).text);
+                }
+                const tail = document.lineAt(braceLineEnd).text.slice(0, braceColEnd);
+                if (tail.trim()) {
+                    codeLines.push(tail);
+                }
             }
 
             let code = codeLines.join('\n');
@@ -213,6 +319,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 code,
                 startLine,
                 mode: 'single-marker',
+                state: modeState,
             };
         }
     }
@@ -238,17 +345,24 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
         }
 
         // Extract lines between the markers (exclusive of markers themselves).
-        // Lines matching @preview-config are collected as configs and excluded from code.
+        // Lines matching @preview-config / @preview-state are collected and
+        // excluded from code.
         const codeLines: string[] = [];
         const configs: PreviewConfig[] = [];
+        let state: PreviewState | undefined;
         for (let i = beginLine + 1; i < endLine; i++) {
             const lineText = document.lineAt(i).text;
             const cfg = parsePreviewConfigLine(lineText);
             if (cfg) {
                 configs.push(cfg);
-            } else {
-                codeLines.push(lineText);
+                continue;
             }
+            const st = parsePreviewStateLine(lineText);
+            if (st) {
+                state = st; // last valid state line wins
+                continue;
+            }
+            codeLines.push(lineText);
         }
 
         let code = codeLines.join('\n');
@@ -269,6 +383,7 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
             startLine: beginLine + 1,
             mode: 'marker',
             configs: configs.length > 0 ? configs : undefined,
+            state,
         };
     }
 
@@ -288,7 +403,12 @@ export function isPreviewable(document: vscode.TextDocument): boolean {
 
     if (fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
         const text = document.getText();
-        return text.includes(MARKER_BEGIN) || text.includes(SINGLE_PREVIEW_MARKER);
+        if (text.includes(MARKER_BEGIN) || text.includes(SINGLE_PREVIEW_MARKER)) {
+            return true;
+        }
+        // Zero-arg entry marker: an exact `// @dali-preview` line (not the
+        // `@dali-preview-begin` region marker, which is already handled above).
+        return text.split('\n').some((l) => l.trim() === DALI_PREVIEW_MARKER);
     }
 
     return false;

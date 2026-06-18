@@ -110,9 +110,14 @@ function parseParams(paramStr: string): { name: string; type: string }[] {
  * inside a class) are handled the same way — we only need the body.
  */
 export function findPreviewFunction(src: string): PreviewFn | null {
-    // Prefer a // @preview marker.
+    // Prefer a `// @preview` or zero-arg `// @dali-preview` entry marker, so the
+    // slice picks the factory function AFTER the marker. The `@dali-preview`
+    // alternative excludes the `@dali-preview-begin`/`-end` region markers via a
+    // `(?!-)` lookahead (the char after the token must not be `-`); the bare
+    // `@preview` alternative is left exactly as before (it still matches
+    // `@preview` / `@preview-config` / `@preview-state` the way it always did).
     let searchFrom = 0;
-    const marker = src.search(/\/\/\s*@preview\b/);
+    const marker = src.search(/\/\/\s*@preview\b|\/\/\s*@dali-preview\b(?!-)/);
     if (marker !== -1) { searchFrom = marker; }
 
     // From searchFrom, find the next function signature `... name(params) {`.

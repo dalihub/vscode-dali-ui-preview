@@ -11,6 +11,19 @@ export interface PreviewConfig {
     fps?: number;         // frames per second (5 ~ 30, default 10)
 }
 
+/**
+ * Parsed `// @preview-state:` directive (ADR-001). Only `focus` and `progress`
+ * keys are part of the grammar — any other key is ignored (the general
+ * key=value state grammar is deliberately CUT).
+ *
+ * `progress` is DECLARED here but applied in M5 (the M2 milestone parses it but
+ * does not feed it to the renderer yet).
+ */
+export interface PreviewState {
+    focus?: string;       // variable/handle name or "Name" of the node to focus
+    progress?: number;    // 0..1 animation scrub position (declared only; applied in M5)
+}
+
 export interface MultiPreviewResult {
     config: PreviewConfig;
     success: boolean;
