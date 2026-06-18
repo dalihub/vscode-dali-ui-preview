@@ -900,6 +900,15 @@ export class PreviewOrchestrator {
         try {
             // Multi-config path: build each config independently (2+ configs)
             if (extraction.configs && extraction.configs.length > 1) {
+                // Honesty: focus is not applied per-variant in multi-config yet
+                // (focus routes to the single harness path). Warn instead of
+                // silently dropping the ring. Per-variant focus / provenance badge
+                // is queued for M5.
+                if (extraction.state?.focus) {
+                    this.deps.outputChannel.appendLine(
+                        `[Preview] ⚠ // @preview-state: focus=${extraction.state.focus} is not applied in multi-config preview (${extraction.configs.length} configs). The focus ring is only shown in single-config previews.`,
+                    );
+                }
                 await this.runMultiPreview(
                     doc, extraction.configs, instrumented, extraction.startLine, myGeneration, startTime,
                 );
