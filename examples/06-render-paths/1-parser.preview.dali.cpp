@@ -1,6 +1,6 @@
-// ⚡ Parser path test (~80ms)
-// Pure fluent chain — TypeScript parses directly, NO C++ compile.
-// Expected log: parse: 0ms (success), renderJson: ~80ms
+// Parser path (~80ms)
+// Pure fluent chain — parsed directly, NO C++ compile.
+// Status bar: ⚡ Parser
 
 return FlexLayout::New()
     .SetDirection(FlexDirection::COLUMN)

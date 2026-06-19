@@ -30,10 +30,10 @@ install.sh
 *.research-pack.json
 # Internal: sibling tools / untracked experiment dirs that live in the working
 # tree but are NOT part of the extension — vsce would otherwise bundle them
-# (e.g. dali-ui-preview-cli was ~46 MB of unrelated CLI source). The tracked
-# samples/flow-wallet + samples/*.preview.dali.cpp ARE shipped (sampleCommand).
+# (e.g. dali-ui-preview-cli was ~46 MB of unrelated CLI source). samples/ is now
+# test-fixtures only — the runtime ships the guided tour under examples/ instead
+# (Open Examples), so exclude samples/ wholesale.
 dali-ui-preview-cli/**
-samples/dali-examples/**
-samples/test/**
+samples/**
 hello-dali.preview.dali.cpp
 dali-animation-playground.html

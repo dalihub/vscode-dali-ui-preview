@@ -13,8 +13,9 @@ import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand, decidePreviewDockerGate, DockerAccessResult } from './dockerAccessCheck';
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
+import { installXvfbCommand, promptInstallXvfb } from './installXvfb';
 import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
-import { openSampleCommand, openExamplesCommand, showReadmeCommand } from './sampleCommand';
+import { openExamplesCommand, showReadmeCommand, maybeShowExamplesReadme } from './sampleCommand';
 import { openWalkthrough } from './walkthroughController';
 import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { PreviewOrchestrator } from './previewOrchestrator';
@@ -118,11 +119,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     xvfbManager = new XvfbManager();
     if (hostXvfbNeeded(runtimeMode)) {
         const xvfbStarted = await xvfbManager.start();
-        outputChannel.appendLine(
-            xvfbStarted
-                ? `Xvfb started on display ${xvfbManager.getDisplay()}`
-                : 'Xvfb not available, using real display (window may flash)',
-        );
+        if (xvfbStarted) {
+            outputChannel.appendLine(`Xvfb started on display ${xvfbManager.getDisplay()}`);
+        } else if (!xvfbManager.isInstalled()) {
+            // Missing Xvfb → offer the one-command install. Local preview stays
+            // disabled until it's present (we never render on the real screen).
+            outputChannel.appendLine('Xvfb not installed — local preview disabled until it is. Offering install.');
+            void promptInstallXvfb();
+        } else {
+            // Installed but no free display in the band — surface it instead of
+            // silently drawing on :0 (the old "window may flash" behaviour).
+            outputChannel.appendLine('Xvfb installed but could not claim a virtual display (band busy) — local preview disabled.');
+            void vscode.window.showWarningMessage(
+                'DALi Preview could not start a virtual display (Xvfb) — the display band (:99–:114) is busy with '
+                + 'leftover X servers. Close them or reload the window; until then local preview is disabled '
+                + '(it will not draw on your real screen).',
+                'Reload Window',
+            ).then((c) => { if (c === 'Reload Window') { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
+        }
     }
 
     let backend: BuildBackend;
@@ -245,12 +259,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 return;
             }
             const localTmpDir = BuildRunner.getWorkspaceTmpDir();
+            // The resident server renders into this display. Without a managed
+            // Xvfb display we must NOT start it on the inherited :0 — that pops a
+            // persistent window on the user's screen. Skip to the one-shot path
+            // (which itself blocks rather than drawing on :0).
+            const serverDisplay = xvfbManager?.getDisplay();
+            if (!serverDisplay) {
+                outputChannel.appendLine('[PreviewServer] Local: no virtual display (Xvfb) — resident server not started (it would draw on your real screen). Install or free Xvfb to enable the fast path.');
+                statusBar?.showMode('compile');
+                return;
+            }
             previewServer = new PreviewServer(
                 context.extensionPath, outputChannel, localTmpDir,
                 undefined, undefined, [],
                 {
                     daliPrefix: prefix,
-                    display: xvfbManager?.getDisplay() ?? process.env.DISPLAY ?? ':0',
+                    display: serverDisplay,
                     serverSrcPath: path.join(context.extensionPath, 'docker', 'preview_server.cpp'),
                     serverBinPath: path.join(localTmpDir, 'preview_server'),
                 },
@@ -520,11 +544,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 await vscode.commands.executeCommand('workbench.action.reloadWindow');
             }
         }),
-        vscode.commands.registerCommand('dali.openSample', () =>
-            openSampleCommand(context),
-        ),
         vscode.commands.registerCommand('dali.openExamples', () =>
             openExamplesCommand(context),
+        ),
+        vscode.commands.registerCommand('dali.installXvfb', () =>
+            installXvfbCommand(),
         ),
         vscode.commands.registerCommand('dali.showReadme', () =>
             showReadmeCommand(context),
@@ -917,6 +941,11 @@ function registerDocumentListeners(context: vscode.ExtensionContext): void {
     });
 
     context.subscriptions.push(onSave, onOpen, onTextChange, onConfigChange);
+
+    // If this window is a copied examples tour (opened by `dali.openExamples`
+    // in a fresh window), greet the user with its index README. Fire-and-forget
+    // — never block activation on it.
+    void maybeShowExamplesReadme();
 }
 
 export function deactivate(): void {

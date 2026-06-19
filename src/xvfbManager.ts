@@ -1,8 +1,11 @@
 import { spawn, execSync, ChildProcess } from 'child_process';
-import * as vscode from 'vscode';
 import { getLogger } from './logger';
 
-const CANDIDATE_DISPLAYS = [99, 98, 97];
+/** Virtual-display numbers to try, in order. A wide band (not just a handful) so
+ *  leftover Xvfb servers from other sessions/tools — which squat on the low
+ *  numbers — cannot exhaust the list and force the renderer onto the user's REAL
+ *  display (:0). 16 candidates make exhaustion effectively impossible. */
+const CANDIDATE_DISPLAYS = Array.from({ length: 16 }, (_, i) => 99 + i); // :99 … :114
 const STARTUP_WAIT_MS = 500;
 
 export class XvfbManager {
@@ -20,10 +23,13 @@ export class XvfbManager {
             return true;
         }
 
+        // No UI here: the caller (extension activate) decides how to surface a
+        // failure — offer to install Xvfb when it's missing, or warn that the
+        // display band is busy. Crucially, a false return must NEVER lead to
+        // rendering on the real screen (getDisplay() returns undefined, and the
+        // render paths refuse rather than fall back to :0).
         if (!this.isXvfbInstalled()) {
-            vscode.window.showWarningMessage(
-                'Xvfb is not installed. Install it with: sudo apt install xvfb'
-            );
+            log.info('Xvfb', 'not installed — caller should offer to install');
             return false;
         }
 
@@ -41,9 +47,7 @@ export class XvfbManager {
             }
         }
 
-        vscode.window.showWarningMessage(
-            'Failed to start Xvfb: all candidate displays (:99, :98, :97) are in use or failed to start.'
-        );
+        log.info('Xvfb', 'could not claim any virtual display', { tried: `:${CANDIDATE_DISPLAYS[0]}…:${CANDIDATE_DISPLAYS[CANDIDATE_DISPLAYS.length - 1]}` });
         return false;
     }
 
@@ -63,14 +67,23 @@ export class XvfbManager {
     }
 
     /**
-     * Returns the Xvfb display string if running, or falls back to the
-     * DISPLAY environment variable.
+     * The managed Xvfb display string (e.g. ':99') ONLY while our Xvfb is alive.
+     * Returns undefined otherwise — callers MUST treat that as "no headless
+     * display" and refuse to render, NEVER fall back to the inherited DISPLAY
+     * (which on a desktop is the user's real screen :0). Rendering there pops a
+     * visible window — exactly the bug this guard prevents.
      */
-    getDisplay(): string {
+    getDisplay(): string | undefined {
         if (this.display && this.isAlive()) {
             return this.display;
         }
-        return process.env.DISPLAY || ':0';
+        return undefined;
+    }
+
+    /** Whether the Xvfb binary is on PATH. Public so local-mode setup can offer
+     *  to install it when missing, instead of silently failing to a :0 render. */
+    isInstalled(): boolean {
+        return this.isXvfbInstalled();
     }
 
     private isXvfbInstalled(): boolean {

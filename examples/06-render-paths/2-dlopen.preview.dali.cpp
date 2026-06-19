@@ -1,6 +1,7 @@
-// ⚡ dlopen path test (~400ms)
-// Uses auto, for, if/else — parser fails → compiles .so → dlopen.
-// Expected log: parse: 0ms (null), compilePlugin: ~350ms, server.reload: ~80ms
+// dlopen path (~400ms)
+// Uses auto, for, if/else — the parser can't handle these, so it falls back:
+// compiles a .so and hot-loads it into the resident server.
+// Status bar: ⚡ Server
 
 auto root = FlexLayout::New();
 root.SetDirection(FlexDirection::COLUMN);

@@ -4,9 +4,11 @@ using namespace Dali;
 using namespace Dali::Ui;
 
 /**
- * Single-marker preview example.
- * Place // @preview above any function returning a DALi view type.
+ * Preview a function INSIDE a normal .cpp — no dedicated preview file.
+ * Place // @preview above any function that returns a DALi view type.
  * No closing marker is needed — the function's closing brace is the end.
+ * A "▶ Preview" CodeLens also appears above each view-returning function;
+ * click it to preview that one directly.
  */
 
 // @preview
@@ -34,7 +36,8 @@ View CreateUI()
         });
 }
 
-// This function has no @preview marker; no CodeLens unless workspace is a DALi project.
+// No @preview marker here — but the ▶ Preview CodeLens still appears,
+// so you can preview this one with a click. Move the marker, or click the lens.
 View AnotherView()
 {
     return View::New()

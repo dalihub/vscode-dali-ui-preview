@@ -72,11 +72,6 @@
         "category": "DALi Preview"
       },
       {
-        "command": "dali.openSample",
-        "title": "Open Sample File",
-        "category": "DALi Preview"
-      },
-      {
         "command": "dali.openExamples",
         "title": "Open Examples",
         "category": "DALi Preview"
@@ -84,6 +79,11 @@
       {
         "command": "dali.installDocker",
         "title": "Install Docker via Terminal",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.installXvfb",
+        "title": "Install Xvfb via Terminal (local runtime)",
         "category": "DALi Preview"
       },
       {
@@ -129,6 +129,7 @@
         { "command": "dali.cleanRuntimeImages", "when": "false" },
         { "command": "dali.resetExtension", "when": "false" },
         { "command": "dali.installDocker", "when": "false" },
+        { "command": "dali.installXvfb", "when": "false" },
         { "command": "dali.pullRuntimeImage", "when": "false" },
         { "command": "dali.checkRuntimeUpdate", "when": "false" },
         { "command": "dali.showReadme", "when": "false" }
@@ -164,10 +165,10 @@
           },
           {
             "id": "first-preview",
-            "title": "Open a Sample",
-            "description": "Final step. Drops a small `hello-dali.preview.dali.cpp` into your workspace and opens it. Hit Ctrl+S to render — should appear in ~1 second since the image is already cached.\n[Open Sample](command:dali.openSample)",
+            "title": "Explore the Examples",
+            "description": "Final step. Copies a guided **Examples** tour into a folder you pick and opens it in a new window — start at its `README.md`, then open any `*.preview.dali.cpp` and hit Ctrl+S to render (~1 second, image already cached).\n[Open Examples](command:dali.openExamples)",
             "media": { "markdown": "media/walkthrough/06-first-preview.md" },
-            "completionEvents": ["onCommand:dali.openSample"]
+            "completionEvents": ["onCommand:dali.openExamples"]
           }
         ]
       }

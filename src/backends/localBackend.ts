@@ -111,7 +111,18 @@ export class LocalBackend implements BuildBackend {
             return { success: false, error: compileRes.error, output: compileRes.error };
         }
 
-        const display = this.xvfb?.getDisplay() ?? process.env.DISPLAY ?? ':0';
+        // Require a managed Xvfb display. We must NEVER fall back to the inherited
+        // DISPLAY (:0 on a desktop) — that would render the preview as a visible
+        // window on the user's real screen. Block with an actionable error instead.
+        const display = this.xvfb?.getDisplay();
+        if (!display) {
+            return {
+                success: false,
+                error: 'Local preview needs a virtual display (Xvfb), but none is active — '
+                    + 'rendering was blocked rather than drawn on your screen. '
+                    + 'Install Xvfb (sudo apt-get install -y xvfb) or reload the window so a virtual display can start.',
+            };
+        }
         const runRes = await this.execute(binPath, req.pngPathHost, display, prefix, req.width, req.height);
         if (!runRes.success) {
             return { success: false, error: runRes.error, output: runRes.error };

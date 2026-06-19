@@ -1,10 +1,11 @@
-// Full harness build test (~1100ms)
-// Same chain code as path1; this file exists to measure the slow path.
+// Full harness build (~1100ms)
+// Same chain as 1-parser; this file exists to measure the slow path.
+// Status bar: 🔨 Compile
 //
-// To force the full g++ harness build:
+// The full build is normally only a fallback. To force it:
 //   1. Open VS Code Settings (Ctrl+,)
 //   2. Search for "daliPreview.disablePreviewServer"
-//   3. Set it to true (workspace or user settings — workspace recommended)
+//   3. Set it to true (workspace recommended)
 //   4. Reload Window (Ctrl+Shift+P -> "Developer: Reload Window")
 //   5. Open this file and save / re-trigger preview
 //
@@ -13,12 +14,7 @@
 //   [Perf]    previewServer: null
 //   Preview updated in ~1.1s [compile]
 //
-// To restore fast paths: flip disablePreviewServer back to false and reload.
-//
-// Why prior instructions ("kill preview_server process" / "delete binary")
-// no longer worked: the extension auto-spawns the server on activate and
-// auto-rebuilds the binary if missing, so reload-window undoes both within
-// hundreds of milliseconds. The setting above is the durable switch.
+// To restore the fast paths: flip disablePreviewServer back to false and reload.
 
 return FlexLayout::New()
     .SetDirection(FlexDirection::COLUMN)

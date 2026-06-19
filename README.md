@@ -96,8 +96,9 @@ You only need **one** of the two runtimes. If you're not sure, pick Docker — i
 
    *Dismissed the dialog?* It returns the next time you open a `.preview.dali.cpp` file, or
    run **DALi Preview: Run Setup Walkthrough** from the Command Palette (`Ctrl+Shift+P`).
-3. Run **DALi Preview: Open Sample File** (`Ctrl+Shift+P`). A `hello-dali.preview.dali.cpp`
-   is dropped into your workspace and the preview panel opens beside it.
+3. Run **DALi Preview: Open Examples** (`Ctrl+Shift+P`). A guided tour is copied into a
+   folder you pick and opens in a new window; its `README.md` opens automatically. Start at
+   `01-your-first-preview/hello.preview.dali.cpp` — the preview panel opens beside it.
 4. Edit a label, change a colour, **save** — the preview updates.
 
 That's the whole loop: **write → save → see**.
@@ -296,7 +297,7 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | **Preview Function** | Preview the function under the cursor |
 | **Use Local DALi Runtime** | **Local mode — pick your DALi prefix folder (framework devs)** |
 | **Select Runtime Version** | **Docker mode — pick a container/DALi version (switches into Docker from local)** |
-| **Open Sample File** | Drop a starter `hello-dali.preview.dali.cpp` into the workspace |
+| **Open Examples** | Copy the guided examples tour to a folder and open it (start here) |
 | **Run Setup Walkthrough** | Reopen the guided setup |
 | **Install Docker via Terminal** | **① Install Docker** (one `sudo` password, no reboot) |
 | **Download Runtime Image** | **② Pull the DALi runtime image** (~290 MB) |
@@ -327,7 +328,7 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 
 - **The setup prompt didn't appear, or I dismissed it** — Docker mode can't render until
   Docker is installed **and** the runtime image is downloaded. Bring the prompt back by
-  opening any `.preview.dali.cpp` file (e.g. via **DALi Preview: Open Sample File**), or run
+  opening any `.preview.dali.cpp` file (e.g. via **DALi Preview: Open Examples**), or run
   **DALi Preview: Run Setup Walkthrough**. To do the steps manually: **DALi Preview: Install
   Docker via Terminal**, then **DALi Preview: Download Runtime Image**.
 - **Preview doesn't open automatically** — press `Ctrl+S` once to trigger the first render,

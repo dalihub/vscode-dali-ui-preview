@@ -72,8 +72,9 @@
 
    *대화상자를 닫았다면?* 다음에 `.preview.dali.cpp` 파일을 열 때 다시 뜨거나, 명령
    팔레트(`Ctrl+Shift+P`)에서 **DALi Preview: Run Setup Walkthrough** 로 다시 열 수 있습니다.
-3. 명령 팔레트(`Ctrl+Shift+P`)에서 **DALi Preview: Open Sample File** 을 실행하면
-   `hello-dali.preview.dali.cpp` 가 워크스페이스에 생성되고 옆에 프리뷰 패널이 열립니다.
+3. 명령 팔레트(`Ctrl+Shift+P`)에서 **DALi Preview: Open Examples** 를 실행하면, 선택한
+   폴더에 가이드 예제 투어가 복사되고 새 창에서 열리며 `README.md` 가 자동으로 표시됩니다.
+   `01-your-first-preview/hello.preview.dali.cpp` 부터 열면 옆에 프리뷰 패널이 열립니다.
 4. 라벨을 바꾸고, 색을 바꾸고, **저장**하세요 — 프리뷰가 갱신됩니다.
 
 이게 전부입니다: **작성 → 저장 → 확인**.
@@ -270,7 +271,7 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 | **Preview Function** | 커서 위치의 함수 프리뷰 |
 | **Use Local DALi Runtime** | **로컬 모드 — DALi prefix 폴더 선택(프레임워크 개발자용)** |
 | **Select Runtime Version** | **Docker 모드 — 컨테이너/DALi 버전 선택(로컬에서 실행 시 Docker로 전환)** |
-| **Open Sample File** | 시작용 `hello-dali.preview.dali.cpp` 생성 |
+| **Open Examples** | 가이드 예제 투어를 폴더에 복사해 열기(여기서 시작) |
 | **Run Setup Walkthrough** | 가이드 설치 다시 열기 |
 | **Install Docker via Terminal** | **① Docker 설치** (`sudo` 비밀번호 1회, 재부팅 없음) |
 | **Download Runtime Image** | **② DALi 런타임 이미지 받기** (~290 MB) |
@@ -301,7 +302,7 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 
 - **설정 안내가 안 떴거나, 닫아버렸음** — Docker 모드는 Docker 설치**와** 런타임 이미지
   다운로드가 **모두** 끝나야 렌더링됩니다. `.preview.dali.cpp` 파일을 열면(예: **DALi
-  Preview: Open Sample File**) 안내가 다시 뜨고, **DALi Preview: Run Setup Walkthrough** 로도
+  Preview: Open Examples**) 안내가 다시 뜨고, **DALi Preview: Run Setup Walkthrough** 로도
   열 수 있습니다. 수동으로 하려면 **DALi Preview: Install Docker via Terminal** 후
   **DALi Preview: Download Runtime Image** 를 실행하세요.
 - **프리뷰가 자동으로 안 열림** — `Ctrl+S` 를 한 번 눌러 첫 렌더링을 트리거하거나

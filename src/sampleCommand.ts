@@ -2,45 +2,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const SAMPLE_BASENAME = 'hello-dali.preview.dali.cpp';
-
 /** Folder name created inside the user-chosen location by `dali.openExamples`. */
 const EXAMPLES_DIRNAME = 'dali-examples';
 
-/**
- * Command: `dali.openSample`
- *
- * Copies the bundled hello-dali sample into the user's workspace
- * (or globalStorage as fallback when no workspace is open) and opens
- * it. If the file already exists in the workspace, just opens it.
- */
-export async function openSampleCommand(context: vscode.ExtensionContext): Promise<void> {
-    const sourcePath = path.join(context.extensionPath, 'samples', SAMPLE_BASENAME);
-    if (!fs.existsSync(sourcePath)) {
-        vscode.window.showErrorMessage(
-            `Bundled sample not found at ${sourcePath}. Reinstall the extension.`,
-        );
-        return;
-    }
-
-    // Prefer workspace folder so the user can save edits naturally;
-    // fall back to globalStorage when no folder is open.
-    let destPath: string;
-    const ws = vscode.workspace.workspaceFolders?.[0];
-    if (ws) {
-        destPath = path.join(ws.uri.fsPath, SAMPLE_BASENAME);
-    } else {
-        await fs.promises.mkdir(context.globalStorageUri.fsPath, { recursive: true });
-        destPath = path.join(context.globalStorageUri.fsPath, SAMPLE_BASENAME);
-    }
-
-    if (!fs.existsSync(destPath)) {
-        await fs.promises.copyFile(sourcePath, destPath);
-    }
-
-    const doc = await vscode.workspace.openTextDocument(destPath);
-    await vscode.window.showTextDocument(doc);
-}
+/** Signature subfolders that, alongside an index `README.md`, identify a copied
+ *  examples tour (used by {@link maybeShowExamplesReadme} to auto-open the guide
+ *  without a sentinel file cluttering the copy). */
+const EXAMPLES_SIGNATURE_DIRS = ['01-your-first-preview', '06-render-paths'];
 
 /**
  * Command: `dali.openExamples`
@@ -120,4 +88,32 @@ export async function showReadmeCommand(context: vscode.ExtensionContext): Promi
     // `markdown.showPreview` opens VS Code's built-in markdown renderer
     // — same one users see for any .md file. Keeps formatting/links.
     await vscode.commands.executeCommand('markdown.showPreview', uri);
+}
+
+/**
+ * On activation, if the freshly-opened workspace IS a copied examples tour
+ * (created by {@link openExamplesCommand}), auto-open its index `README.md`
+ * in markdown preview so the guide greets the user without a manual click.
+ *
+ * `dali.openExamples` opens the copy in a NEW window, which restarts the
+ * extension host — so the guide can't be shown inline by the command itself;
+ * it has to be re-detected here on the next activation. Detection is by
+ * structure (index README + the tour's signature subfolders), not a sentinel
+ * file, to keep the copy clean and avoid false positives on real projects.
+ * VS Code dedupes the preview tab, so a reload simply re-focuses it.
+ */
+export async function maybeShowExamplesReadme(): Promise<void> {
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        const root = folder.uri.fsPath;
+        const readme = path.join(root, 'README.md');
+        const isExamplesTour =
+            fs.existsSync(readme) &&
+            EXAMPLES_SIGNATURE_DIRS.every((d) => {
+                try { return fs.statSync(path.join(root, d)).isDirectory(); } catch { return false; }
+            });
+        if (isExamplesTour) {
+            await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(readme));
+            return; // one tour per window
+        }
+    }
 }

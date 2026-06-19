@@ -33,18 +33,18 @@ describe('XvfbManager', () => {
             expect(result).to.equal(true);
         });
 
-        it('returns false and shows warning if Xvfb not installed', async () => {
-            // Stub isXvfbInstalled to return false
+        it('returns false (no UI) if Xvfb not installed — caller offers install', async () => {
+            // start() no longer shows its own warning; activate() decides how to
+            // surface it (offer install / warn busy). It must NOT fall to :0.
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(false);
             const showWarningSpy = sinon.spy(vscode.window, 'showWarningMessage');
 
             const result = await mgr.start();
             expect(result).to.equal(false);
-            expect(showWarningSpy.calledOnce).to.equal(true);
-            expect(showWarningSpy.firstCall.args[0]).to.include('Xvfb is not installed');
+            expect(showWarningSpy.called).to.equal(false);
         });
 
-        it('tries candidate displays :99, :98, :97', async () => {
+        it('tries a wide band of candidate displays starting at :99', async () => {
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(true);
 
             // Track which displays were tried
@@ -56,23 +56,25 @@ describe('XvfbManager', () => {
             }) as any);
 
             await mgr.start();
-            expect(triedDisplays).to.deep.equal([':99', ':98', ':97']);
+            // A wide band so leftover Xvfb servers on :97–:99 can't exhaust it and
+            // force a :0 fallback (the screen-hijack bug).
+            expect(triedDisplays[0]).to.equal(':99');
+            expect(triedDisplays.length).to.be.greaterThan(3);
+            expect(triedDisplays).to.include(':110');
         });
 
         it('skips displays that are in use', async () => {
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(true);
 
-            // Display 99 is in use, 98 is free
-            const isDisplayInUseStub = sinon.stub(mgr as any, 'isDisplayInUse');
+            // Display 99 is in use; the next candidate (:100) is free.
+            const isDisplayInUseStub = sinon.stub(mgr as any, 'isDisplayInUse').returns(false);
             isDisplayInUseStub.withArgs(99).returns(true);
-            isDisplayInUseStub.withArgs(98).returns(false);
-            isDisplayInUseStub.withArgs(97).returns(false);
 
             const triedDisplays: string[] = [];
             sinon.stub(mgr as any, 'tryStart').callsFake((async (...args: unknown[]) => {
                 const display = args[0] as string;
                 triedDisplays.push(display);
-                if (display === ':98') {
+                if (display === ':100') {
                     return true;
                 }
                 return false;
@@ -82,10 +84,10 @@ describe('XvfbManager', () => {
             expect(result).to.equal(true);
             // :99 should NOT appear in tried displays since it was in use
             expect(triedDisplays).to.not.include(':99');
-            expect(triedDisplays).to.include(':98');
+            expect(triedDisplays).to.include(':100');
         });
 
-        it('returns false if all candidate displays fail', async () => {
+        it('returns false (no UI) if all candidate displays fail', async () => {
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(true);
             sinon.stub(mgr as any, 'isDisplayInUse').returns(false);
             sinon.stub(mgr as any, 'tryStart').resolves(false);
@@ -93,23 +95,22 @@ describe('XvfbManager', () => {
 
             const result = await mgr.start();
             expect(result).to.equal(false);
-            expect(showWarningSpy.calledOnce).to.equal(true);
-            expect(showWarningSpy.firstCall.args[0]).to.include('all candidate displays');
+            // Messaging moved to activate(); start() stays UI-free.
+            expect(showWarningSpy.called).to.equal(false);
         });
 
         it('sets display when a candidate succeeds', async () => {
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(true);
             sinon.stub(mgr as any, 'isDisplayInUse').returns(false);
 
-            // First display (:99) fails, second (:98) succeeds
-            const tryStartStub = sinon.stub(mgr as any, 'tryStart');
+            // First display (:99) fails, the next (:100) succeeds.
+            const tryStartStub = sinon.stub(mgr as any, 'tryStart').resolves(false);
             tryStartStub.withArgs(':99').resolves(false);
-            tryStartStub.withArgs(':98').resolves(true);
-            tryStartStub.withArgs(':97').resolves(false);
+            tryStartStub.withArgs(':100').resolves(true);
 
             const result = await mgr.start();
             expect(result).to.equal(true);
-            expect((mgr as any).display).to.equal(':98');
+            expect((mgr as any).display).to.equal(':100');
         });
     });
 
@@ -155,7 +156,7 @@ describe('XvfbManager', () => {
     // getDisplay()
     // -----------------------------------------------------------------
     describe('getDisplay()', () => {
-        it('returns the Xvfb display when running', () => {
+        it('returns the managed Xvfb display when running', () => {
             const fakeChild = { pid: 99999 } as any;
             (mgr as any).process = fakeChild;
             (mgr as any).display = ':98';
@@ -164,11 +165,13 @@ describe('XvfbManager', () => {
             expect(mgr.getDisplay()).to.equal(':98');
         });
 
-        it('falls back to DISPLAY env var when not running', () => {
+        it('returns undefined (NOT the real DISPLAY) when not running', () => {
+            // The critical anti-screen-hijack contract: no managed Xvfb → undefined,
+            // so render paths refuse rather than draw on the user's real screen.
             const originalDisplay = process.env.DISPLAY;
-            process.env.DISPLAY = ':42';
+            process.env.DISPLAY = ':0';
             try {
-                expect(mgr.getDisplay()).to.equal(':42');
+                expect(mgr.getDisplay()).to.equal(undefined);
             } finally {
                 if (originalDisplay !== undefined) {
                     process.env.DISPLAY = originalDisplay;
@@ -178,35 +181,28 @@ describe('XvfbManager', () => {
             }
         });
 
-        it('falls back to :0 when no DISPLAY env var', () => {
-            const originalDisplay = process.env.DISPLAY;
-            delete process.env.DISPLAY;
-            try {
-                expect(mgr.getDisplay()).to.equal(':0');
-            } finally {
-                if (originalDisplay !== undefined) {
-                    process.env.DISPLAY = originalDisplay;
-                }
-            }
-        });
-
-        it('falls back when process exists but is no longer alive', () => {
+        it('returns undefined when the process exists but is no longer alive', () => {
             const fakeChild = { pid: 99999 } as any;
             (mgr as any).process = fakeChild;
             (mgr as any).display = ':98';
             sinon.stub(mgr as any, 'isProcessAlive').returns(false);
 
-            const originalDisplay = process.env.DISPLAY;
-            process.env.DISPLAY = ':5';
-            try {
-                expect(mgr.getDisplay()).to.equal(':5');
-            } finally {
-                if (originalDisplay !== undefined) {
-                    process.env.DISPLAY = originalDisplay;
-                } else {
-                    delete process.env.DISPLAY;
-                }
-            }
+            expect(mgr.getDisplay()).to.equal(undefined);
+        });
+    });
+
+    // -----------------------------------------------------------------
+    // isInstalled() — public guard so local-mode setup can offer install
+    // -----------------------------------------------------------------
+    describe('isInstalled()', () => {
+        it('returns a boolean reflecting Xvfb presence on PATH', () => {
+            const result = mgr.isInstalled();
+            expect(result).to.be.a('boolean');
+        });
+
+        it('mirrors the private isXvfbInstalled() probe', () => {
+            sinon.stub(mgr as any, 'isXvfbInstalled').returns(false);
+            expect(mgr.isInstalled()).to.equal(false);
         });
     });
 
@@ -271,14 +267,14 @@ describe('XvfbManager', () => {
             expect(result).to.be.a('boolean');
         });
 
-        it('behavior tested through start() — false triggers warning', async () => {
+        it('behavior tested through start() — false returns false without UI', async () => {
             // Stub the private method to control the path
             sinon.stub(mgr as any, 'isXvfbInstalled').returns(false);
             const showWarningSpy = sinon.spy(vscode.window, 'showWarningMessage');
 
             const result = await mgr.start();
             expect(result).to.equal(false);
-            expect(showWarningSpy.calledOnce).to.equal(true);
+            expect(showWarningSpy.called).to.equal(false); // activate() owns the messaging now
         });
 
         it('behavior tested through start() — true proceeds to display search', async () => {
