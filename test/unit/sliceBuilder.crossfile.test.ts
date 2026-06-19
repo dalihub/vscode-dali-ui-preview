@@ -82,3 +82,43 @@ describe('sliceBuilder cross-file lock — flow-wallet (WU-M4.2)', () => {
         expect(slice.sourcePaths).to.include(cardsCpp);
     });
 });
+
+/**
+ * Rung1 (heuristic cross-file): the preview target calls a helper whose
+ * definition lives in ANOTHER file (#include'd). buildSlice resolves it from the
+ * extraSources the orchestrator reads off the #include lines. Without those
+ * sources it falls back to a weak stub (a blank banner) — the honest boundary.
+ * (The flow-wallet block above is the real-app lock; this is the minimal-fixture
+ * mechanics, kept distinct so a failure points at the right layer.)
+ */
+describe('sliceBuilder cross-file (Rung 1 heuristic)', () => {
+    const dir = path.join(__dirname, '..', '..', '..', 'test', 'fixtures', 'slice-xfile');
+    const read = (f: string) => fs.readFileSync(path.join(dir, f), 'utf8');
+
+    it('collects a helper defined in another #include\'d source (.cpp)', () => {
+        const slice = buildSlice(read('entry.cpp'), 'entry.cpp', undefined, [
+            { path: 'widgets.h', text: read('widgets.h') },
+            { path: 'widgets.cpp', text: read('widgets.cpp') },
+        ]);
+        expect(slice.rung).to.equal('heuristic');
+        expect(slice.unresolvedStubs).to.deep.equal([]);          // MakeBanner resolved
+        expect(slice.globals).to.include('MakeBanner');
+        expect(slice.globals).to.include('Label::New(text)');     // the REAL def, not a stub
+        expect(slice.sourcePaths).to.include('widgets.cpp');
+    });
+
+    it('without extraSources the cross-file helper falls back to a weak stub', () => {
+        const slice = buildSlice(read('entry.cpp'), 'entry.cpp');
+        expect(slice.unresolvedStubs).to.deep.equal(['MakeBanner']);
+        expect(slice.globals).to.match(/__attribute__\(\(weak\)\).*MakeBanner/);
+    });
+
+    it('a parameterised helper stubs each param from its EXACT signature type', () => {
+        // Previewing MakeBanner(const char* text) directly: `text` must be stubbed
+        // as a const char* (not a fuzzy std::string, which would fail to compile).
+        const slice = buildSlice(read('widgets.cpp'), 'widgets.cpp');
+        expect(slice.rung).to.equal('heuristic');
+        expect(slice.globals).to.include('const char* text = "Text"');  // exact type + field-named placeholder
+        expect(slice.unresolvedStubs).to.deep.equal([]);  // param, not a guessed stub
+    });
+});

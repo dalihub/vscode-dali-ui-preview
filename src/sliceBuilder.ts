@@ -280,7 +280,7 @@ export function synthWeakStub(name: string, body: string): string {
     }
     // String context: `.c_str()` on it, or passed where text is expected.
     if (new RegExp(`\\b${esc}\\s*\\.\\s*c_str\\s*\\(`).test(body) || new RegExp(`Label::New\\s*\\(\\s*${esc}\\b`).test(body)) {
-        return `__attribute__((weak)) std::string ${name} = "Sample";`;
+        return `__attribute__((weak)) std::string ${name} = "${humanizePlaceholder(name)}";`;
     }
     // Scalar context: used inside UiColor(name) / arithmetic → an unsigned int.
     if (new RegExp(`UiColor\\s*\\(\\s*${esc}\\b`).test(body)) {
@@ -304,7 +304,7 @@ function synthParamStub(type: string, name: string): string {
     // public" link error. A pointer (`const char*`) is fine — the const is on the
     // pointee, not the global itself — so only strip const when there's no `*`.
     if (!bare.includes('*')) { bare = bare.replace(/^const\s+/, ''); }
-    if (/char\s*\*|\bstring\b|String/.test(bare)) { return `${bare} ${name} = "Sample";`; }
+    if (/char\s*\*|\bstring\b|String/.test(bare)) { return `${bare} ${name} = "${humanizePlaceholder(name)}";`; }
     if (/\bbool\b/.test(bare)) { return `${bare} ${name} = false;`; }
     if (/\b(?:float|double)\b/.test(bare)) { return `${bare} ${name} = 0;`; }
     // An unsigned-int param in UI code is very often a packed colour (0xRRGGBB);
@@ -372,27 +372,53 @@ function parseStructFields(structText: string): { name: string; type: string }[]
 }
 
 /**
- * Synthesise a sample aggregate-initialiser for a value of `type`, recursively:
- * strings → "Sample", numbers → 1, vector<T> → three sample T's, a project-local
- * struct → brace-init of its fields. This is P6 — the preview shows SAMPLE data
- * for an injected model the real app would populate from a repository/network.
+ * Turn a C++ identifier into a readable placeholder string: drop a Hungarian
+ * member/pointer prefix (mTitle→Title, pName→Name), split camelCase and
+ * snake_case into words, and Title-Case each. `merchant`→"Merchant",
+ * `userName`→"User Name", `m_total_count`→"Total Count". Naming each field after
+ * itself (instead of a uniform "Sample") keeps fields visually distinct and makes
+ * the preview self-documenting — what design tools approximate with Lorem ipsum,
+ * but mapped back to the code. Degenerate names fall back to "Sample".
  */
-function synthSampleInit(type: string, structDefs: Map<string, string>, depth: number): string {
+function humanizePlaceholder(name: string): string {
+    let s = (name ?? '').trim()
+        .replace(/^(?:m|p)_?(?=[A-Z])/, '')   // Hungarian member/pointer prefix: mFoo / pFoo
+        .replace(/^_+/, '');
+    const words = s
+        .replace(/[_\-]+/g, ' ')
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')   // camelCase → spaced
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    if (words.length === 0) { return 'Sample'; }
+    return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
+ * Synthesise a sample aggregate-initialiser for a value of `type`, recursively:
+ * strings → a placeholder named after the field (see humanizePlaceholder),
+ * numbers → 1, vector<T> → three sample T's, a project-local struct → brace-init
+ * of its fields. This is P6 — the preview shows SAMPLE data for an injected model
+ * the real app would populate from a repository/network. `fieldName` is the name
+ * of the field this value initialises (threaded so string placeholders read as
+ * "Merchant"/"Amount" rather than a uniform "Sample").
+ */
+function synthSampleInit(type: string, structDefs: Map<string, string>, depth: number, fieldName?: string): string {
     if (depth > 4) { return '{}'; }
     const bare = type.replace(/[&]/g, '').replace(/^const\s+/, '').trim();
-    if (/char\s*\*|\bstring\b|String/.test(bare)) { return '"Sample"'; }
+    if (/char\s*\*|\bstring\b|String/.test(bare)) { return `"${fieldName ? humanizePlaceholder(fieldName) : 'Sample'}"`; }
     if (/\bbool\b/.test(bare)) { return 'true'; }
     if (/\b(?:float|double)\b/.test(bare)) { return '1'; }
     if (/\b(?:u?int\w*|short|long|size_t|unsigned|signed)\b/.test(bare)) { return '1'; }
     const vec = bare.match(/vector\s*<\s*(.+)\s*>/);
     if (vec) {
-        const el = synthSampleInit(vec[1].trim(), structDefs, depth + 1);
+        const el = synthSampleInit(vec[1].trim(), structDefs, depth + 1, fieldName);
         return `{${el}, ${el}, ${el}}`;   // three sample rows so a for-loop renders
     }
     const tn = baseTypeName(bare);
     if (structDefs.has(tn)) {
         const fields = parseStructFields(structDefs.get(tn)!);
-        return `${tn}{${fields.map((f) => synthSampleInit(f.type, structDefs, depth + 1)).join(', ')}}`;
+        return `${tn}{${fields.map((f) => synthSampleInit(f.type, structDefs, depth + 1, f.name)).join(', ')}}`;
     }
     return '{}';
 }
@@ -502,7 +528,7 @@ export function buildSlice(src: string, entrySrcPath: string, entryBody?: string
     // strings/numbers and gives vectors a few elements so for-loops produce rows.
     const structDefs = new Map(collected.map((d) => [d.name, d.text]));
     const memberStubs = memberRefs.map((m) =>
-        `__attribute__((weak)) ${baseTypeName(m.type)} ${m.name} = ${synthSampleInit(m.type, structDefs, 0)};`);
+        `__attribute__((weak)) ${baseTypeName(m.type)} ${m.name} = ${synthSampleInit(m.type, structDefs, 0, m.name)};`);
 
     const ordered = orderDefs(collected);
     const includes = ''; // defs inlined into globals rather than mounting headers (ADR-006).

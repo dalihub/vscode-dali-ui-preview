@@ -50,11 +50,12 @@ export class ConfigurationService {
     }
 
     get previewWidth(): number {
-        return this.getConfig().get<number>('previewWidth', 1024);
+        // Default to the TV FHD profile (1920×1080) — DALi UI apps target the TV.
+        return this.getConfig().get<number>('previewWidth', 1920);
     }
 
     get previewHeight(): number {
-        return this.getConfig().get<number>('previewHeight', 600);
+        return this.getConfig().get<number>('previewHeight', 1080);
     }
 
     get livePreview(): boolean {

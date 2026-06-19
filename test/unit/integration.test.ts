@@ -427,12 +427,12 @@ describe('Integration: ConfigurationService', () => {
         const width1 = config.previewWidth;
         const width2 = config.previewWidth;
         expect(width1).to.equal(width2);
-        expect(width1).to.equal(1024);
+        expect(width1).to.equal(1920);   // TV FHD default profile
 
         const height1 = config.previewHeight;
         const height2 = config.previewHeight;
         expect(height1).to.equal(height2);
-        expect(height1).to.equal(600);
+        expect(height1).to.equal(1080);
 
         const live1 = config.livePreview;
         const live2 = config.livePreview;

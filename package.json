@@ -216,13 +216,13 @@
         },
         "daliPreview.previewWidth": {
           "type": "number",
-          "default": 1024,
-          "description": "Preview canvas width in pixels."
+          "default": 1920,
+          "description": "Preview canvas width in pixels. Defaults to the TV FHD profile (1920×1080) — the target device for DALi UI apps. Override per file with // @preview-config: width=…"
         },
         "daliPreview.previewHeight": {
           "type": "number",
-          "default": 600,
-          "description": "Preview canvas height in pixels."
+          "default": 1080,
+          "description": "Preview canvas height in pixels. Defaults to the TV FHD profile (1920×1080)."
         },
         "daliPreview.background": {
           "type": "string",
@@ -286,9 +286,10 @@
     "test:e2e": "xvfb-run -a node out/test/e2e/goldenTestRunner.js",
     "test:e2e:server": "xvfb-run -a node out/test/e2e/serverGoldenRunner.js",
     "test:e2e:multifile": "xvfb-run -a node out/test/e2e/multiFileGoldenRunner.js",
+    "test:e2e:all": "npm run test:e2e && npm run test:e2e:server && npm run test:e2e:multifile",
     "test:golden:update": "UPDATE_GOLDENS=1 xvfb-run -a node out/test/e2e/goldenTestRunner.js",
     "test:click-to-code": "python3 test/e2e/click_to_code_e2e.py",
-    "test:release": "npm run test:unit && npm run test:click-to-code && npm run test:e2e",
+    "test:release": "npm run test:unit && npm run test:click-to-code && npm run test:e2e:all",
     "pretest": "npm run compile"
   },
   "devDependencies": {

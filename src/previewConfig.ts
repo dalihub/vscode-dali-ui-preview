@@ -117,6 +117,7 @@ export const PREVIEW_PRESETS: Readonly<Record<string, PreviewConfig[]>> = {
         { name: 'Large', fontScale: 1.5 },
     ],
     'screen-sizes': [
+        { name: 'TV', width: 1920, height: 1080 },
         { name: 'Phone', width: 720, height: 1280 },
         { name: 'Watch', width: 360, height: 360 },
         { name: 'Tablet', width: 1280, height: 800 },
