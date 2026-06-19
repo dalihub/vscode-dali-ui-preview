@@ -5,6 +5,45 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-06-19
+
+> Preview-experience pass: one guided **Open Examples** tour, the local runtime
+> can never draw on your real screen again, and previews default to the **TV FHD
+> (1920×1080)** canvas DALi UI apps actually target.
+
+### Added
+
+- **Open Examples — a single guided tour.** One `DALi Preview: Open Examples`
+  command copies a 6-folder capability tour (your first preview → preview existing
+  code → config & theme → focus & state → real multi-file app → render paths) into
+  a folder you pick and opens it in a new window; its index `README.md` opens
+  automatically as the guide. Replaces the old, overlapping *Open Sample File* +
+  *Open Examples* pair.
+- **TV FHD default + preset.** Previews default to **1920×1080** (override per file
+  with `// @preview-config: width=…`); the `// @preview-preset: screen-sizes`
+  bundle now includes a **TV** frame.
+- **One-click Xvfb install** (`DALi Preview: Install Xvfb via Terminal`) for local
+  runtime, offered automatically when Xvfb is missing.
+
+### Fixed
+
+- **Local runtime never renders on your real screen.** Previously, if no virtual
+  display (Xvfb) was available the renderer fell back to your desktop (`:0`) and a
+  preview window flashed/stuck on screen. Now the render paths refuse to run
+  without an off-screen display, the virtual-display search scans a wide band
+  (`:99`–`:114`) so leftover X servers can't exhaust it, and a clear message (with
+  install/reload) is shown instead.
+
+### Changed
+
+- **Field-named preview placeholders.** Auto-synthesised sample text for
+  argument/member-driven previews is now named after the field
+  (`merchant` → "Merchant", `userName` → "User Name") instead of a uniform
+  "Sample", so fields stay distinct and the preview is self-documenting.
+- Internal: consolidated the slice-builder test suite (8 → 4 files, no coverage
+  lost) and wired the server + multi-file golden runners into `test:e2e:all` /
+  `test:release`.
+
 ## [0.44.0] - 2026-06-19
 
 > Closes the research-identified gaps so **real, production-shaped dali-ui app code
