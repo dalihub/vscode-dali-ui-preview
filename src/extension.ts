@@ -130,12 +130,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // Installed but no free display in the band — surface it instead of
             // silently drawing on :0 (the old "window may flash" behaviour).
             outputChannel.appendLine('Xvfb installed but could not claim a virtual display (band busy) — local preview disabled.');
-            void vscode.window.showWarningMessage(
+            const choice = await vscode.window.showWarningMessage(
                 'DALi Preview could not start a virtual display (Xvfb) — the display band (:99–:114) is busy with '
                 + 'leftover X servers. Close them or reload the window; until then local preview is disabled '
                 + '(it will not draw on your real screen).',
                 'Reload Window',
-            ).then((c) => { if (c === 'Reload Window') { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
+            );
+            if (choice === 'Reload Window') { await vscode.commands.executeCommand('workbench.action.reloadWindow'); }
         }
     }
 

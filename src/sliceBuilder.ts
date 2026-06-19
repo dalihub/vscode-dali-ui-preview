@@ -382,7 +382,8 @@ function parseStructFields(structText: string): { name: string; type: string }[]
  */
 function humanizePlaceholder(name: string): string {
     let s = (name ?? '').trim()
-        .replace(/^(?:m|p)_?(?=[A-Z])/, '')   // Hungarian member/pointer prefix: mFoo / pFoo
+        // Hungarian member/pointer prefix: mFoo / pName (camel) and m_foo / p_name (snake)
+        .replace(/^(?:m|p)(?:_(?=[a-z])|(?=[A-Z]))/, '')
         .replace(/^_+/, '');
     const words = s
         .replace(/[_\-]+/g, ' ')

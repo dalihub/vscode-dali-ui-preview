@@ -13,7 +13,7 @@ export class XvfbManager {
     private display: string | undefined;
 
     /**
-     * Start an Xvfb virtual display. Tries display :99, :98, :97.
+     * Start an Xvfb virtual display. Tries a wide band of displays (:99 … :114).
      * Returns true if Xvfb was started successfully.
      */
     async start(): Promise<boolean> {
