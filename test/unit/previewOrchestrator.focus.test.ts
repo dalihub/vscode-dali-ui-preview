@@ -35,6 +35,7 @@ function makeFocusOrch() {
 
     const buildRunner = {
         getTmpDir: () => '/tmp/dali_test',
+        stageImageAssets: (code: string) => code,
         getExtensionPath: () => '/ext',
         getPluginTemplateContent: () => '',
         // Capture the call and return a successful build so applySuccessfulBuild runs.
@@ -145,6 +146,7 @@ function makeMultiFocusOrch() {
 
     const buildRunner = {
         getTmpDir: () => '/tmp/dali_test',
+        stageImageAssets: (code: string) => code,
         getExtensionPath: () => '/ext',
         getPluginTemplateContent: () => '',
         // Multi-config harness fallback path (no server): each variant succeeds.

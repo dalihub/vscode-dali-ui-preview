@@ -34,6 +34,7 @@ function makeProgressOrch() {
 
     const buildRunner = {
         getTmpDir: () => '/tmp/dali_test',
+        stageImageAssets: (code: string) => code,
         getExtensionPath: () => '/ext',
         getPluginTemplateContent: () => '',
         buildAndRun: (...args: any[]) => {

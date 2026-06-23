@@ -57,7 +57,7 @@ albumArtRow.SetDirection(FlexDirection::ROW);
 albumArtRow.SetJustifyContent(FlexJustify::CENTER);
 albumArtRow.SetRequestedWidth(MATCH_PARENT);
 
-ImageView albumArt = ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/album_art.jpg");
+ImageView albumArt = ImageView::New("assets/album_art.jpg");
 albumArt.SetRequestedWidth(1820.0f);
 albumArt.SetRequestedHeight(1820.0f);
 albumArt.SetCornerRadius(84.0f);

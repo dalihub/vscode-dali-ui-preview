@@ -42,6 +42,9 @@ function makeOrch() {
         getTmpDir: () => '/tmp/dali_test',
         getExtensionPath: () => '/ext',
         getPluginTemplateContent: () => '',
+        // Identity passthrough: staging is exercised in buildRunner.test.ts; here
+        // we only need prepareSlice to keep flowing the code through unchanged.
+        stageImageAssets: (code: string) => code,
     } as any;
     const deps: OrchestratorDeps = {
         buildRunner,
@@ -171,7 +174,7 @@ describe('PreviewOrchestrator — scrubAnimation epoch guard', () => {
                 return Promise.resolve({ success: true, pngPath: '/tmp/scrub.png' });
             },
         } as any;
-        const buildRunner = { getTmpDir: () => '/tmp/dali_test' } as any;
+        const buildRunner = { getTmpDir: () => '/tmp/dali_test', stageImageAssets: (code: string) => code } as any;
         const deps: OrchestratorDeps = {
             buildRunner, previewManager, previewServer,
             xvfbManager: undefined, statusBar: undefined,

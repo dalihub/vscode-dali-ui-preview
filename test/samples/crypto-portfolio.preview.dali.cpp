@@ -35,7 +35,7 @@ header.SetPadding(Extents(98, 98, 28, 0));
 Label headerTitle = Label::New("Portfolio");
 headerTitle.SetFontSize(84);
 headerTitle.SetTextColor(UiColor(0xffffff));
-ImageView headerAvatar = ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/portrait2.jpg");
+ImageView headerAvatar = ImageView::New("assets/portrait2.jpg");
 headerAvatar.SetRequestedWidth(154.0f);
 headerAvatar.SetRequestedHeight(154.0f);
 headerAvatar.SetCornerRadius(77.0f);

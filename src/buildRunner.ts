@@ -260,6 +260,61 @@ export class BuildRunner {
         }
     }
 
+    /**
+     * Stage local-file image assets referenced by `ImageView::New("…")` /
+     * `SetResourceUrl("…")` so they actually resolve at render time.
+     *
+     * The docker backend only bind-mounts `tmpDir` at `/work`, so a host path
+     * (`/abs/foo.jpg`) or a path relative to the preview file does NOT exist
+     * inside the container — the ImageView would silently fall back to the gray
+     * broken-image placeholder. For each LOCAL (non-remote-scheme) URL whose file
+     * can be resolved — absolute-and-exists, or relative to `sourceDir` (the
+     * preview file's directory) — copy it into `tmpDir` and rewrite the literal
+     * to the path the binary can read: `/work/<name>` for docker, or the staged
+     * host path for local.
+     *
+     * Remote/custom-scheme URLs (`http://`, `https://`, `foo://`) and paths that
+     * cannot be resolved are left untouched — the broken-image placeholder
+     * handles them, so this is pure upside and never throws. Returns the
+     * (possibly rewritten) code.
+     */
+    stageImageAssets(code: string, sourceDir?: string): string {
+        const RE = /(ImageView\s*::\s*New|SetResourceUrl)\s*\(\s*"([^"]*)"/g;
+        const rewrites = new Map<string, string>(); // original URL → in-binary path
+        let m: RegExpExecArray | null;
+        while ((m = RE.exec(code)) !== null) {
+            const url = m[2];
+            if (!url || rewrites.has(url)) { continue; }
+            // Skip remote / custom schemes (`name://`) — they don't fetch offline.
+            if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url)) { continue; }
+            // Resolve the host source path: absolute-and-exists, else relative to
+            // the preview file's directory.
+            let srcPath: string | undefined;
+            if (path.isAbsolute(url) && fs.existsSync(url)) {
+                srcPath = url;
+            } else if (sourceDir) {
+                const rel = path.resolve(sourceDir, url);
+                if (fs.existsSync(rel)) { srcPath = rel; }
+            }
+            if (!srcPath) { continue; } // unresolvable → leave (placeholder shows)
+            try {
+                const name = path.basename(srcPath);
+                const dst = path.join(this.tmpDir, name);
+                fs.copyFileSync(srcPath, dst);
+                rewrites.set(url, this.backend.kind === 'docker' ? `/work/${name}` : dst);
+            } catch (err) {
+                getLogger().trace('Build', 'image asset stage failed', { url, error: String(err) });
+            }
+        }
+        if (rewrites.size === 0) { return code; }
+        return code.replace(RE, (full, _call, url) => {
+            const staged = rewrites.get(url);
+            // Replace only the URL inside the matched segment (which ends in
+            // `"<url>"`), preserving the call name / parens / spacing.
+            return staged ? full.replace(`"${url}"`, `"${staged}"`) : full;
+        });
+    }
+
     /** Format a float for a C++ literal: always a decimal point + trailing `f`. */
     private static formatFloat(v: number): string {
         const s = Number.isInteger(v) ? `${v}.0` : `${v}`;

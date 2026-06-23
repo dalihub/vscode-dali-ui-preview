@@ -28,7 +28,7 @@ userName.SetMargin(Extents(0, 0, 14, 0));
 
 headerText.AddChildren({ greeting, userName });
 
-ImageView portrait = ImageView::New("/home/woochan/tizen/paperclip/test/samples/assets/portrait1.jpg");
+ImageView portrait = ImageView::New("assets/portrait1.jpg");
 portrait.SetRequestedWidth(238.0f);
 portrait.SetRequestedHeight(238.0f);
 portrait.SetCornerRadius(119.0f);

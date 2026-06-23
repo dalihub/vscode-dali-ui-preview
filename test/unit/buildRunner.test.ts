@@ -1,6 +1,8 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { BuildRunner } from '../../src/buildRunner';
 
 const PROJECT_ROOT_FOR_SANITIZE = path.resolve(__dirname, '../../..');
@@ -298,5 +300,81 @@ describe('BuildRunner ADR-004 install slots (M3)', () => {
             const harness = BuildRunner.buildPreBuildInstall('dark', 1.5, false);
             expect(harness).to.not.include('SetScale');
         });
+    });
+});
+
+describe('BuildRunner.stageImageAssets()', () => {
+    // Regression coverage for "all image samples render broken": docker only
+    // bind-mounts tmpDir at /work, so local-file ImageView assets must be copied
+    // in and their URLs rewritten to the in-container path. Before this, no user
+    // asset was ever staged, so every local-file ImageView fell back to the gray
+    // broken-image placeholder.
+    let srcDir: string;
+    let runnerTmp: string | undefined;
+
+    beforeEach(() => {
+        srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dali-asset-src-'));
+        fs.mkdirSync(path.join(srcDir, 'assets'), { recursive: true });
+        fs.writeFileSync(path.join(srcDir, 'assets', 'pic.jpg'), 'JPEGBYTES');
+    });
+    afterEach(() => {
+        try { fs.rmSync(srcDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        // Drop the staged copy so each case starts clean.
+        if (runnerTmp) { try { fs.rmSync(path.join(runnerTmp, 'pic.jpg'), { force: true }); } catch { /* ignore */ } }
+    });
+
+    function makeRunner(kind: 'docker' | 'local'): BuildRunner {
+        const runner = new BuildRunner(makeContext(), fakeOutputChannel, { kind } as any);
+        runnerTmp = runner.getTmpDir();
+        return runner;
+    }
+
+    it('docker: copies a relative asset into tmpDir and rewrites the URL to /work/<name>', () => {
+        const runner = makeRunner('docker');
+        const out = runner.stageImageAssets('ImageView::New("assets/pic.jpg");', srcDir);
+        expect(out).to.equal('ImageView::New("/work/pic.jpg");');
+        expect(fs.existsSync(path.join(runner.getTmpDir(), 'pic.jpg')), 'asset copied into /work').to.equal(true);
+    });
+
+    it('local: rewrites the URL to the staged host path', () => {
+        const runner = makeRunner('local');
+        const out = runner.stageImageAssets('ImageView::New("assets/pic.jpg");', srcDir);
+        const staged = path.join(runner.getTmpDir(), 'pic.jpg');
+        expect(out).to.equal(`ImageView::New("${staged}");`);
+        expect(fs.existsSync(staged)).to.equal(true);
+    });
+
+    it('stages an absolute asset path that exists (no sourceDir needed)', () => {
+        const runner = makeRunner('docker');
+        const abs = path.join(srcDir, 'assets', 'pic.jpg');
+        const out = runner.stageImageAssets(`x.SetResourceUrl("${abs}");`, undefined);
+        expect(out).to.equal('x.SetResourceUrl("/work/pic.jpg");');
+    });
+
+    it('leaves remote/custom-scheme URLs untouched (placeholder handles them)', () => {
+        const runner = makeRunner('docker');
+        for (const url of ['https://x.invalid/y.jpg', 'http://a/b.png', 'foo://bar']) {
+            const code = `ImageView::New("${url}");`;
+            expect(runner.stageImageAssets(code, srcDir)).to.equal(code);
+        }
+    });
+
+    it('leaves unresolvable local paths untouched', () => {
+        const runner = makeRunner('docker');
+        const code = 'ImageView::New("assets/does-not-exist.jpg");';
+        expect(runner.stageImageAssets(code, srcDir)).to.equal(code);
+    });
+
+    it('dedupes and rewrites every occurrence of the same asset', () => {
+        const runner = makeRunner('docker');
+        const code = 'ImageView::New("assets/pic.jpg"); ImageView::New("assets/pic.jpg");';
+        const out = runner.stageImageAssets(code, srcDir);
+        expect(out).to.equal('ImageView::New("/work/pic.jpg"); ImageView::New("/work/pic.jpg");');
+    });
+
+    it('returns the code unchanged when there are no image refs', () => {
+        const runner = makeRunner('docker');
+        const code = 'FlexLayout root = FlexLayout::New();\nreturn root;';
+        expect(runner.stageImageAssets(code, srcDir)).to.equal(code);
     });
 });

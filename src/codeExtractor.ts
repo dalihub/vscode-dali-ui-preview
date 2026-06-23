@@ -521,11 +521,17 @@ export function extractFunctionBody(
         return null;
     }
 
-    // If the code doesn't start with `return`, try to rewrite a leading variable
-    // declaration into a return statement.
+    // If the body has no statement-level `return`, try to rewrite a leading
+    // variable declaration into a return statement.
     // e.g. `View card = FlexLayout::New()...` → `return FlexLayout::New()...`
+    //
+    // Guard with hasStatementReturn (NOT startsWith('return')): non-fluent dali-ui
+    // bodies are multi-statement and end in an explicit `return root;` while
+    // starting with `FlexLayout root = ...`. Rewriting that first decl to a return
+    // would drop the `root` declaration and leave the following setter statements
+    // referencing an undeclared variable. This mirrors extractPreviewCode.
     const trimmed = code.trimStart();
-    if (!trimmed.startsWith('return')) {
+    if (!hasStatementReturn(code)) {
         const match = trimmed.match(VAR_DECL_RE);
         if (match) {
             code = 'return ' + trimmed.slice(match[0].length);

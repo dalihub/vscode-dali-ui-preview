@@ -663,11 +663,21 @@ export class PreviewOrchestrator {
             this.deps.outputChannel.appendLine('[Preview] Emoji with no glyph in the preview font are shown as □ (they render fine on a real device).');
         }
         // P13: rewrite `.Children(vector)` → an .Add loop before slicing/instrumenting
-        // (View::Children only takes an initializer_list, so a vector won't compile).
+        // (View::AddChildren only takes an initializer_list, so a vector won't compile).
         const transformedCode = transformVectorChildren(sanitized.code);
+        // Stage local-file image assets (ImageView/SetResourceUrl) into the build
+        // mount and rewrite their URLs to the in-container path, so they actually
+        // render instead of falling back to the broken-image placeholder. Resolved
+        // relative to the preview file's directory; remote/unresolvable URLs are
+        // left untouched (placeholder handles them). Runs before slice/instrument
+        // so both the harness and warm-server paths see the rewritten URLs.
+        const stagedCode = this.deps.buildRunner.stageImageAssets(
+            transformedCode,
+            path.dirname(doc.uri.fsPath),
+        );
         const extraSources = resolveProjectIncludes(doc);
-        const slice = buildSlice(doc.getText(), doc.fileName, transformedCode, extraSources, extraction.params);
-        const instrumented = instrumentCode(transformedCode, extraction.startLine, new Set(slice.helpers));
+        const slice = buildSlice(doc.getText(), doc.fileName, stagedCode, extraSources, extraction.params);
+        const instrumented = instrumentCode(stagedCode, extraction.startLine, new Set(slice.helpers));
         slice.body = instrumented;
         return { slice, instrumented };
     }

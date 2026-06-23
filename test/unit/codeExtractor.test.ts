@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { createMockDocument } from '../helpers/mockDocument';
-import { extractPreviewCode, isPreviewable, instrumentCode } from '../../src/codeExtractor';
+import { extractPreviewCode, isPreviewable, instrumentCode, extractFunctionBody } from '../../src/codeExtractor';
 
 describe('codeExtractor', () => {
     // -----------------------------------------------------------------
@@ -881,5 +881,71 @@ describe('instrumentCode() — Actor allowlist', () => {
             const result = instrumentCode(`auto x = ${t}::New();`, 1);
             expect(result, `${t} should be tagged`).to.include(`__tag(${t}::New()`);
         }
+    });
+
+    // -----------------------------------------------------------------
+    // extractFunctionBody (CodeLens-triggered preview path)
+    // -----------------------------------------------------------------
+    describe('extractFunctionBody()', () => {
+        // Regression guard for the non-fluent dali-ui migration: a CodeLens on a
+        // function whose body is multi-statement non-fluent code (named local +
+        // sequential void setters + `return root;`) must be kept VERBATIM. The
+        // earlier `!startsWith('return')` guard rewrote the leading `FlexLayout
+        // root = ...` decl into a `return`, dropping the declaration so the next
+        // line referenced an undeclared `root` → "'root' was not declared in this
+        // scope". The guard is now hasStatementReturn().
+        it('keeps a non-fluent multi-statement body verbatim (does not drop the leading decl)', () => {
+            const content = [
+                'View MakeCard() {',                              // 0
+                '    FlexLayout root = FlexLayout::New();',        // 1
+                '    root.SetDirection(FlexDirection::COLUMN);',   // 2
+                '    root.SetBackgroundColor(UiColor(0x111111));', // 3
+                '    Label title = Label::New("Hi");',            // 4
+                '    title.SetFontSize(20);',                     // 5
+                '    root.AddChildren({ title });',               // 6
+                '    return root;',                               // 7
+                '}',                                              // 8
+            ].join('\n');
+            const doc = createMockDocument('/tmp/card.cpp', content);
+
+            const result = extractFunctionBody(doc as any, 0, 8);
+            expect(result).to.not.be.null;
+            // The declaration MUST survive — this is the exact regression.
+            expect(result!.code).to.include('FlexLayout root = FlexLayout::New();');
+            expect(result!.code).to.include('root.SetDirection(FlexDirection::COLUMN);');
+            expect(result!.code).to.include('return root;');
+            // And it must NOT have been turned into a `return` of the New() expr.
+            expect(result!.code).to.not.match(/^\s*return FlexLayout::New\(\)\s*;/);
+        });
+
+        // Backward-compat: a legacy fluent body that is a single var-decl with NO
+        // statement-level return still gets rewritten to `return <expr>;`.
+        it('rewrites a leading var-decl to return when the body has no return', () => {
+            const content = [
+                'View MakeCard() {',                                   // 0
+                '    View card = FlexLayout::New()',                   // 1
+                '        .SetBackgroundColor(UiColor(0x111111));',     // 2
+                '}',                                                   // 3
+            ].join('\n');
+            const doc = createMockDocument('/tmp/card.cpp', content);
+
+            const result = extractFunctionBody(doc as any, 0, 3);
+            expect(result).to.not.be.null;
+            expect(result!.code.trimStart()).to.match(/^return FlexLayout::New\(\)/);
+            expect(result!.code).to.not.include('View card =');
+        });
+
+        it('leaves a body that already starts with return untouched', () => {
+            const content = [
+                'View MakeCard() {',               // 0
+                '    return FlexLayout::New();',   // 1
+                '}',                               // 2
+            ].join('\n');
+            const doc = createMockDocument('/tmp/card.cpp', content);
+
+            const result = extractFunctionBody(doc as any, 0, 2);
+            expect(result).to.not.be.null;
+            expect(result!.code.trim()).to.equal('return FlexLayout::New();');
+        });
     });
 });
