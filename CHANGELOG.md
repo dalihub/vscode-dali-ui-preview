@@ -5,6 +5,48 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.1] - 2026-06-23
+
+> Follow-up fixes after the 0.46.0 non-fluent migration: a CodeLens-preview
+> regression and local image assets that never rendered in docker mode.
+
+### Fixed
+
+- **CodeLens "Preview" no longer fails with `'root' was not declared in this scope`.**
+  `extractFunctionBody` (the CodeLens-triggered path) rewrote a function body's
+  leading `FlexLayout root = …` declaration into a `return`, dropping the
+  declaration so the following non-fluent setter statements referenced an
+  undeclared `root`. It now skips that rewrite when the body already has a
+  statement-level `return` (`hasStatementReturn`), matching `extractPreviewCode`.
+  The 0.46.0 migration added this guard to the preview-file/marker path but
+  missed the CodeLens path.
+
+### Added
+
+- **Local image assets now render in the preview** (`ImageView::New("…")` /
+  `SetResourceUrl("…")`). The docker runtime only bind-mounts the build dir at
+  `/work`, so local-file images never existed in the container and every
+  image-bearing sample fell back to the gray broken-image placeholder.
+  `BuildRunner.stageImageAssets` now resolves each local image path (relative to
+  the preview file, or an existing absolute path), copies it into the build
+  mount, and rewrites the URL to the in-container path. Remote/unresolvable URLs
+  are left to the broken-image placeholder as before.
+- The five bundled image samples (`food-delivery`, `music-player`, `smart-home`,
+  `fitness-dashboard`, `crypto-portfolio`) now point at portable `assets/<name>`
+  paths (they previously hard-coded a stale `…/paperclip/…` absolute path that
+  existed on no machine) and render their real photos.
+
+### Tests
+
+- Direct unit tests for `extractFunctionBody` (non-fluent body kept verbatim;
+  legacy var-decl→return still works; already-return untouched) — the regression
+  guard fails against the pre-fix code.
+- Unit tests for `BuildRunner.stageImageAssets` (docker `/work` rewrite, local
+  host-path rewrite, absolute-path staging, remote/unresolvable skip, dedup).
+- A pure-fs guard (`sampleAssets.test.ts`) that fails if any shipped sample
+  references a local image path that does not resolve — this would have caught
+  the stale `…/paperclip/…` paths immediately.
+
 ## [0.46.0] - 2026-06-23
 
 > **dali-ui non-fluent API migration.** dali-ui removed the fluent (method-chaining)
