@@ -195,11 +195,12 @@ T __tag(T obj, const char* name) {
 }
 
 extern "C" View CreatePreview() {
-    return __tag(View::New(), "__L42")
-        .SetBackgroundColor(UiColor(0xFF0000))
-        .Children({
-            __tag(Label::New("hello"), "__L45"),
-        });
+    View root = __tag(View::New(), "__L42");
+    root.SetBackgroundColor(UiColor(0xFF0000));
+    root.AddChildren({
+        __tag(Label::New("hello"), "__L45"),
+    });
+    return root;
 }
 ''')
 

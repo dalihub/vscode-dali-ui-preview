@@ -8,31 +8,40 @@ using namespace Dali::Ui;
 namespace home {
 
 View MakeSectionHeader(const std::string& title) {
-    return Label::New(title.c_str())
-        .SetFontSize(40)
-        .SetTextColor(UiColor(theme::TEXT));
+    Label header = Label::New(title.c_str());
+    header.SetFontSize(40);
+    header.SetTextColor(UiColor(theme::TEXT));
+    return header;
 }
 
 View MakeCard(const std::string& title, const std::string& subtitle) {
-    return FlexLayout::New()
-        .SetDirection(FlexDirection::COLUMN)
-        .SetRequestedWidth(theme::CARD_W)
-        .Children({
-            // poster block (a coloured rounded rectangle stands in for artwork)
-            FlexLayout::New()
-                .SetBackgroundColor(UiColor(theme::SURFACE))
-                .SetCornerRadius(theme::RADIUS_CARD)
-                .SetRequestedWidth(theme::CARD_W)
-                .SetRequestedHeight(theme::THUMB_H),
-            Label::New(title.c_str())
-                .SetFontSize(34)
-                .SetTextColor(UiColor(theme::TEXT))
-                .SetMargin(Extents(0, 0, 18, 0)),
-            Label::New(subtitle.c_str())
-                .SetFontSize(26)
-                .SetTextColor(UiColor(theme::MUTED))
-                .SetMargin(Extents(0, 0, 6, 0)),
-        });
+    FlexLayout card = FlexLayout::New();
+    card.SetDirection(FlexDirection::COLUMN);
+    card.SetRequestedWidth(theme::CARD_W);
+
+    // poster block (a coloured rounded rectangle stands in for artwork)
+    FlexLayout poster = FlexLayout::New();
+    poster.SetBackgroundColor(UiColor(theme::SURFACE));
+    poster.SetCornerRadius(theme::RADIUS_CARD);
+    poster.SetRequestedWidth(theme::CARD_W);
+    poster.SetRequestedHeight(theme::THUMB_H);
+
+    Label titleLabel = Label::New(title.c_str());
+    titleLabel.SetFontSize(34);
+    titleLabel.SetTextColor(UiColor(theme::TEXT));
+    titleLabel.SetMargin(Extents(0, 0, 18, 0));
+
+    Label subtitleLabel = Label::New(subtitle.c_str());
+    subtitleLabel.SetFontSize(26);
+    subtitleLabel.SetTextColor(UiColor(theme::MUTED));
+    subtitleLabel.SetMargin(Extents(0, 0, 6, 0));
+
+    card.AddChildren({
+        poster,
+        titleLabel,
+        subtitleLabel,
+    });
+    return card;
 }
 
 } // namespace home

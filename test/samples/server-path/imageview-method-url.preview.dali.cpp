@@ -6,16 +6,16 @@
 // Marked @render-only: the URL has no asset, so DALi shows an async broken-image
 // placeholder whose pixels are non-deterministic (form L) — verified by render,
 // not a flaky pixel golden. Real poster pixels / placeholder are M5's concern.
-FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetBackgroundColor(UiColor(0x101418))
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .Children({
-        ImageView::New()
-            .SetResourceUrl("poster.jpg")
-            .SetRequestedWidth(200.0f)
-            .SetRequestedHeight(200.0f),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetBackgroundColor(UiColor(0x101418));
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+ImageView poster = ImageView::New();
+poster.SetResourceUrl("poster.jpg");
+poster.SetRequestedWidth(200.0f);
+poster.SetRequestedHeight(200.0f);
+root.AddChildren({ poster });
+return root;

@@ -6,30 +6,35 @@
 // RGBA — the boxes reskin, not just the window background. A hex-colored box is
 // included to prove the honest boundary: hex never routes through the override,
 // so it stays the same regardless of theme.
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor("Background"))
-    .Children({
-        View::New()
-            .SetBackgroundColor(UiColor::PRIMARY)
-            .SetRequestedWidth(180.0f)
-            .SetRequestedHeight(70.0f)
-            .SetMargin(Extents(10, 10, 10, 10)),
-        View::New()
-            .SetBackgroundColor(UiColor("Surface"))
-            .SetRequestedWidth(180.0f)
-            .SetRequestedHeight(70.0f)
-            .SetMargin(Extents(10, 10, 10, 10)),
-        Label::New("Token text")
-            .SetFontSize(28)
-            .SetTextColor(UiColor("OnSurface")),
-        View::New()
-            .SetBackgroundColor(UiColor(0xFF8800))
-            .SetRequestedWidth(180.0f)
-            .SetRequestedHeight(40.0f)
-            .SetMargin(Extents(10, 10, 10, 10)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor("Background"));
+
+View primaryBox = View::New();
+primaryBox.SetBackgroundColor(UiColor::PRIMARY);
+primaryBox.SetRequestedWidth(180.0f);
+primaryBox.SetRequestedHeight(70.0f);
+primaryBox.SetMargin(Extents(10, 10, 10, 10));
+
+View surfaceBox = View::New();
+surfaceBox.SetBackgroundColor(UiColor("Surface"));
+surfaceBox.SetRequestedWidth(180.0f);
+surfaceBox.SetRequestedHeight(70.0f);
+surfaceBox.SetMargin(Extents(10, 10, 10, 10));
+
+Label tokenText = Label::New("Token text");
+tokenText.SetFontSize(28);
+tokenText.SetTextColor(UiColor("OnSurface"));
+
+View hexBox = View::New();
+hexBox.SetBackgroundColor(UiColor(0xFF8800));
+hexBox.SetRequestedWidth(180.0f);
+hexBox.SetRequestedHeight(40.0f);
+hexBox.SetMargin(Extents(10, 10, 10, 10));
+
+root.AddChildren({ primaryBox, surfaceBox, tokenText, hexBox });
+return root;

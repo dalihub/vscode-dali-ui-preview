@@ -3,22 +3,22 @@
 // box + a translucent teal box. (Color::CYAN.WithAlpha is avoided: the T1 parser
 // only allows .Method() chains after a (...) call — Color::CYAN is not a call,
 // but UiColor(0x..) is, so .WithAlpha attaches there.)
-FlexLayout::New()
-    .SetDirection(FlexDirection::ROW)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetBackgroundColor(UiColor(0x101418))
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .Children({
-        View::New()
-            .SetBackgroundColor(Color::RED)
-            .SetRequestedWidth(150.0f)
-            .SetRequestedHeight(150.0f)
-            .SetMargin(Extents(16, 16, 16, 16)),
-        View::New()
-            .SetBackgroundColor(UiColor(0x00d4a8).WithAlpha(0.5f))
-            .SetRequestedWidth(150.0f)
-            .SetRequestedHeight(150.0f)
-            .SetMargin(Extents(16, 16, 16, 16)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::ROW);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetBackgroundColor(UiColor(0x101418));
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+View redBox = View::New();
+redBox.SetBackgroundColor(Color::RED);
+redBox.SetRequestedWidth(150.0f);
+redBox.SetRequestedHeight(150.0f);
+redBox.SetMargin(Extents(16, 16, 16, 16));
+View tealBox = View::New();
+tealBox.SetBackgroundColor(UiColor(0x00d4a8).WithAlpha(0.5f));
+tealBox.SetRequestedWidth(150.0f);
+tealBox.SetRequestedHeight(150.0f);
+tealBox.SetMargin(Extents(16, 16, 16, 16));
+root.AddChildren({ redBox, tealBox });
+return root;

@@ -209,21 +209,25 @@ auto-selects one person's project build. Prerequisites on the host: `g++`, `Xvfb
 ### Preview files
 
 Any file ending in **`.preview.dali.cpp`** is treated as the body of a preview function —
-just `return` your view:
+build your view and `return` it. dali-ui setters return `void` (the fluent
+chaining API was removed), so set each property as its own statement and add
+children with `AddChildren`:
 
 ```cpp
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor(0x1e1e2e))
-    .Children({
-        Label::New("Hello, DALi!")
-            .SetFontSize(48)
-            .SetTextColor(UiColor(0xFFFFFF)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor(0x1e1e2e));
+
+Label title = Label::New("Hello, DALi!");
+title.SetFontSize(48);
+title.SetTextColor(UiColor(0xFFFFFF));
+
+root.AddChildren({ title });
+return root;
 ```
 
 ### Markers in an existing file
@@ -233,11 +237,14 @@ To preview a region inside a regular `.cpp`/`.h` file, wrap it in marker comment
 ```cpp
 void MyApp::CreateUI() {
     // @dali-preview-begin
-    return FlexLayout::New()
-        .SetDirection(FlexDirection::COLUMN)
-        .Children({
-            Label::New("Profile").SetFontSize(24),
-        });
+    FlexLayout root = FlexLayout::New();
+    root.SetDirection(FlexDirection::COLUMN);
+
+    Label profile = Label::New("Profile");
+    profile.SetFontSize(24);
+
+    root.AddChildren({ profile });
+    return root;
     // @dali-preview-end
 }
 ```

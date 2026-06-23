@@ -14,24 +14,27 @@
 // frame is the 40% state) + the orchestrator routing unit test. Not a pixel golden
 // (the scrubber is a server-only path; the harness golden runner can't drive it).
 
-auto fab = FlexLayout::New()
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetRequestedWidth(180.0f)
-    .SetRequestedHeight(180.0f)
-    .SetBackgroundColor(UiColor(0x3d7bff))
-    .SetCornerRadius(90.0f)
-    .Children({
-        Label::New("+").SetFontSize(96).SetTextColor(UiColor(0xffffff)),
-    });
+FlexLayout fab = FlexLayout::New();
+fab.SetJustifyContent(FlexJustify::CENTER);
+fab.SetAlignItems(FlexAlign::CENTER);
+fab.SetRequestedWidth(180.0f);
+fab.SetRequestedHeight(180.0f);
+fab.SetBackgroundColor(UiColor(0x3d7bff));
+fab.SetCornerRadius(90.0f);
+Label plus = Label::New("+");
+plus.SetFontSize(96);
+plus.SetTextColor(UiColor(0xffffff));
+fab.AddChildren({
+    plus,
+});
 
-auto root = FlexLayout::New()
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor(0x0e1225))
-    .Children({ fab });
+FlexLayout root = FlexLayout::New();
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor(0x0e1225));
+root.AddChildren({ fab });
 
 Animation pulse = Animation::New(3.0f);
 pulse.AnimateTo(Property(fab, Actor::Property::SCALE), Vector3(1.45f, 1.45f, 1.0f), AlphaFunction::EASE_IN_OUT);

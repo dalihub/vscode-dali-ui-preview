@@ -14,34 +14,43 @@ using namespace Dali::Ui;
 // @preview
 View CreateUI()
 {
-    return FlexLayout::New()
-        .SetDirection(FlexDirection::COLUMN)
-        .SetAlignItems(FlexAlign::CENTER)
-        .SetJustifyContent(FlexJustify::CENTER)
-        .SetRequestedWidth(MATCH_PARENT)
-        .SetRequestedHeight(MATCH_PARENT)
-        .SetBackgroundColor(UiColor(0x1B1B2F))
-        .Children({
-            Label::New("Hello, DALi!")
-                .SetFontSize(32)
-                .SetTextColor(UiColor(0x00FF88)),
-            View::New()
-                .SetBackgroundColor(UiColor(0x4a90d9))
-                .SetRequestedWidth(200.0f)
-                .SetRequestedHeight(2.0f)
-                .SetMargin(Extents(0, 0, 16, 16)),
-            Label::New("Single @preview marker — no end marker needed.")
-                .SetFontSize(14)
-                .SetTextColor(UiColor(0x888888)),
-        });
+    FlexLayout root = FlexLayout::New();
+    root.SetDirection(FlexDirection::COLUMN);
+    root.SetAlignItems(FlexAlign::CENTER);
+    root.SetJustifyContent(FlexJustify::CENTER);
+    root.SetRequestedWidth(MATCH_PARENT);
+    root.SetRequestedHeight(MATCH_PARENT);
+    root.SetBackgroundColor(UiColor(0x1B1B2F));
+
+    Label title = Label::New("Hello, DALi!");
+    title.SetFontSize(32);
+    title.SetTextColor(UiColor(0x00FF88));
+
+    View divider = View::New();
+    divider.SetBackgroundColor(UiColor(0x4a90d9));
+    divider.SetRequestedWidth(200.0f);
+    divider.SetRequestedHeight(2.0f);
+    divider.SetMargin(Extents(0, 0, 16, 16));
+
+    Label caption = Label::New("Single @preview marker — no end marker needed.");
+    caption.SetFontSize(14);
+    caption.SetTextColor(UiColor(0x888888));
+
+    root.AddChildren({
+        title,
+        divider,
+        caption,
+    });
+    return root;
 }
 
 // No @preview marker here — but the ▶ Preview CodeLens still appears,
 // so you can preview this one with a click. Move the marker, or click the lens.
 View AnotherView()
 {
-    return View::New()
-        .SetBackgroundColor(UiColor(0xFF6584))
-        .SetRequestedWidth(100.0f)
-        .SetRequestedHeight(100.0f);
+    View root = View::New();
+    root.SetBackgroundColor(UiColor(0xFF6584));
+    root.SetRequestedWidth(100.0f);
+    root.SetRequestedHeight(100.0f);
+    return root;
 }

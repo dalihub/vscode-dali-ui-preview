@@ -347,14 +347,19 @@ int main(int argc, char* argv[])
   Application app = Application::New(&argc, &argv, "");
   // SetAlwaysShowFocus(true) so a resolved focus target draws dali-ui's default
   // focus indicator in a static (non-interactive) render. frozen-after-Apply
-  // (ui-config.h), so it must be chained BEFORE Apply(). Harmless when no focus
+  // (ui-config.h), so it must be set BEFORE Apply(). Harmless when no focus
   // directive is present (nothing is focused → nothing drawn). ADR-004/ADR-006.
   // The UI_CONFIG_SETUP slot injects additional frozen setters (e.g.
-  // SetScalingFactor for fontScale) into the chain before Apply(). Empty by
-  // default → byte-identical to the M2 harness. (locale=RTL is applied per-view
-  // via root LAYOUT_DIRECTION in the POST_BUILD_FOCUS slot, where `root` exists —
-  // not here — so a ROW FlexLayout mirrors; WU-M3.5.)
-  UiConfig::New(){{UI_CONFIG_SETUP}}.SetAlwaysShowFocus(true).Apply();
+  // SetScalingFactor for fontScale) on __uiConfig before Apply(). Empty by
+  // default. (locale=RTL is applied per-view via root LAYOUT_DIRECTION in the
+  // POST_BUILD_FOCUS slot, where `root` exists — not here — so a ROW FlexLayout
+  // mirrors; WU-M3.5.) NOTE: dali-ui setters return void (the fluent chaining API
+  // was removed), so these are sequential statements on __uiConfig, not a
+  // UiConfig::New().SetX()...Apply() chain.
+  UiConfig __uiConfig = UiConfig::New();
+{{UI_CONFIG_SETUP}}
+  __uiConfig.SetAlwaysShowFocus(true);
+  __uiConfig.Apply();
   PreviewApp preview(app);
   app.MainLoop();
   return 0;

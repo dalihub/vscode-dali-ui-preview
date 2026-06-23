@@ -180,21 +180,23 @@ DALi를 다시 빌드했나요? **다시 저장**(또는 새로고침)만 하면
 
 ### 프리뷰 파일
 
-**`.preview.dali.cpp`** 로 끝나는 파일은 프리뷰 함수의 본문으로 취급됩니다 — 뷰를 `return` 하면 됩니다:
+**`.preview.dali.cpp`** 로 끝나는 파일은 프리뷰 함수의 본문으로 취급됩니다 — 뷰를 만들어 `return` 하면 됩니다. dali-ui 의 setter 는 `void` 를 반환하므로(플루언트 체이닝 API 가 제거됨) 각 속성을 개별 문장으로 설정하고 자식은 `AddChildren` 으로 추가합니다:
 
 ```cpp
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor(0x1e1e2e))
-    .Children({
-        Label::New("Hello, DALi!")
-            .SetFontSize(48)
-            .SetTextColor(UiColor(0xFFFFFF)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor(0x1e1e2e));
+
+Label title = Label::New("Hello, DALi!");
+title.SetFontSize(48);
+title.SetTextColor(UiColor(0xFFFFFF));
+
+root.AddChildren({ title });
+return root;
 ```
 
 ### 기존 파일 안의 마커
@@ -204,11 +206,14 @@ return FlexLayout::New()
 ```cpp
 void MyApp::CreateUI() {
     // @dali-preview-begin
-    return FlexLayout::New()
-        .SetDirection(FlexDirection::COLUMN)
-        .Children({
-            Label::New("Profile").SetFontSize(24),
-        });
+    FlexLayout root = FlexLayout::New();
+    root.SetDirection(FlexDirection::COLUMN);
+
+    Label profile = Label::New("Profile");
+    profile.SetFontSize(24);
+
+    root.AddChildren({ profile });
+    return root;
     // @dali-preview-end
 }
 ```

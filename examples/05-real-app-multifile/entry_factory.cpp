@@ -10,16 +10,18 @@ using namespace Dali::Ui;
 // Build() (see home_screen.cpp) when it lives on a class.
 View MakeHomePreview()
 {
-    return FlexLayout::New()
-        .SetDirection(FlexDirection::COLUMN)
-        .SetJustifyContent(FlexJustify::CENTER)
-        .SetAlignItems(FlexAlign::CENTER)
-        .SetBackgroundColor(UiColor(0x1b2330))
-        .SetRequestedWidth(MATCH_PARENT)
-        .SetRequestedHeight(MATCH_PARENT)
-        .Children({
-            Label::New("Zero-Arg Entry")
-                .SetTextColor(UiColor(0xffffff))
-                .SetFontSize(44),
-        });
+    FlexLayout root = FlexLayout::New();
+    root.SetDirection(FlexDirection::COLUMN);
+    root.SetJustifyContent(FlexJustify::CENTER);
+    root.SetAlignItems(FlexAlign::CENTER);
+    root.SetBackgroundColor(UiColor(0x1b2330));
+    root.SetRequestedWidth(MATCH_PARENT);
+    root.SetRequestedHeight(MATCH_PARENT);
+    Label label = Label::New("Zero-Arg Entry");
+    label.SetTextColor(UiColor(0xffffff));
+    label.SetFontSize(44);
+    root.AddChildren({
+        label,
+    });
+    return root;
 }

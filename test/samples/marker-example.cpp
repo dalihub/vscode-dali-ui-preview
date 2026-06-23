@@ -22,37 +22,43 @@ public:
 
         View BuildCard()
         {
-            return FlexLayout::New()
-                .SetDirection(FlexDirection::COLUMN)
-                .SetAlignItems(FlexAlign::CENTER)
-                .SetJustifyContent(FlexJustify::CENTER)
-                .SetRequestedWidth(MATCH_PARENT)
-                .SetRequestedHeight(MATCH_PARENT)
-                .SetPadding(Extents(20, 20, 20, 20))
-                .SetBackgroundColor(UiColor(0x2d2d3f))
-                .Children({
-                    Label::New("Marker")
-                        .SetFontSize(32)
-                        .SetTextColor(UiColor(0xFFFFFF)),
-                    View::New()
-                        .SetBackgroundColor(UiColor(0x4a90d9))
-                        .SetRequestedWidth(MATCH_PARENT)
-                        .SetRequestedHeight(2.0f),
-                    FlexLayout::New()
-                        .SetDirection(FlexDirection::ROW)
-                        .SetJustifyContent(FlexJustify::CENTER)
-                        .SetRequestedWidth(MATCH_PARENT)
-                        .Children({
-                            View::New()
-                                .SetBackgroundColor(UiColor(0x555555))
-                                .SetRequestedWidth(240.0f)
-                                .SetRequestedHeight(48.0f),
-                            View::New()
-                                .SetBackgroundColor(UiColor(0x4488ff))
-                                .SetRequestedWidth(120.0f)
-                                .SetRequestedHeight(48.0f),
-                        }),
-                });
+            FlexLayout root = FlexLayout::New();
+            root.SetDirection(FlexDirection::COLUMN);
+            root.SetAlignItems(FlexAlign::CENTER);
+            root.SetJustifyContent(FlexJustify::CENTER);
+            root.SetRequestedWidth(MATCH_PARENT);
+            root.SetRequestedHeight(MATCH_PARENT);
+            root.SetPadding(Extents(20, 20, 20, 20));
+            root.SetBackgroundColor(UiColor(0x2d2d3f));
+
+            Label title = Label::New("Marker");
+            title.SetFontSize(32);
+            title.SetTextColor(UiColor(0xFFFFFF));
+
+            View divider = View::New();
+            divider.SetBackgroundColor(UiColor(0x4a90d9));
+            divider.SetRequestedWidth(MATCH_PARENT);
+            divider.SetRequestedHeight(2.0f);
+
+            FlexLayout row = FlexLayout::New();
+            row.SetDirection(FlexDirection::ROW);
+            row.SetJustifyContent(FlexJustify::CENTER);
+            row.SetRequestedWidth(MATCH_PARENT);
+
+            View leftButton = View::New();
+            leftButton.SetBackgroundColor(UiColor(0x555555));
+            leftButton.SetRequestedWidth(240.0f);
+            leftButton.SetRequestedHeight(48.0f);
+
+            View rightButton = View::New();
+            rightButton.SetBackgroundColor(UiColor(0x4488ff));
+            rightButton.SetRequestedWidth(120.0f);
+            rightButton.SetRequestedHeight(48.0f);
+
+            row.AddChildren({ leftButton, rightButton });
+
+            root.AddChildren({ title, divider, row });
+            return root;
         }
 
         window.Add(BuildCard());

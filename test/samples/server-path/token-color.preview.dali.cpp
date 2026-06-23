@@ -6,27 +6,31 @@
 // override — so the tokens render as dark-palette colors instead of the old
 // magenta "unresolved" fallback. A hex box proves the honest boundary: hex is
 // theme-independent (never routes through the override).
-FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetBackgroundColor(UiColor("Background"))
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .Children({
-        View::New()
-            .SetBackgroundColor(UiColor::PRIMARY)
-            .SetRequestedWidth(150.0f)
-            .SetRequestedHeight(70.0f)
-            .SetMargin(Extents(12, 12, 12, 12)),
-        View::New()
-            .SetBackgroundColor(UiColor("Surface"))
-            .SetRequestedWidth(150.0f)
-            .SetRequestedHeight(70.0f)
-            .SetMargin(Extents(12, 12, 12, 12)),
-        View::New()
-            .SetBackgroundColor(UiColor(0xFF8800))
-            .SetRequestedWidth(150.0f)
-            .SetRequestedHeight(40.0f)
-            .SetMargin(Extents(12, 12, 12, 12)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetBackgroundColor(UiColor("Background"));
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+
+View primaryBox = View::New();
+primaryBox.SetBackgroundColor(UiColor::PRIMARY);
+primaryBox.SetRequestedWidth(150.0f);
+primaryBox.SetRequestedHeight(70.0f);
+primaryBox.SetMargin(Extents(12, 12, 12, 12));
+
+View surfaceBox = View::New();
+surfaceBox.SetBackgroundColor(UiColor("Surface"));
+surfaceBox.SetRequestedWidth(150.0f);
+surfaceBox.SetRequestedHeight(70.0f);
+surfaceBox.SetMargin(Extents(12, 12, 12, 12));
+
+View hexBox = View::New();
+hexBox.SetBackgroundColor(UiColor(0xFF8800));
+hexBox.SetRequestedWidth(150.0f);
+hexBox.SetRequestedHeight(40.0f);
+hexBox.SetMargin(Extents(12, 12, 12, 12));
+
+root.AddChildren({ primaryBox, surfaceBox, hexBox });
+return root;

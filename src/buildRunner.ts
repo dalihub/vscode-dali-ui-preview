@@ -172,27 +172,30 @@ export class BuildRunner {
      * SetFontSize(px) is NOT affected — a sample must size text in _spx to scale.
      *
      * WU-M5.1 (ADR-007 image-placeholder): when `brokenImagePath` is given, also
-     * chains `.SetBrokenImageUrl(BrokenImageType::NORMAL, "<path>")` so an
-     * ImageView whose URL is remote/unreachable renders the bundled gray
+     * emits `__uiConfig.SetBrokenImageUrl(BrokenImageType::NORMAL, "<path>");` so
+     * an ImageView whose URL is remote/unreachable renders the bundled gray
      * placeholder at its requested SIZE (layout preserved) instead of an empty
-     * box (ui-config.h: SetBrokenImageUrl is frozen-after-Apply, so it must be in
-     * this pre-Apply chain). The path must resolve at render time — the caller
+     * box (ui-config.h: SetBrokenImageUrl is frozen-after-Apply, so it must be
+     * called before Apply()). The path must resolve at render time — the caller
      * stages the bundled asset into a path the binary can read (the docker mount
      * /work, or a host path in local mode).
      *
-     * '' when no frozen knob is set → byte-identical. N/A for the plugin (warm
-     * server is already past Apply()).
+     * Emits newline-separated statements on the harness's `__uiConfig` local
+     * (declared in main() before this slot). dali-ui removed the fluent chaining
+     * API (setters return void), so these are sequential statements, NOT a
+     * `New().SetX()...Apply()` chain. '' when no frozen knob is set. N/A for the
+     * plugin (warm server is already past Apply()).
      */
     static buildUiConfigSetup(fontScale?: number, brokenImagePath?: string): string {
-        let chain = '';
+        const lines: string[] = [];
         if (typeof fontScale === 'number' && fontScale > 0) {
-            chain += `.SetScalingFactor(${BuildRunner.formatFloat(fontScale)})`;
+            lines.push(`  __uiConfig.SetScalingFactor(${BuildRunner.formatFloat(fontScale)});`);
         }
         if (brokenImagePath) {
             const p = brokenImagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            chain += `.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}")`;
+            lines.push(`  __uiConfig.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}");`);
         }
-        return chain;
+        return lines.join('\n');
     }
 
     /**

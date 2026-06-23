@@ -3,18 +3,21 @@
 // Before fonts-noto-cjk was baked into the image, Hangul rendered as tofu (□)
 // because the image shipped only DejaVu (no CJK glyphs). This golden proves the
 // preview font now resolves Korean codepoints. See docker/Dockerfile.runtime.
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor(0x1e1e2e))
-    .Children({
-        Label::New("안녕하세요 DALi")
-            .SetFontSize(44)
-            .SetTextColor(UiColor(0xFFFFFF)),
-        Label::New("한글 미리보기 테스트")
-            .SetFontSize(28)
-            .SetTextColor(UiColor(0xA6E3A1)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor(0x1e1e2e));
+Label title = Label::New("안녕하세요 DALi");
+title.SetFontSize(44);
+title.SetTextColor(UiColor(0xFFFFFF));
+Label subtitle = Label::New("한글 미리보기 테스트");
+subtitle.SetFontSize(28);
+subtitle.SetTextColor(UiColor(0xA6E3A1));
+root.AddChildren({
+    title,
+    subtitle,
+});
+return root;

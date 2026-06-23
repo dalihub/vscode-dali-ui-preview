@@ -76,15 +76,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Stage 2: build DALi from source ─────────────────────────────────────
 FROM build-deps AS build-dali
 
-# Verified working SHAs (snapshot of master/devel HEAD from 2026-06-04;
-# latest tagged release line is dali_2.5.24). Pin the SAME-DAY HEADs of all
-# four components together — tagged releases drift in API across components
-# (e.g. dali_2.5.18 had a uint16_t/int16_t Extents mismatch vs dali-ui), so a
-# same-snapshot HEAD set is the most likely to compile together.
-ARG DALI_CORE_REF=93c3b3bf8360aea19e604880191a63018458084f
-ARG DALI_ADAPTOR_REF=b9f685b07518395b27d89ebd4a0a28a3327939ed
+# Verified working refs — coordinated same-day (2026-06-17) snapshot matching
+# the dali-ui v2.5.26.10708 release. IMPORTANT: dali-ui REMOVED the fluent
+# chaining API on 2026-06-08 (commit 2f1c78c — builder setters now return void,
+# and View::Children(initializer_list) was renamed to View::AddChildren), so the
+# runtime MUST be at/after that. The previous 2026-06-04 snapshot (dali_2.5.24
+# line) is too OLD: it still has the fluent API and fails to compile the migrated
+# (non-fluent) preview samples/harness. Pin the SAME-DAY refs of all components
+# together — tagged releases drift in API across components (e.g. dali-core's
+# Stage-API removal lands alongside the matching dali-ui), so a same-snapshot set
+# is the most likely to compile together. (dali-toolkit is not built; ref kept
+# for reference only.)
+ARG DALI_CORE_REF=a8d78cfbc014bf536cb9f3fb6d3b08620a67c09b
+ARG DALI_ADAPTOR_REF=a8dbf1b2c037d3133df901651f11d34849110b09
 ARG DALI_TOOLKIT_REF=7993cb22712adde994a6732ba3f7e84848ee854f
-ARG DALI_UI_REF=9a93d30648af8da1fb1e77d7ef80c4858f533e04
+ARG DALI_UI_REF=v2.5.26.10708
 ARG TIZENVG_REF=tizen
 ARG TIZENVG_REPO=git://review.tizen.org/git/platform/core/graphics/tizenvg
 ARG JOBS
@@ -262,8 +268,8 @@ RUN pkg-config --exists dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-co
 
 # DALi release version, surfaced as an image label so the extension's
 # "Select Runtime Version" picker can display it for rolling tags (e.g. latest).
-# Pass at build time:  docker build --build-arg DALI_VERSION=2.5.24 ...
-ARG DALI_VERSION=2.5.24
+# Pass at build time:  docker build --build-arg DALI_VERSION=2.5.26 ...
+ARG DALI_VERSION=2.5.26
 LABEL io.dalihub.dali.version="${DALI_VERSION}"
 
 ENTRYPOINT ["/usr/local/bin/dali-preview-entrypoint"]

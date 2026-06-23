@@ -14,11 +14,12 @@ import { findPreviewFunction } from '../../src/sliceBuilder';
  * keeps `mode: 'single-marker'` (build routing unchanged).
  */
 describe('codeExtractor — @dali-preview zero-arg entry', () => {
-    it('extracts the factory body and rewrites the leading var decl to return', () => {
+    it('keeps a self-returning factory body verbatim (no var-decl rewrite)', () => {
         const content = [
             '// @dali-preview',
             'View MakeHomePreview() {',
-            '    View card = View::New().SetCornerRadius(24.0f);',
+            '    View card = View::New();',
+            '    card.SetCornerRadius(24.0f);',
             '    return card;',
             '}',
         ].join('\n');
@@ -27,11 +28,28 @@ describe('codeExtractor — @dali-preview zero-arg entry', () => {
 
         expect(result).to.not.be.null;
         expect(result!.mode).to.equal('single-marker');
-        // leading `View card = ...` rewritten to `return ...`
-        expect(result!.code).to.match(/^return View::New\(\)\.SetCornerRadius/);
+        // The body already returns (non-fluent multi-statement style), so it is
+        // used verbatim — rewriting the leading `View card =` to `return` would
+        // strip the declaration and leave `return card;` referencing nothing.
+        expect(result!.code).to.include('View card = View::New();');
+        expect(result!.code).to.include('card.SetCornerRadius(24.0f);');
+        expect(result!.code.trimEnd()).to.match(/return card;$/);
+    });
+
+    it('rewrites a single bare var-decl body (no return) to a return', () => {
+        const content = [
+            '// @dali-preview',
+            'View MakeHomePreview() {',
+            '    View card = View::New();',
+            '}',
+        ].join('\n');
+        const doc = createMockDocument('/tmp/x.cpp', content);
+        const result = extractPreviewCode(doc as any);
+
+        expect(result).to.not.be.null;
+        // No statement-level return present → leading `View card =` becomes `return`.
+        expect(result!.code).to.match(/^return View::New\(\)/);
         expect(result!.code).to.not.include('View card');
-        // the trailing `return card;` line is preserved too
-        expect(result!.code).to.include('return card;');
     });
 
     it('extracts when the opening brace is on the signature line', () => {
@@ -79,8 +97,9 @@ describe('codeExtractor — @dali-preview zero-arg entry', () => {
 
         expect(result).to.not.be.null;
         expect(result!.mode).to.equal('single-marker');
-        expect(result!.code).to.match(/^return View::New\(\)/);
-        expect(result!.code).to.not.include('View card =');
+        // Non-fluent body returns explicitly, so it is kept verbatim.
+        expect(result!.code).to.include('View card = View::New();');
+        expect(result!.code.trimEnd()).to.match(/return card;$/);
     });
 
     describe('sliceBuilder.findPreviewFunction()', () => {

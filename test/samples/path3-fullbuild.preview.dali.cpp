@@ -20,19 +20,22 @@
 // auto-rebuilds the binary if missing, so reload-window undoes both within
 // hundreds of milliseconds. The setting above is the durable switch.
 
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .SetBackgroundColor(UiColor(0x1B1B2F))
-    .Children({
-        Label::New("Full Build Path")
-            .SetFontSize(28)
-            .SetTextColor(UiColor(0xFF4444)),
-        Label::New("g++ full harness compile")
-            .SetFontSize(14)
-            .SetTextColor(UiColor(0x888888))
-            .SetMargin(Extents(0, 0, 16, 0)),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+root.SetBackgroundColor(UiColor(0x1B1B2F));
+
+Label title = Label::New("Full Build Path");
+title.SetFontSize(28);
+title.SetTextColor(UiColor(0xFF4444));
+
+Label subtitle = Label::New("g++ full harness compile");
+subtitle.SetFontSize(14);
+subtitle.SetTextColor(UiColor(0x888888));
+subtitle.SetMargin(Extents(0, 0, 16, 0));
+
+root.AddChildren({ title, subtitle });
+return root;

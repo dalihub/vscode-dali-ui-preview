@@ -3,13 +3,13 @@
 // correctly: hex UiColor, FlexLayout COLUMN, MATCH_PARENT, constructor-arg Label.
 // Deliberately avoids cornerRadius / named-colors / method-form text so this stays
 // a green reference for the server-path golden suite.
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetBackgroundColor(UiColor(0x1b2330))
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .Children({
-        Label::New("Server Path OK")
-            .SetTextColor(UiColor(0xffffff))
-            .SetFontSize(40),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetBackgroundColor(UiColor(0x1b2330));
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+Label label = Label::New("Server Path OK");
+label.SetTextColor(UiColor(0xffffff));
+label.SetFontSize(40);
+root.AddChildren({ label });
+return root;

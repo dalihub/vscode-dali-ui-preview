@@ -265,10 +265,17 @@ describe('BuildRunner ADR-004 install slots (M3)', () => {
             expect(BuildRunner.buildUiConfigSetup(0)).to.equal('');
         });
 
-        it('chains .SetScalingFactor(f) for fontScale (scales _spx units)', () => {
-            expect(BuildRunner.buildUiConfigSetup(1.5)).to.equal('.SetScalingFactor(1.5f)');
+        it('emits a SetScalingFactor statement on __uiConfig for fontScale (scales _spx units)', () => {
+            // dali-ui removed fluent chaining (setters return void), so the slot is a
+            // standalone statement on the harness __uiConfig local, not a `.SetX()` suffix.
+            expect(BuildRunner.buildUiConfigSetup(1.5)).to.equal('  __uiConfig.SetScalingFactor(1.5f);');
             // Integer scale gets a decimal point so it is a valid float literal.
-            expect(BuildRunner.buildUiConfigSetup(2)).to.equal('.SetScalingFactor(2.0f)');
+            expect(BuildRunner.buildUiConfigSetup(2)).to.equal('  __uiConfig.SetScalingFactor(2.0f);');
+        });
+
+        it('emits a SetBrokenImageUrl statement when a placeholder path is given', () => {
+            const out = BuildRunner.buildUiConfigSetup(undefined, '/work/broken.png');
+            expect(out).to.equal('  __uiConfig.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "/work/broken.png");');
         });
     });
 

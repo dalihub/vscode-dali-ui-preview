@@ -53,10 +53,18 @@ npm run package       # Package as .vsix with vsce
 2. **Marker mode**: Regular `.cpp` or `.h` files use comment markers to delimit the preview region:
    ```cpp
    // @dali-preview-begin
-   return FlexLayout::New()
-       .Children({ ... });
+   FlexLayout root = FlexLayout::New();
+   root.AddChildren({ /* ... */ });
+   return root;
    // @dali-preview-end
    ```
+
+> **dali-ui API note:** dali-ui removed the fluent chaining API (2026-06). Builder
+> setters (`SetBackgroundColor`, `SetFontSize`, `SetDirection`, …) now return `void`,
+> and `View::Children(...)` was renamed to `View::AddChildren(...)`. Preview code is
+> non-fluent: declare a named local, call setters as separate statements, add children
+> via `AddChildren`, then `return` the root. The runtime is built from dali-ui
+> `v2.5.26.10708` (see `docker/Dockerfile.runtime`).
 
 ## Testing Requirements
 

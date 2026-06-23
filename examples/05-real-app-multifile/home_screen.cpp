@@ -16,46 +16,64 @@ namespace home {
 View HomeScreen::Build() {
     // The "Continue Watching" rail: loop the view-model's items into the
     // cross-file MakeCard factory (a horizontal row of tiles).
-    auto rail = StackLayout::New(StackOrientation::HORIZONTAL)
-                    .SetSpacing(theme::GAP_CARD)
-                    .SetRequestedWidth(MATCH_PARENT);
+    StackLayout rail = StackLayout::New(StackOrientation::HORIZONTAL);
+    rail.SetSpacing(theme::GAP_CARD);
+    rail.SetRequestedWidth(MATCH_PARENT);
     for (const auto& item : mVm.items) {
         rail.Add(MakeCard(item.title, item.subtitle));   // cross-file helper
     }
 
-    return StackLayout::New(StackOrientation::VERTICAL)
-        .SetSpacing(theme::GAP_CARD)
-        .SetRequestedWidth(MATCH_PARENT)
-        .SetRequestedHeight(MATCH_PARENT)
-        .SetBackgroundColor(UiColor(theme::BG))                       // theme token
-        .SetPadding(Extents(theme::PAD_SCREEN, theme::PAD_SCREEN, 56, 56))
-        .Children({
-            // top bar
-            FlexLayout::New()
-                .SetDirection(FlexDirection::ROW)
-                .SetJustifyContent(FlexJustify::SPACE_BETWEEN)
-                .SetAlignItems(FlexAlign::CENTER)
-                .SetRequestedWidth(MATCH_PARENT)
-                .Children({
-                    Label::New("Home").SetFontSize(56).SetTextColor(UiColor(theme::TEXT)),
-                    Label::New("9:41").SetFontSize(34).SetTextColor(UiColor(theme::MUTED)),
-                }),
-            // hero banner — read the featured title from the injected view-model
-            FlexLayout::New()
-                .SetDirection(FlexDirection::COLUMN)
-                .SetJustifyContent(FlexJustify::FLEX_END)
-                .SetRequestedWidth(MATCH_PARENT)
-                .SetRequestedHeight(420.0f)
-                .SetCornerRadius(theme::RADIUS_CARD)
-                .SetPadding(Extents(56, 56, 0, 48))
-                .SetBackgroundColor(UiColor(theme::SURFACE))
-                .Children({
-                    Label::New(mVm.featured.c_str()).SetFontSize(72).SetTextColor(UiColor(theme::TEXT)),
-                    Label::New("Featured today").SetFontSize(30).SetTextColor(UiColor(theme::ACCENT)).SetMargin(Extents(0, 0, 16, 0)),
-                }),
-            MakeSectionHeader("Continue Watching"),                   // cross-file helper
-            rail,                                                     // loop result
-        });
+    // top bar
+    Label topLeft = Label::New("Home");
+    topLeft.SetFontSize(56);
+    topLeft.SetTextColor(UiColor(theme::TEXT));
+    Label topRight = Label::New("9:41");
+    topRight.SetFontSize(34);
+    topRight.SetTextColor(UiColor(theme::MUTED));
+    FlexLayout topBar = FlexLayout::New();
+    topBar.SetDirection(FlexDirection::ROW);
+    topBar.SetJustifyContent(FlexJustify::SPACE_BETWEEN);
+    topBar.SetAlignItems(FlexAlign::CENTER);
+    topBar.SetRequestedWidth(MATCH_PARENT);
+    topBar.AddChildren({
+        topLeft,
+        topRight,
+    });
+
+    // hero banner — read the featured title from the injected view-model
+    Label heroTitle = Label::New(mVm.featured.c_str());
+    heroTitle.SetFontSize(72);
+    heroTitle.SetTextColor(UiColor(theme::TEXT));
+    Label heroSub = Label::New("Featured today");
+    heroSub.SetFontSize(30);
+    heroSub.SetTextColor(UiColor(theme::ACCENT));
+    heroSub.SetMargin(Extents(0, 0, 16, 0));
+    FlexLayout hero = FlexLayout::New();
+    hero.SetDirection(FlexDirection::COLUMN);
+    hero.SetJustifyContent(FlexJustify::FLEX_END);
+    hero.SetRequestedWidth(MATCH_PARENT);
+    hero.SetRequestedHeight(420.0f);
+    hero.SetCornerRadius(theme::RADIUS_CARD);
+    hero.SetPadding(Extents(56, 56, 0, 48));
+    hero.SetBackgroundColor(UiColor(theme::SURFACE));
+    hero.AddChildren({
+        heroTitle,
+        heroSub,
+    });
+
+    StackLayout root = StackLayout::New(StackOrientation::VERTICAL);
+    root.SetSpacing(theme::GAP_CARD);
+    root.SetRequestedWidth(MATCH_PARENT);
+    root.SetRequestedHeight(MATCH_PARENT);
+    root.SetBackgroundColor(UiColor(theme::BG));                       // theme token
+    root.SetPadding(Extents(theme::PAD_SCREEN, theme::PAD_SCREEN, 56, 56));
+    root.AddChildren({
+        topBar,
+        hero,
+        MakeSectionHeader("Continue Watching"),                   // cross-file helper
+        rail,                                                     // loop result
+    });
+    return root;
 }
 
 } // namespace home

@@ -7,8 +7,9 @@ idealized self-contained `*.preview.dali.cpp` samples).
 ## Why it exists
 
 The existing `test/samples/*.preview.dali.cpp` files are all **self-contained
-single expressions** — one `return SomeLayout::New()...;` with no helpers, no
-member state, no project headers. Real apps don't look like that. Flow Wallet
+preview bodies** — build a `SomeLayout::New()` tree with sequential setters and
+`return` it, with no helpers, no member state, no project headers. Real apps
+don't look like that. Flow Wallet
 packs the six dominant real-world patterns into one screen so we can measure
 which the previewer handles, and where it needs the next tier.
 

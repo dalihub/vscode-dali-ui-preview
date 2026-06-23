@@ -6,6 +6,10 @@
 
 // @dali-preview
 View MakeHomePreview() {
-    View card = View::New().SetBackgroundColor(UiColor(0x1b2330)).SetCornerRadius(24.0f).SetRequestedWidth(220.0f).SetRequestedHeight(220.0f);
+    View card = View::New();
+    card.SetBackgroundColor(UiColor(0x1b2330));
+    card.SetCornerRadius(24.0f);
+    card.SetRequestedWidth(220.0f);
+    card.SetRequestedHeight(220.0f);
     return card;
 }

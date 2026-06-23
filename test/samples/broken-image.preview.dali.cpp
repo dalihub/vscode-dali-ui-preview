@@ -16,15 +16,15 @@
 // rendering (the chain is valid + the box is built) plus the host-side
 // `image-placeholder` provenance badge and a visual ✋. If the orchestrator finds
 // the swap IS deterministic on the runtime, drop `@render-only` and seed a golden.
-return FlexLayout::New()
-    .SetDirection(FlexDirection::COLUMN)
-    .SetJustifyContent(FlexJustify::CENTER)
-    .SetAlignItems(FlexAlign::CENTER)
-    .SetBackgroundColor(UiColor(0x101418))
-    .SetRequestedWidth(MATCH_PARENT)
-    .SetRequestedHeight(MATCH_PARENT)
-    .Children({
-        ImageView::New("https://unreachable.invalid/poster.jpg")
-            .SetRequestedWidth(200.0f)
-            .SetRequestedHeight(200.0f),
-    });
+FlexLayout root = FlexLayout::New();
+root.SetDirection(FlexDirection::COLUMN);
+root.SetJustifyContent(FlexJustify::CENTER);
+root.SetAlignItems(FlexAlign::CENTER);
+root.SetBackgroundColor(UiColor(0x101418));
+root.SetRequestedWidth(MATCH_PARENT);
+root.SetRequestedHeight(MATCH_PARENT);
+ImageView poster = ImageView::New("https://unreachable.invalid/poster.jpg");
+poster.SetRequestedWidth(200.0f);
+poster.SetRequestedHeight(200.0f);
+root.AddChildren({ poster });
+return root;

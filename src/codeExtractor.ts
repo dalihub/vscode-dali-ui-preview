@@ -187,6 +187,16 @@ function parsePreviewStateLine(line: string): PreviewState | null {
 const VAR_DECL_RE = /^\s*(?:auto|[\w:]+(?:<[^>]*>)?)\s+\w+\s*=\s*/;
 
 /**
+ * True if `code` contains a statement-level `return` (at the start of a line,
+ * ignoring indentation). Used to decide whether a preview body is already a
+ * complete, self-returning block (the non-fluent dali-ui style) — in which case
+ * the leading-var-decl → `return` rewrite must be skipped.
+ */
+function hasStatementReturn(code: string): boolean {
+    return /(^|\n)\s*return\b/.test(code);
+}
+
+/**
  * Extract DALi preview code from a document.
  *
  * - `.preview.dali.cpp` files: entire content is preview code.
@@ -339,9 +349,15 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
                 break;
             }
 
-            // Rewrite leading variable declaration to `return` if needed
+            // Rewrite a single leading variable declaration to `return`
+            // (`View card = ...;` → `return ...;`) ONLY when the body has no
+            // statement-level `return` of its own. Non-fluent dali-ui bodies are
+            // multi-statement and end in an explicit `return root;` (the fluent
+            // chaining API was removed, so setters are sequential statements) —
+            // those must be used verbatim, since stripping the leading decl would
+            // leave later statements referencing an undeclared variable.
             const trimmed = code.trimStart();
-            if (!trimmed.startsWith('return')) {
+            if (!hasStatementReturn(code)) {
                 const match = trimmed.match(VAR_DECL_RE);
                 if (match) {
                     code = 'return ' + trimmed.slice(match[0].length);
@@ -406,10 +422,15 @@ export function extractPreviewCode(document: vscode.TextDocument): ExtractionRes
 
         let code = codeLines.join('\n');
 
-        // If the code starts with a variable declaration, strip it and add `return`
-        // e.g. `View card = FlexLayout::New()` -> `return FlexLayout::New()`
+        // If the code is a single leading variable declaration, strip it and add
+        // `return` (`View card = FlexLayout::New()` -> `return FlexLayout::New()`).
+        // Skip when the body already has a statement-level `return` of its own —
+        // non-fluent dali-ui bodies are multi-statement (setters return void, so
+        // no chaining) and end in an explicit `return root;`, which must be kept
+        // verbatim (rewriting would leave later statements referencing an
+        // undeclared variable).
         const trimmed = code.trimStart();
-        if (!trimmed.startsWith('return')) {
+        if (!hasStatementReturn(code)) {
             const match = trimmed.match(VAR_DECL_RE);
             if (match) {
                 code = 'return ' + trimmed.slice(match[0].length);
@@ -573,17 +594,30 @@ export function sanitizeUnsupportedGlyphs(code: string): { code: string; replace
 }
 
 /**
- * Rewrite `EXPR.Children(vec)` — where vec is a single identifier (a
- * std::vector<View>), not an `{ init-list }` — into an IIFE that .Add()s each
- * element. View::Children has only an initializer_list overload, so passing a
+ * Rewrite `EXPR.AddChildren(vec)` / `EXPR.Children(vec)` — where vec is a single
+ * identifier (a std::vector<View>), not an `{ init-list }` — into an IIFE that
+ * .Add()s each element. View::AddChildren (renamed from Children when dali-ui
+ * dropped the fluent API) has only an initializer_list overload, so passing a
  * vector won't compile; this is the source transform for P13. An `{ ... }`
- * argument is left untouched (it already compiles).
+ * argument is left untouched (it already compiles). The legacy `Children` name
+ * is still matched so pre-migration snippets keep working.
  */
 export function transformVectorChildren(code: string): string {
-    return code.replace(
-        /\breturn\s+([\s\S]+?)\.Children\(\s*([A-Za-z_]\w*)\s*\)\s*;/g,
-        (_m, expr, vec) => `return [&]{ auto __cw = ${expr}; for (auto& __ce : ${vec}) { __cw.Add(__ce); } return __cw; }();`,
-    );
+    return code
+        // Non-fluent statement form (the post-fluent-removal idiom):
+        //   `root.AddChildren(items);`  ->  `for (auto& __ce : items) { root.Add(__ce); }`
+        // Matches only a bare-identifier receiver and a single-identifier (vector)
+        // argument — an `{ init-list }` argument starts with `{` and is left alone.
+        .replace(
+            /(^|\n)([ \t]*)([A-Za-z_]\w*)\.(?:Add)?Children\(\s*([A-Za-z_]\w*)\s*\)\s*;/g,
+            (_m, pre, indent, recv, vec) => `${pre}${indent}for (auto& __ce : ${vec}) { ${recv}.Add(__ce); }`,
+        )
+        // Legacy fluent return-expression form (pre-migration snippets):
+        //   `return EXPR.Children(items);`  ->  IIFE that .Add()s each element.
+        .replace(
+            /\breturn\s+([\s\S]+?)\.(?:Add)?Children\(\s*([A-Za-z_]\w*)\s*\)\s*;/g,
+            (_m, expr, vec) => `return [&]{ auto __cw = ${expr}; for (auto& __ce : ${vec}) { __cw.Add(__ce); } return __cw; }();`,
+        );
 }
 
 export function instrumentCode(code: string, startLine: number, helperNames: Set<string> = new Set()): string {

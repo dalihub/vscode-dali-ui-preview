@@ -172,6 +172,13 @@ export function scanRefs(body: string): Set<string> {
     for (const lm of cleaned.matchAll(/\b(?:const\s+|unsigned\s+|signed\s+)*(?:u?int(?:8|16|32|64)?_t|int|float|double|bool|char|short|long|size_t|std::\w+)\b[\s*&]*([A-Za-z_]\w*)\s*[[=;,)]/g)) { locals.add(lm[1]); }
     // for-loop variable: `for (int i = …)` / `for (const auto& x : …)`
     for (const lm of cleaned.matchAll(/\bfor\s*\(\s*(?:const\s+)?[\w:]+\s*[&*]?\s*([A-Za-z_]\w*)\s*[=:]/g)) { locals.add(lm[1]); }
+    // Object-type local declarations — the non-fluent dali-ui idiom:
+    // `FlexLayout root = …`, `Label title;`, `Dali::Ui::View card(…)`. The type is
+    // an (optionally qualified / templated) identifier whose final segment is
+    // Capitalized; the declared name is a local, never an external ref. Anchored to
+    // statement starts so it never matches member access (`root.Set…`) or factory
+    // calls (`Label::New(…)`, `UiColor(…)`), which have no `<type> <name>` shape.
+    for (const lm of cleaned.matchAll(/(?:^|[\n;{}])[ \t]*(?:const\s+)?(?:[A-Za-z_]\w*::)*[A-Z]\w*(?:<[^>{};]*>)?[\s&*]+([A-Za-z_]\w*)\s*[=;({]/g)) { locals.add(lm[1]); }
 
     // Match identifiers NOT preceded by '.' (member access) or ':' (scope member).
     // For `Scope::Member` only the scope head is a resolvable ref — `::Member`
