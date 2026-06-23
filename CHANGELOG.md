@@ -5,6 +5,45 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-06-23
+
+> **dali-ui non-fluent API migration.** dali-ui removed the fluent (method-chaining)
+> builder API (commit `2f1c78c`, 2026-06-08) — builder setters now return `void` and
+> `View::Children(...)` was renamed to `View::AddChildren(...)`. This release realigns
+> the extension, all samples, and the docker runtime to the current dali-ui so
+> previews compile again.
+
+### Fixed
+
+- **Previews compile again against the current dali-ui.** Fluent-chained code failed
+  with `invalid use of 'void'` on every `.SetX().SetY()` once dali-ui dropped the
+  fluent API; the migration restores compilation on both the local and docker
+  runtimes.
+
+### Changed
+
+- **All samples/examples migrated to the non-fluent API.** Every `.preview.dali.cpp`
+  and sample/example `.cpp` (59 files) now builds views with sequential `obj.SetX();`
+  statements and `AddChildren({ … })` instead of fluent chains. Renders are
+  unchanged — colours, sizes, strings, and tree structure are byte-for-byte
+  preserved; only the chaining form changed.
+- **Harness & codegen realigned.** The harness `UiConfig` setup is now sequential
+  statements on a `__uiConfig` local (no chaining) and `buildUiConfigSetup()` emits
+  statements; the slice ref-scanner recognises object-typed locals
+  (`FlexLayout root = …`) so they are never mis-stubbed; the extractor keeps
+  self-returning multi-statement bodies verbatim; `transformVectorChildren` handles
+  the new `AddChildren(vector)` statement form.
+- **Docker runtime bumped to dali-ui `v2.5.26.10708`** (coordinated 2026-06-17
+  core/adaptor/ui snapshot) in `docker/Dockerfile.runtime`; the previously published
+  image still shipped the old fluent API. Rebuild & push the runtime image so
+  docker-mode users get the matching API.
+
+### Notes
+
+- The C++ fast-path parser only understands fluent chains, so non-fluent previews now
+  take the (correct) compile path; click-to-code still works via the compiled
+  harness's scene-metadata export.
+
 ## [0.45.0] - 2026-06-19
 
 > Preview-experience pass: one guided **Open Examples** tour, the local runtime
