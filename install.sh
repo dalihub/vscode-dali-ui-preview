@@ -110,10 +110,22 @@ fi
 
 # 2. Download the .vsix
 if ! download_vsix "$REPO"; then
-    err "Failed to download the .vsix from ${REPO}."
-    err "Set a custom repo with: DALI_PREVIEW_REPO=\"owner/repo\" bash install.sh"
-    err "Or download it manually from the GitHub Releases page:"
-    err "  https://github.com/${REPO}/releases/latest"
+    err "Could not download the .vsix automatically from ${REPO}."
+    err "A flaky proxy can keep blocking github.com even after several retries."
+    # Manual fallback. A browser usually gets through a corporate proxy that curl
+    # cannot, so point the user at the release page and show the exact install
+    # command for the file they download. Printed to stderr to match err() above.
+    echo "" >&2
+    echo "  Manual install (a browser often gets through a proxy curl can't):" >&2
+    echo "" >&2
+    echo "    1. Open this page in your browser:" >&2
+    echo "         https://github.com/${REPO}/releases/latest" >&2
+    echo "    2. Under 'Assets', download  dali-preview-<version>.vsix" >&2
+    echo "    3. Install it from a terminal (adjust the path to your download):" >&2
+    echo "         code --install-extension ~/Downloads/dali-preview-*.vsix --force" >&2
+    echo "" >&2
+    echo "  Or retry with a custom repo:" >&2
+    echo "         DALI_PREVIEW_REPO=\"owner/repo\" bash install.sh" >&2
     exit 1
 fi
 
