@@ -26,10 +26,21 @@ err()   { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 # curl wrapper that retries a few times to ride out transient network blips or
 # GitHub 5xx responses (common behind a flaky corporate proxy). Passes args and
 # stdout straight through, so it is a drop-in replacement for curl.
+#
+# The timeout flags are essential, not cosmetic. A flaky proxy often does not
+# *reject* a request (curl would return an error quickly, and the loop below
+# would retry) — instead it accepts the CONNECT and then stalls with no
+# response. With no timeout, curl waits on that dead connection forever and the
+# whole installer hangs after "Resolving latest release ..." — the retry loop
+# never even gets a chance to run. Bounding each attempt converts an indefinite
+# hang into a fast failure that the loop can actually retry past.
+#   --connect-timeout 20 : cap the TCP + proxy CONNECT phase, where the stall happens
+#   --max-time 120       : per-attempt ceiling (the .vsix is only ~300 KB, so any
+#                          working link finishes in seconds — 120s is pure headroom)
 curl_retry() {
     local n=1 max=3
     while [ "$n" -le "$max" ]; do
-        if curl "$@"; then
+        if curl --connect-timeout 20 --max-time 120 "$@"; then
             return 0
         fi
         if [ "$n" -lt "$max" ]; then
