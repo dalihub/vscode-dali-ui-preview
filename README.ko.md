@@ -199,6 +199,23 @@ root.AddChildren({ title });
 return root;
 ```
 
+### 이미지
+
+`ImageView`(및 `SetResourceUrl`)는 **로컬 이미지 파일**을 불러올 수 있습니다.
+**프리뷰 파일 기준 상대경로**를 주면 확장이 에셋을 런타임에 자동으로 staging합니다 —
+Docker 모드에선 파일을 컨테이너로 복사하므로 직접 마운트할 필요가 없습니다:
+
+```cpp
+// 프리뷰 파일:  ui/home.preview.dali.cpp
+// 디스크 에셋:   ui/assets/banner.jpg
+ImageView hero = ImageView::New("assets/banner.jpg");
+hero.SetRequestedWidth(MATCH_PARENT);
+hero.SetRequestedHeight(420.0f);
+```
+
+디스크에 존재하는 절대경로도 동작합니다. 원격 URL(`https://…`)이나 해결할 수 없는
+경로는 회색 broken-image placeholder로 대체되어 레이아웃 박스는 유지됩니다.
+
 ### 기존 파일 안의 마커
 
 일반 `.cpp`/`.h` 파일 안의 영역을 프리뷰하려면 마커 주석으로 감쌉니다:
@@ -330,6 +347,30 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
   빌드를 로드합니다. 아주 큰 캔버스는 호스트 Xvfb 화면 크기에 제한됩니다. 커스텀 폰트는 로컬
   모드에서 적용되며, Docker 모드에서는 현재 건너뜁니다.
 - 프리뷰는 앱 전체가 아니라 **추출된 영역**(여러분이 `return` 한 본문)을 렌더링합니다.
+
+## 개발
+
+```bash
+npm install
+npm run compile      # TypeScript → out/
+npm run test:unit    # 유닛 테스트
+npm run test:e2e     # 골든 스크린샷 테스트 (Docker 런타임으로 렌더)
+```
+
+### Push 전 검사 (pre-push)
+
+골든 스크린샷 테스트는 **로컬 Docker DALi 런타임**으로 렌더합니다. github-hosted CI는
+복잡한 DALi 씬을 안정적으로 못 그리므로(GPU 없음, 소프트웨어 GL), 클라우드 대신
+**런타임이 구성된 머신에서 push 시점에** 검증합니다. clone마다 한 번 활성화:
+
+```bash
+npm run hooks:install   # core.hooksPath = .githooks 설정
+```
+
+`git push`마다 compile → 유닛 → 골든 스위트를 돌리고 실패 시 push를 중단합니다.
+`git push --no-verify`로 전체를, `SKIP_E2E=1 git push`로 (느린) 렌더만 건너뛸 수
+있습니다. 같은 스위트를 클라우드에서 수동 실행하려면 **Golden Screenshot Tests**
+워크플로(Actions → Run workflow)를 쓰세요. 유닛 테스트는 매 push마다 클라우드 CI에서 돕니다.
 
 ## 변경 이력
 

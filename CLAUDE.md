@@ -65,6 +65,21 @@ npm run package       # Package as .vsix with vsce
 > non-fluent: declare a named local, call setters as separate statements, add children
 > via `AddChildren`, then `return` the root. The runtime is built from dali-ui
 > `v2.5.26.10708` (see `docker/Dockerfile.runtime`).
+>
+> **Image assets:** `ImageView::New("…")` / `SetResourceUrl("…")` local-file URLs are
+> staged into the build mount by `BuildRunner.stageImageAssets` (called in
+> `previewOrchestrator.prepareSlice`) — use a path **relative to the preview file**
+> (e.g. `assets/foo.jpg`); it is copied into the container and the URL rewritten to
+> `/work/<name>`. Sample image paths must resolve on disk (guarded by
+> `sampleAssets.test.ts`). Remote/unresolvable URLs fall back to the broken-image
+> placeholder.
+
+> **Golden tests:** the e2e golden runner (`test/e2e/`) re-implements extraction +
+> harness codegen because it can't import the `vscode`-dependent `codeExtractor`/
+> `buildRunner` — when you change those, mirror the change in the runner or it silently
+> drifts. Golden renders run through the **local Docker runtime** (a `.githooks/pre-push`
+> hook runs `test:e2e` on push); github-hosted CI can't render complex DALi scenes, so
+> `golden-test.yml` is on-demand only.
 
 ## Testing Requirements
 

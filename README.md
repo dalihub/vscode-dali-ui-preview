@@ -230,6 +230,25 @@ root.AddChildren({ title });
 return root;
 ```
 
+### Images
+
+`ImageView` (and `SetResourceUrl`) can load **local image files**. Give a path
+**relative to the preview file** and the extension stages the asset into the
+runtime for you — in Docker mode the file is copied into the container, so there
+is nothing to mount by hand:
+
+```cpp
+// preview file:  ui/home.preview.dali.cpp
+// asset on disk: ui/assets/banner.jpg
+ImageView hero = ImageView::New("assets/banner.jpg");
+hero.SetRequestedWidth(MATCH_PARENT);
+hero.SetRequestedHeight(420.0f);
+```
+
+An absolute path that exists on disk works too. A remote URL (`https://…`) or a
+path that can't be resolved falls back to a gray broken-image placeholder, so the
+layout box is preserved either way.
+
 ### Markers in an existing file
 
 To preview a region inside a regular `.cpp`/`.h` file, wrap it in marker comments:
@@ -359,6 +378,32 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
   respawns it so your new build is loaded; very large canvases are bounded by the host
   Xvfb screen. Custom fonts are honored in local mode; Docker mode currently skips them.
 - Previews render the **extracted region** — the body you `return`, not your whole application.
+
+## Development
+
+```bash
+npm install
+npm run compile      # TypeScript → out/
+npm run test:unit    # unit tests
+npm run test:e2e     # golden screenshot tests (render via the Docker runtime)
+```
+
+### Pre-push checks
+
+The golden screenshot tests render through the **local Docker DALi runtime**.
+github-hosted CI can't render complex DALi scenes reliably (no GPU, software-only
+GL), so the project verifies on push from a machine that has the runtime rather
+than gating on the cloud. Enable the hook once per clone:
+
+```bash
+npm run hooks:install   # sets core.hooksPath = .githooks
+```
+
+It runs compile → unit tests → the golden suite before every `git push` and
+aborts the push on failure. Skip a run with `git push --no-verify`, or skip just
+the (slow) render with `SKIP_E2E=1 git push`. The same suite can be run in the
+cloud on demand via the **Golden Screenshot Tests** workflow (Actions → Run
+workflow). The release/unit CI runs the unit tests on every push.
 
 ## Changelog
 
