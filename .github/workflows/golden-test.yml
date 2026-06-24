@@ -2,15 +2,25 @@ name: Golden Screenshot Tests
 
 # Renders every golden sample inside the SAME docker runtime the live preview
 # uses (ghcr.io/lwc0917/dali-preview-runtime) and pixel-compares against the
-# committed goldens. Runs on github-hosted runners — no self-hosted DALi SDK
-# needed, because the rendering happens inside the container image. This is the
-# safety net that catches extraction / codegen / render regressions (e.g. the
-# non-fluent migration breakage) that the unit-test-only release CI misses.
+# committed goldens. Now docker-based on github-hosted runners — no self-hosted
+# DALi SDK needed (the old config required one and had been dormant since April).
+#
+# Trigger is workflow_dispatch (on-demand) for now, NOT push/PR. A first
+# github-hosted run (v0.46.2) confirmed the extraction/codegen safety net works —
+# the small deterministic samples that the non-fluent migration broke
+# (zero-arg-entry, broken-image, font-scale-15) all PASS — but four large/image
+# samples are not yet reliably green on github-hosted runners, for two reasons:
+#   1. Render robustness: the big-canvas samples (food-delivery, crypto-portfolio,
+#      fitness-dashboard) fail to render on the hosted runner (shader cache under
+#      /root/.cache, and the golden runner does NOT stage local image assets the
+#      way the extension's BuildRunner.stageImageAssets does, so `assets/*.jpg`
+#      can't be found in the container).
+#   2. Golden determinism: docker renders on the hosted runner differ a few
+#      pixels from goldens captured elsewhere (weather-forecast), so a pixel gate
+#      needs goldens regenerated in — and pinned to — this CI environment.
+# Until those are addressed, run it manually (Actions → this workflow → Run) or
+# locally (`npm run test:e2e`); don't gate every push on a flaky red.
 on:
-  push:
-    branches: [main, autodev/auto-extract-preview]
-  pull_request:
-    branches: [main, autodev/auto-extract-preview]
   workflow_dispatch:
 
 concurrency:
