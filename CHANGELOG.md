@@ -5,6 +5,35 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.2] - 2026-06-24
+
+### Changed
+
+- **Samples reformatted to dali-ui's own sample style** — one blank line between
+  each widget block, and a single-child `AddChildren` collapsed onto one line.
+  Pure formatting: no statement, literal, or order changes, so previews render
+  byte-identical (verified — all 26 golden samples pass unchanged). Makes it
+  easier to see which widget each block builds.
+
+### Fixed
+
+- **Golden test runner now handles non-fluent code** (test infrastructure). The
+  e2e golden runner re-implements extraction + harness codegen (it cannot import
+  the `vscode`-dependent `codeExtractor`/`buildRunner`), and the 0.46.0 migration
+  updated the real modules but not these copies — so `broken-image`,
+  `font-scale-15` and `zero-arg-entry` rendered broken in the golden suite from
+  0.46.0 on, undetected. Fixed the var-decl→`return` guard (`hasStatementReturn`)
+  and the UiConfig codegen (sequential `__uiConfig.SetX();` statements instead of
+  a fluent `.SetX()` suffix). Golden suite: 26 passed, 0 failed.
+
+### CI
+
+- **Re-enabled the golden screenshot suite in CI** — docker-based on
+  github-hosted runners (rendering happens inside the runtime image, so no
+  self-hosted DALi SDK is needed), on push/PR to `main` and the dev branch. This
+  is the render/extraction safety net that the unit-test-only release workflow
+  misses — exactly the gap that let the above regressions ship.
+
 ## [0.46.1] - 2026-06-23
 
 > Follow-up fixes after the 0.46.0 non-fluent migration: a CodeLens-preview
