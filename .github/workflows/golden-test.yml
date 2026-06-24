@@ -1,13 +1,17 @@
 name: Golden Screenshot Tests
 
+# Renders every golden sample inside the SAME docker runtime the live preview
+# uses (ghcr.io/lwc0917/dali-preview-runtime) and pixel-compares against the
+# committed goldens. Runs on github-hosted runners — no self-hosted DALi SDK
+# needed, because the rendering happens inside the container image. This is the
+# safety net that catches extraction / codegen / render regressions (e.g. the
+# non-fluent migration breakage) that the unit-test-only release CI misses.
 on:
+  push:
+    branches: [main, autodev/auto-extract-preview]
+  pull_request:
+    branches: [main, autodev/auto-extract-preview]
   workflow_dispatch:
-  # Disabled: requires self-hosted runner with DALi SDK.
-  # Re-enable push/PR triggers once a Docker-based runner is set up.
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
 
 concurrency:
   group: golden-test-${{ github.ref }}
@@ -15,8 +19,8 @@ concurrency:
 
 jobs:
   golden-test:
-    runs-on: [self-hosted, dali-sdk, linux]
-    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -31,32 +35,17 @@ jobs:
       - name: Compile TypeScript
         run: npm run compile
 
-      - name: Verify DALi SDK
-        run: |
-          pkg-config --exists dali2-core dali2-adaptor dali2-ui-components || {
-            echo "ERROR: DALi SDK not found. Ensure pkg-config and DALi packages are installed on this runner."
-            exit 1
-          }
+      # The golden runner renders inside the docker image; Xvfb is only needed
+      # for the `xvfb-run` wrapper in the npm script (harmless for the docker
+      # path, required so the command exists).
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      - name: Verify harness templates compile
-        env:
-          DISPLAY: ':99'
-        run: bash server/check-harness-compiles.sh
+      # Pre-pull the public runtime image so the first render doesn't time out.
+      - name: Pull DALi runtime image
+        run: docker pull ghcr.io/lwc0917/dali-preview-runtime:latest
 
-      - name: Clean up stale artifacts
-        run: |
-          rm -rf /tmp/dali_e2e
-          rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
-          pkill -f 'Xvfb :99' || true
-
-      - name: Start Xvfb
-        run: |
-          Xvfb :99 -screen 0 1920x1080x24 &
-          until xdpyinfo -display :99 >/dev/null 2>&1; do sleep 0.2; done
-
-      - name: Run golden screenshot tests
-        env:
-          DISPLAY: ':99'
+      - name: Run golden screenshot tests (docker render)
         run: npm run test:e2e
 
       - name: Upload diff and actual screenshots on failure
