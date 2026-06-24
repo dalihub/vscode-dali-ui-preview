@@ -279,6 +279,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
+    "verify": "npm run compile && npm run test:unit:no-coverage && npm run test:e2e",
+    "hooks:install": "git config core.hooksPath .githooks && echo 'pre-push hook enabled (.githooks)'",
     "test": "npm run test:unit",
     "test:unit": "c8 mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
     "test:unit:no-coverage": "mocha out/test/unit/**/*.test.js --require out/test/helpers/setup.js --timeout 10000",
