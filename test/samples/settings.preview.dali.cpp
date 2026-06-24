@@ -29,10 +29,12 @@ View brightnessIcon = View::New();
 brightnessIcon.SetBackgroundColor(UiColor(0xf9a825));
 brightnessIcon.SetRequestedWidth(24.0f);
 brightnessIcon.SetRequestedHeight(24.0f);
+
 Label brightnessText = Label::New("Brightness");
 brightnessText.SetFontSize(18);
 brightnessText.SetTextColor(UiColor(0xe0e0e0));
 brightnessText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout brightnessLeft = FlexLayout::New();
 brightnessLeft.SetDirection(FlexDirection::ROW);
 brightnessLeft.SetAlignItems(FlexAlign::CENTER);
@@ -40,10 +42,12 @@ brightnessLeft.AddChildren({
     brightnessIcon,
     brightnessText,
 });
+
 View brightnessToggle = View::New();
 brightnessToggle.SetBackgroundColor(UiColor(0x4caf50));
 brightnessToggle.SetRequestedWidth(48.0f);
 brightnessToggle.SetRequestedHeight(22.0f);
+
 FlexLayout brightnessRow = FlexLayout::New();
 brightnessRow.SetDirection(FlexDirection::ROW);
 brightnessRow.SetAlignItems(FlexAlign::CENTER);
@@ -67,10 +71,12 @@ View darkModeIcon = View::New();
 darkModeIcon.SetBackgroundColor(UiColor(0x7c4dff));
 darkModeIcon.SetRequestedWidth(24.0f);
 darkModeIcon.SetRequestedHeight(24.0f);
+
 Label darkModeText = Label::New("Dark Mode");
 darkModeText.SetFontSize(18);
 darkModeText.SetTextColor(UiColor(0xe0e0e0));
 darkModeText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout darkModeLeft = FlexLayout::New();
 darkModeLeft.SetDirection(FlexDirection::ROW);
 darkModeLeft.SetAlignItems(FlexAlign::CENTER);
@@ -78,10 +84,12 @@ darkModeLeft.AddChildren({
     darkModeIcon,
     darkModeText,
 });
+
 View darkModeToggle = View::New();
 darkModeToggle.SetBackgroundColor(UiColor(0x4caf50));
 darkModeToggle.SetRequestedWidth(48.0f);
 darkModeToggle.SetRequestedHeight(22.0f);
+
 FlexLayout darkModeRow = FlexLayout::New();
 darkModeRow.SetDirection(FlexDirection::ROW);
 darkModeRow.SetAlignItems(FlexAlign::CENTER);
@@ -110,10 +118,12 @@ View volumeIcon = View::New();
 volumeIcon.SetBackgroundColor(UiColor(0xef5350));
 volumeIcon.SetRequestedWidth(24.0f);
 volumeIcon.SetRequestedHeight(24.0f);
+
 Label volumeText = Label::New("Volume");
 volumeText.SetFontSize(18);
 volumeText.SetTextColor(UiColor(0xe0e0e0));
 volumeText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout volumeLeft = FlexLayout::New();
 volumeLeft.SetDirection(FlexDirection::ROW);
 volumeLeft.SetAlignItems(FlexAlign::CENTER);
@@ -121,10 +131,12 @@ volumeLeft.AddChildren({
     volumeIcon,
     volumeText,
 });
+
 View volumeToggle = View::New();
 volumeToggle.SetBackgroundColor(UiColor(0x4caf50));
 volumeToggle.SetRequestedWidth(48.0f);
 volumeToggle.SetRequestedHeight(22.0f);
+
 FlexLayout volumeRow = FlexLayout::New();
 volumeRow.SetDirection(FlexDirection::ROW);
 volumeRow.SetAlignItems(FlexAlign::CENTER);
@@ -148,10 +160,12 @@ View vibrationIcon = View::New();
 vibrationIcon.SetBackgroundColor(UiColor(0xff7043));
 vibrationIcon.SetRequestedWidth(24.0f);
 vibrationIcon.SetRequestedHeight(24.0f);
+
 Label vibrationText = Label::New("Vibration");
 vibrationText.SetFontSize(18);
 vibrationText.SetTextColor(UiColor(0xe0e0e0));
 vibrationText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout vibrationLeft = FlexLayout::New();
 vibrationLeft.SetDirection(FlexDirection::ROW);
 vibrationLeft.SetAlignItems(FlexAlign::CENTER);
@@ -159,10 +173,12 @@ vibrationLeft.AddChildren({
     vibrationIcon,
     vibrationText,
 });
+
 View vibrationToggle = View::New();
 vibrationToggle.SetBackgroundColor(UiColor(0x555568));
 vibrationToggle.SetRequestedWidth(48.0f);
 vibrationToggle.SetRequestedHeight(22.0f);
+
 FlexLayout vibrationRow = FlexLayout::New();
 vibrationRow.SetDirection(FlexDirection::ROW);
 vibrationRow.SetAlignItems(FlexAlign::CENTER);
@@ -191,10 +207,12 @@ View wifiIcon = View::New();
 wifiIcon.SetBackgroundColor(UiColor(0x42a5f5));
 wifiIcon.SetRequestedWidth(24.0f);
 wifiIcon.SetRequestedHeight(24.0f);
+
 Label wifiText = Label::New("Wi-Fi");
 wifiText.SetFontSize(18);
 wifiText.SetTextColor(UiColor(0xe0e0e0));
 wifiText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout wifiLeft = FlexLayout::New();
 wifiLeft.SetDirection(FlexDirection::ROW);
 wifiLeft.SetAlignItems(FlexAlign::CENTER);
@@ -202,10 +220,12 @@ wifiLeft.AddChildren({
     wifiIcon,
     wifiText,
 });
+
 View wifiToggle = View::New();
 wifiToggle.SetBackgroundColor(UiColor(0x4caf50));
 wifiToggle.SetRequestedWidth(48.0f);
 wifiToggle.SetRequestedHeight(22.0f);
+
 FlexLayout wifiRow = FlexLayout::New();
 wifiRow.SetDirection(FlexDirection::ROW);
 wifiRow.SetAlignItems(FlexAlign::CENTER);
@@ -229,10 +249,12 @@ View bluetoothIcon = View::New();
 bluetoothIcon.SetBackgroundColor(UiColor(0x1565c0));
 bluetoothIcon.SetRequestedWidth(24.0f);
 bluetoothIcon.SetRequestedHeight(24.0f);
+
 Label bluetoothText = Label::New("Bluetooth");
 bluetoothText.SetFontSize(18);
 bluetoothText.SetTextColor(UiColor(0xe0e0e0));
 bluetoothText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout bluetoothLeft = FlexLayout::New();
 bluetoothLeft.SetDirection(FlexDirection::ROW);
 bluetoothLeft.SetAlignItems(FlexAlign::CENTER);
@@ -240,10 +262,12 @@ bluetoothLeft.AddChildren({
     bluetoothIcon,
     bluetoothText,
 });
+
 View bluetoothToggle = View::New();
 bluetoothToggle.SetBackgroundColor(UiColor(0x555568));
 bluetoothToggle.SetRequestedWidth(48.0f);
 bluetoothToggle.SetRequestedHeight(22.0f);
+
 FlexLayout bluetoothRow = FlexLayout::New();
 bluetoothRow.SetDirection(FlexDirection::ROW);
 bluetoothRow.SetAlignItems(FlexAlign::CENTER);
@@ -267,10 +291,12 @@ View airplaneIcon = View::New();
 airplaneIcon.SetBackgroundColor(UiColor(0x66bb6a));
 airplaneIcon.SetRequestedWidth(24.0f);
 airplaneIcon.SetRequestedHeight(24.0f);
+
 Label airplaneText = Label::New("Airplane Mode");
 airplaneText.SetFontSize(18);
 airplaneText.SetTextColor(UiColor(0xe0e0e0));
 airplaneText.SetMargin(Extents(12, 0, 0, 0));
+
 FlexLayout airplaneLeft = FlexLayout::New();
 airplaneLeft.SetDirection(FlexDirection::ROW);
 airplaneLeft.SetAlignItems(FlexAlign::CENTER);
@@ -278,10 +304,12 @@ airplaneLeft.AddChildren({
     airplaneIcon,
     airplaneText,
 });
+
 View airplaneToggle = View::New();
 airplaneToggle.SetBackgroundColor(UiColor(0x555568));
 airplaneToggle.SetRequestedWidth(48.0f);
 airplaneToggle.SetRequestedHeight(22.0f);
+
 FlexLayout airplaneRow = FlexLayout::New();
 airplaneRow.SetDirection(FlexDirection::ROW);
 airplaneRow.SetAlignItems(FlexAlign::CENTER);
@@ -298,6 +326,7 @@ airplaneRow.AddChildren({
 // ── Footer ──
 View footerSpacer = View::New();
 footerSpacer.SetRequestedHeight(16.0f);
+
 Label versionLabel = Label::New("Version 2.4.1");
 versionLabel.SetFontSize(12);
 versionLabel.SetTextColor(UiColor(0x555568));

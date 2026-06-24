@@ -21,12 +21,11 @@ fab.SetRequestedWidth(180.0f);
 fab.SetRequestedHeight(180.0f);
 fab.SetBackgroundColor(UiColor(0x3d7bff));
 fab.SetCornerRadius(90.0f);
+
 Label plus = Label::New("+");
 plus.SetFontSize(96);
 plus.SetTextColor(UiColor(0xffffff));
-fab.AddChildren({
-    plus,
-});
+fab.AddChildren({ plus });
 
 FlexLayout root = FlexLayout::New();
 root.SetJustifyContent(FlexJustify::CENTER);

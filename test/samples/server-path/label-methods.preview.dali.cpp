@@ -8,10 +8,12 @@ root.SetBackgroundColor(UiColor(0x101418));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
 root.SetPadding(Extents(40, 40, 40, 40));
+
 Label label1 = Label::New();
 label1.SetText("Method Text");
 label1.SetTextColor(UiColor(0xffffff));
 label1.SetFontSize(36);
+
 Label label2 = Label::New("<color value='#00d4a8'>Markup</color>");
 label2.SetMarkupEnabled(true);
 label2.SetFontSize(36);

@@ -13,6 +13,7 @@ card.SetRequestedHeight(120.0f);
 card.SetBackgroundColor(UiColor(0x1b2138));
 card.SetCornerRadius(28.0f);
 card.SetPadding(Extents(32, 32, 0, 0));
+
 FlexLayout icon = FlexLayout::New();
 icon.SetJustifyContent(FlexJustify::CENTER);
 icon.SetAlignItems(FlexAlign::CENTER);
@@ -20,10 +21,12 @@ icon.SetRequestedWidth(72.0f);
 icon.SetRequestedHeight(72.0f);
 icon.SetBackgroundColor(UiColor(0x00d4a8));
 icon.SetCornerRadius(36.0f);
+
 Label iconLabel = Label::New("OK");
 iconLabel.SetFontSize(30);
 iconLabel.SetTextColor(UiColor(0x07271f));
 icon.AddChildren({ iconLabel });
+
 Label message = Label::New("Saved to your library");
 message.SetFontSize(32);
 message.SetTextColor(UiColor(0xffffff));

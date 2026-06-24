@@ -9,12 +9,11 @@ root.SetAlignItems(FlexAlign::CENTER);
 root.SetBackgroundColor(UiColor(0x101418));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
+
 View box = View::New();
 box.SetBackgroundColor(UiColor(0x00d4a8));
 box.SetCornerRadius(64.0f);
 box.SetRequestedWidth(220.0f);
 box.SetRequestedHeight(220.0f);
-root.AddChildren({
-    box,
-});
+root.AddChildren({ box });
 return root;

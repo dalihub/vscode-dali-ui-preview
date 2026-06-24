@@ -8,6 +8,7 @@ root.SetDirection(FlexDirection::COLUMN);
 root.SetBackgroundColor(UiColor(0x1b2330));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
+
 Label label = Label::New("Server Path OK");
 label.SetTextColor(UiColor(0xffffff));
 label.SetFontSize(40);

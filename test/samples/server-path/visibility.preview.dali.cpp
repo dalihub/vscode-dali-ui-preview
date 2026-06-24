@@ -8,10 +8,12 @@ root.SetAlignItems(FlexAlign::CENTER);
 root.SetBackgroundColor(UiColor(0x101418));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
+
 View tealBox = View::New();
 tealBox.SetBackgroundColor(UiColor(0x00d4a8));
 tealBox.SetRequestedWidth(140.0f);
 tealBox.SetRequestedHeight(140.0f);
+
 View redBox = View::New();
 redBox.SetBackgroundColor(UiColor(0xe24a4a));
 redBox.SetVisibility(false);

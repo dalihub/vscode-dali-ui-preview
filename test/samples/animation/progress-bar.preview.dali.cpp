@@ -28,6 +28,7 @@ root.SetAlignItems(FlexAlign::CENTER);
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
 root.SetBackgroundColor(UiColor(0x0b0d16));
+
 Label title = Label::New("Downloading update");
 title.SetFontSize(34);
 title.SetTextColor(UiColor(0xffffff));

@@ -62,9 +62,7 @@ albumArt.SetRequestedWidth(1820.0f);
 albumArt.SetRequestedHeight(1820.0f);
 albumArt.SetCornerRadius(84.0f);
 
-albumArtRow.AddChildren({
-    albumArt,
-});
+albumArtRow.AddChildren({ albumArt });
 
 // Spacer
 View spacer2 = View::New();
@@ -121,9 +119,7 @@ progressFill.SetBackgroundColor(UiColor(0xffffff));
 progressFill.SetRequestedWidth(910.0f);
 progressFill.SetRequestedHeight(21.0f);
 
-progressBar.AddChildren({
-    progressFill,
-});
+progressBar.AddChildren({ progressFill });
 
 // Time row
 FlexLayout timeRow = FlexLayout::New();
@@ -177,9 +173,7 @@ Label playIcon = Label::New("▶");
 playIcon.SetFontSize(140);
 playIcon.SetTextColor(UiColor(0x0a0a14));
 
-playButton.AddChildren({
-    playIcon,
-});
+playButton.AddChildren({ playIcon });
 
 Label next = Label::New("▶▶");
 next.SetFontSize(133);

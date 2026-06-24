@@ -20,6 +20,7 @@ View box1 = View::New();
 box1.SetBackgroundColor(UiColor(0xE05050));
 box1.SetRequestedWidth(120.0f);
 box1.SetRequestedHeight(120.0f);
+
 Label label1 = Label::New("1");
 label1.SetFontSize(40.0f);
 label1.SetTextColor(UiColor(0xFFFFFF));
@@ -29,6 +30,7 @@ View box2 = View::New();
 box2.SetBackgroundColor(UiColor(0x50E050));
 box2.SetRequestedWidth(120.0f);
 box2.SetRequestedHeight(120.0f);
+
 Label label2 = Label::New("2");
 label2.SetFontSize(40.0f);
 label2.SetTextColor(UiColor(0xFFFFFF));
@@ -38,6 +40,7 @@ View box3 = View::New();
 box3.SetBackgroundColor(UiColor(0x5070E0));
 box3.SetRequestedWidth(120.0f);
 box3.SetRequestedHeight(120.0f);
+
 Label label3 = Label::New("3");
 label3.SetFontSize(40.0f);
 label3.SetTextColor(UiColor(0xFFFFFF));

@@ -11,11 +11,10 @@ View MakeHomePreview()
     root.SetBackgroundColor(UiColor(0x1b2330));
     root.SetRequestedWidth(MATCH_PARENT);
     root.SetRequestedHeight(MATCH_PARENT);
+
     Label label = Label::New("Zero-Arg Entry");
     label.SetTextColor(UiColor(0xffffff));
     label.SetFontSize(44);
-    root.AddChildren({
-        label,
-    });
+    root.AddChildren({ label });
     return root;
 }

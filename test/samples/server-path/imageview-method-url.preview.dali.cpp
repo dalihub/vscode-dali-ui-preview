@@ -13,6 +13,7 @@ root.SetAlignItems(FlexAlign::CENTER);
 root.SetBackgroundColor(UiColor(0x101418));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
+
 ImageView poster = ImageView::New();
 poster.SetResourceUrl("poster.jpg");
 poster.SetRequestedWidth(200.0f);

@@ -14,9 +14,11 @@ root.SetJustifyContent(FlexJustify::CENTER);
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
 root.SetBackgroundColor(UiColor(0x1e1e2e));
+
 Label heading = Label::New("Scaled Heading");
 heading.SetFontSize(48.0_spx);
 heading.SetTextColor(UiColor(0xFFFFFF));
+
 Label body = Label::New("Body at 1.5x");
 body.SetFontSize(28.0_spx);
 body.SetTextColor(UiColor(0xC0C8E0));

@@ -23,6 +23,7 @@ root.SetAlignItems(FlexAlign::CENTER);
 root.SetBackgroundColor(UiColor(0x101418));
 root.SetRequestedWidth(MATCH_PARENT);
 root.SetRequestedHeight(MATCH_PARENT);
+
 ImageView poster = ImageView::New("https://unreachable.invalid/poster.jpg");
 poster.SetRequestedWidth(200.0f);
 poster.SetRequestedHeight(200.0f);
