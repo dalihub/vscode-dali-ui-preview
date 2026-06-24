@@ -5,6 +5,26 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.3] - 2026-06-24
+
+### Docs
+
+- **README (EN + KO)**: documented local **image asset** support — `ImageView` /
+  `SetResourceUrl` load files via a path relative to the preview file (staged into
+  the runtime automatically). Added a **Development / Pre-push** section covering the
+  local golden-render gate (`npm run hooks:install`, `npm run test:e2e`, and the
+  `--no-verify` / `SKIP_E2E=1` escape hatches).
+- **CLAUDE.md**: noted image-asset staging (`BuildRunner.stageImageAssets`) and the
+  golden-runner / golden-CI setup so future changes keep the test copies in sync.
+
+### Dev / CI
+
+- Added a `.githooks/pre-push` hook plus `verify` and `hooks:install` npm scripts:
+  run compile + unit tests + the golden render suite locally before each push and
+  abort on failure. github-hosted CI can't render complex DALi scenes reliably, so
+  the render gate lives on the developer machine; `golden-test.yml` is now
+  docker-based and on-demand (`workflow_dispatch`).
+
 ## [0.46.2] - 2026-06-24
 
 ### Changed
