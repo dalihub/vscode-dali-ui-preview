@@ -49,6 +49,18 @@ const STATE_FOCUS_RE = /(?:^|,)\s*focus\s*=\s*(?:"([^"]*)"|([A-Za-z_]\w*))/;
 // `View card = ...` → `return ...`.
 const VAR_DECL_RE = /^\s*(?:auto|[\w:]+(?:<[^>]*>)?)\s+\w+\s*=\s*/;
 
+// Mirror codeExtractor.hasStatementReturn: a non-fluent dali-ui body is
+// multi-statement and ends in an explicit `return root;` while starting with
+// `FlexLayout root = ...`. The leading-var-decl→return rewrite below must be
+// skipped for such bodies (rewriting the first decl to a `return` drops the
+// declaration, leaving the following setter statements referencing an
+// undeclared local — `'root' was not declared in this scope`). This runner
+// re-implements extraction (it cannot import codeExtractor, which depends on
+// `vscode`), so this guard must be kept in sync with codeExtractor's.
+function hasStatementReturn(code: string): boolean {
+    return /(^|\n)\s*return\b/.test(code);
+}
+
 interface TestResult {
     name: string;
     passed: boolean;
@@ -152,7 +164,7 @@ function extractDaliPreviewMarker(filePath: string): string | null {
         if (!code.trim()) { return null; }
 
         const trimmed = code.trimStart();
-        if (!trimmed.startsWith('return')) {
+        if (!hasStatementReturn(code)) {
             const match = trimmed.match(VAR_DECL_RE);
             if (match) { code = 'return ' + trimmed.slice(match[0].length); }
         }

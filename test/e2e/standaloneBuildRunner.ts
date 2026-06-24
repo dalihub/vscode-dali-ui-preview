@@ -97,19 +97,24 @@ export function buildPaletteDefs(theme?: 'light' | 'dark', locale?: string): str
 }
 
 /** Build the harness {{UI_CONFIG_SETUP}} slot (frozen, pre-Apply). Mirrors
- *  src/buildRunner.ts.buildUiConfigSetup. `brokenImagePath` (WU-M5.1) chains
+ *  src/buildRunner.ts.buildUiConfigSetup. `brokenImagePath` (WU-M5.1) sets
  *  SetBrokenImageUrl so an unreachable ImageView URL renders the bundled gray
- *  placeholder at its requested size. undefined → byte-identical to pre-M5. */
+ *  placeholder at its requested size. undefined → byte-identical to pre-M5.
+ *
+ *  dali-ui dropped the fluent chaining API (setters return void), so these are
+ *  sequential statements on the harness's `__uiConfig` local — NOT a `.SetX()`
+ *  suffix chained onto a New(). Kept in sync with buildRunner.buildUiConfigSetup
+ *  (this runner can't import it: vscode dep). */
 export function buildUiConfigSetup(fontScale?: number, brokenImagePath?: string): string {
-    let chain = '';
+    const lines: string[] = [];
     if (typeof fontScale === 'number' && fontScale > 0) {
-        chain += `.SetScalingFactor(${formatFloat(fontScale)})`;
+        lines.push(`  __uiConfig.SetScalingFactor(${formatFloat(fontScale)});`);
     }
     if (brokenImagePath) {
         const p = brokenImagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        chain += `.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}")`;
+        lines.push(`  __uiConfig.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}");`);
     }
-    return chain;
+    return lines.join('\n');
 }
 
 /** Build the harness {{PRE_BUILD_INSTALL}} slot (runtime, pre-tree). Mirrors
