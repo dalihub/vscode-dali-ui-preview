@@ -5,6 +5,48 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] - 2026-06-29
+
+### Added
+
+- **Parser fast path restored for current dali-ui code.** The `parser` strategy
+  (cppParser → resident server `renderJson`, **no g++ compile**, ~80–200 ms) had
+  gone dormant after the fluent chaining API was removed (2026-06): `cppParser`
+  only understood a single `Type::New().Method()...` expression, so every
+  imperative-style preview (`FlexLayout root = …; root.SetX(…); root.AddChildren({…});
+  return root;`) failed to parse and silently fell back to the slower compile path.
+  `cppParser` now also parses the imperative builder form — variable declarations
+  (incl. `auto`) into a symbol table, `var.Setter(...)` mutations, and `AddChildren`
+  children resolved by name — producing the same `SceneNode` tree the C++ server
+  already renders (no server change). Click-to-code source-line tagging is preserved.
+  Self-contained single-function previews (no project-local refs, no focus/animation)
+  again render without compiling. Complex code (control flow, ternary, helper calls,
+  undeclared refs) still declines to the compile path, unchanged.
+
+### Changed
+
+- **Runtime image pull surfaces actionable errors and auto-retries transient
+  failures.** A failed `docker pull` of the runtime image previously showed only
+  the raw error string and gave up. Pulls now categorize the failure (network /
+  auth / not-found / unknown), show a plain-language explanation, and auto-retry
+  retryable failures up to 3 times with exponential backoff (1s → 2s → 4s …,
+  capped at 16s). On the final failure a **Retry** / **View Logs** action is
+  offered (Retry omitted for non-retryable errors such as a missing image), and
+  every attempt plus its error category is written to the output channel.
+  `not-found` errors fail fast instead of retrying pointlessly, and the progress
+  heartbeat interval is now cleared per-attempt so retries can't leak timers.
+
+### Tests
+
+- `cppParser.test.ts`: added an `imperative builder form` suite (declarations,
+  `auto`, `AddChildren` references, nested grandchildren, source-line tagging,
+  undeclared-variable fallbacks) and flipped the shipped-sample regression guard
+  from "non-fluent → compile fallback" to asserting they parse on the fast path.
+- `pullImageCommand.test.ts`: added an `analyzePullError` suite covering every
+  category, the `shouldRetry` decisions, auth-over-network precedence, and
+  case-insensitive matching — plus an auto-retry integration test that recovers
+  from a transient network failure on the second attempt.
+
 ## [0.46.3] - 2026-06-24
 
 ### Docs
