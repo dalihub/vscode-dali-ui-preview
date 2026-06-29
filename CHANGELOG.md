@@ -5,6 +5,50 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] - 2026-06-29
+
+Beta release for colleague testing — focused on **easy onboarding**.
+
+### Docs
+
+- **README (EN + KO) reworked for first-time setup.** Removed features that no longer
+  exist (VNC interactive mode, SDB device preview, GIF capture), added an up-front
+  **"which runtime do I need?"** decision table that cleanly splits the two cases —
+  🐳 **Docker** (app developers: download a prebuilt container) vs ⭐ **Local** (DALi
+  framework developers: render against your own build) — and corrected the `animation`
+  directive (it's a scrubber, not a GIF export).
+
+### Added
+
+- **Stale-runtime self-diagnosis** (`errorParser.detectRuntimeApiSkew` +
+  `RUNTIME_API_SKEW_HINT`). When a preview fails to compile because the runtime is
+  older than the code (dali-ui child-API skew — e.g. `'class Dali::Ui::FlexLayout'
+  has no member named 'AddChildren'; did you mean 'Children'?`), the error panel now
+  appends an actionable, **mode-aware** hint: docker runtime → pull a fresh image;
+  local runtime → the native DALi prefix predates the code (rebuild it, or switch to
+  docker). This is a runtime problem, not a code bug. Wired into both `diagnoseGccErrors`
+  and `formatRawError`; 6 `errorParser.test.ts` cases.
+- **`npm run verify:previews` / `verify:previews:docker`** (`test/e2e/previewCompileSweep.js`)
+  — compiles **every** `*.preview.dali.cpp` (examples/ + test/samples/) against the
+  native prefix or the docker image and prints a pass/fail matrix flagging API skew.
+  The golden runners only cover `test/samples/` in docker, which let a stale **native**
+  prefix (runtimeMode=local) ship the AddChildren error unverified; this closes that gap.
+
+### Fixed
+
+- **Skew detector now matches real g++ output.** g++ quotes identifiers with Unicode
+  curly quotes (U+2018/U+2019), not ASCII — the initial detector regex only matched
+  ASCII `'…'`, so it silently never fired on actual compiler output (and the ASCII-quoted
+  unit tests masked it). The regex (and the sweep) now accept both; tests use real
+  curly-quote fixtures.
+
+### Notes
+
+- The `parser` fast path was **kept** (not removed): it renders a JSON scene the
+  in-runtime server translates to dali-ui, so it is insulated from method renames and
+  was unaffected by the `Children → AddChildren` change (verified: 8/8 server-path
+  e2e green). Only the g++ **compile** paths surface a stale-runtime skew.
+
 ## [0.47.0] - 2026-06-29
 
 ### Added

@@ -48,13 +48,6 @@ panel. After the first render, text edits update in **~100 ms**.
   placeholder image, an unresolved theme token), a small badge says exactly what,
   so a "silent fix" never looks like your bug.
 
-**Going further**
-
-- 🕹️ **Interactive mode (VNC)** — drive the live app in the panel: click, scroll, type.
-- 📱 **Device preview** — build and render on a real Tizen device over SDB.
-- 🎞️ **Animation preview** *(experimental)* — capture an animated region as a GIF with
-  playback controls.
-
 **Zero-hassle runtime**
 
 - 🐳 **Docker runtime (default)** — no DALi build on your machine. The runtime ships as a
@@ -135,9 +128,14 @@ code --install-extension dali-preview-*.vsix
 
 ## Setting up your runtime
 
-There are two runtimes. **App developers** use **Docker** (default, zero host setup).
-**DALi framework (uifw) developers** who modify DALi itself use the **local runtime** so
-previews reflect their own freshly-built `.so` files — see the important section below.
+There are two runtimes — pick **one**. This is the single most important choice for setup:
+
+| You are… | Use | What it is |
+|---|---|---|
+| 👤 **App developer** — building a UI *with* DALi (most people) | 🐳 **Docker** *(default)* | Download a **pre-built runtime container** — no DALi on your machine. Two guided one-time steps: install Docker + pull the image (~290 MB). |
+| 🛠️ **DALi framework (uifw) developer** — modifying DALi itself | ⭐ **Local** | Render against **your own DALi build**, so previews reflect your freshly-built `.so` files. Needs `g++`/`Xvfb`/`pkg-config` + a DALi prefix on the host. |
+
+**Not sure? Pick Docker — it just works.** Step-by-step for each runtime is below.
 
 ### Docker runtime *(recommended for app developers)*
 
@@ -290,8 +288,8 @@ return MyScreen();
 | `fontScale` | `0.5`–`2.0` | Scales `_spx`-sized text (catch big-font overflow early) |
 | `locale` | e.g. `ar`, `ko_KR` | Mirrors layout right-to-left for RTL locales; sets `LANG` |
 | `font` | filename | Use a font from `daliPreview.fontDirectories` |
-| `animation` | `true` \| `false` | Capture an animated GIF (experimental) |
-| `duration` / `fps` | ms / frames | Animation length and frame rate |
+| `animation` | `true` \| `false` | Show animation playback controls — scrub through a region that animates (`.Play()`) |
+| `duration` | ms | Animation length for the scrubber |
 
 **Presets** — `// @preview-preset: light-dark` (also `locales`, `font-sizes`,
 `screen-sizes`) expands to several config variants shown together in the gallery.

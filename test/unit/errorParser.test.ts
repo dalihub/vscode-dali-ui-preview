@@ -9,6 +9,8 @@ import {
     ParsedError,
     diagnoseGccErrors,
     errorsToDiagnostics,
+    detectRuntimeApiSkew,
+    RUNTIME_API_SKEW_HINT,
 } from '../../src/errorParser';
 
 // Path to the real harness template
@@ -226,5 +228,60 @@ describe('diagnoseGccErrors()', () => {
         const stderr = '/tmp/preview_plugin.cpp:30:5: error: expected \';\'';
         expect(diagnoseGccErrors(stderr, 20, fakeDoc, 0, true)).to.not.equal(null);
         expect(diagnoseGccErrors(stderr, 20, fakeDoc, 0, false)).to.equal(null);
+    });
+
+    // -----------------------------------------------------------------
+    // Runtime/code API skew (STALE runtime image) detection.
+    // dali-ui renamed View::Children(initializer_list) ↔ View::AddChildren
+    // between image versions; a mismatch is an image problem, not user code.
+    // -----------------------------------------------------------------
+    describe('runtime API skew (stale runtime) detection', () => {
+        // CRITICAL: g++ quotes identifiers with Unicode curly quotes (U+2018 ‘ … U+2019 ’),
+        // NOT ASCII apostrophes. These fixtures use the REAL curly quotes that g++ emits —
+        // an earlier ASCII-quote version of these tests passed while the detector silently
+        // never matched real compiler output. Do not "normalise" the quotes back to ASCII.
+        const STALE_IMAGE_ERR =
+            '/tmp/preview_plugin.cpp:95:5: error: ‘class Dali::Ui::FlexLayout’ has no member named ‘AddChildren’; did you mean ‘Children’?';
+        // Reverse skew: runtime is NEWER than the code (runtime has AddChildren, code calls Children).
+        const NEWER_RUNTIME_ERR =
+            '/tmp/preview_plugin.cpp:95:5: error: ‘class Dali::Ui::View’ has no member named ‘Children’; did you mean ‘AddChildren’?';
+
+        it('flags the real g++ (curly-quote) skew error in BOTH directions', () => {
+            expect(detectRuntimeApiSkew(STALE_IMAGE_ERR)).to.equal(true);
+            expect(detectRuntimeApiSkew(NEWER_RUNTIME_ERR)).to.equal(true);
+        });
+
+        it('also flags the ASCII-quote variant (some toolchains/locales emit straight quotes)', () => {
+            expect(detectRuntimeApiSkew(
+                "error: 'class Dali::Ui::View' has no member named 'AddChildren'; did you mean 'Children'?",
+            )).to.equal(true);
+        });
+
+        it('does NOT flag unrelated errors or typos on non-dali types (no false positive)', () => {
+            expect(detectRuntimeApiSkew('/tmp/preview_harness.cpp:25:10: error: use of undeclared identifier ‘Foo’')).to.equal(false);
+            // a member typo on the user's OWN class must not be blamed on the runtime
+            expect(detectRuntimeApiSkew('‘class MyWidget’ has no member named ‘AddChildren’')).to.equal(false);
+            expect(detectRuntimeApiSkew('')).to.equal(false);
+        });
+
+        it('diagnoseGccErrors() appends the actionable runtime-update hint on skew', () => {
+            const result = diagnoseGccErrors(STALE_IMAGE_ERR, 90, fakeDoc, 0, true);
+            expect(result, 'skew error still parses to a diagnostic').to.not.equal(null);
+            expect(result!.displayMessage).to.include(RUNTIME_API_SKEW_HINT);
+            // the underlying compiler message is preserved alongside the hint
+            expect(result!.displayMessage).to.include('has no member named');
+        });
+
+        it('diagnoseGccErrors() leaves ordinary errors untouched (no hint)', () => {
+            const ordinary = '/tmp/preview_plugin.cpp:95:5: error: use of undeclared identifier ‘Foo’';
+            const result = diagnoseGccErrors(ordinary, 90, fakeDoc, 0, true);
+            expect(result).to.not.equal(null);
+            expect(result!.displayMessage).to.not.include(RUNTIME_API_SKEW_HINT);
+        });
+
+        it('formatRawError() carries the hint through the raw fallback path', () => {
+            expect(formatRawError(STALE_IMAGE_ERR)).to.include(RUNTIME_API_SKEW_HINT);
+            expect(formatRawError('/usr/bin/ld: undefined reference to `sym’')).to.not.include(RUNTIME_API_SKEW_HINT);
+        });
     });
 });

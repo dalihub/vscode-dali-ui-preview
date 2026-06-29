@@ -182,8 +182,51 @@ export function formatRawError(raw: string): string {
     );
 
     // Trim to a reasonable display length
-    return mapped.length > 200 ? mapped.slice(0, 197) + '…' : mapped;
+    const out = mapped.length > 200 ? mapped.slice(0, 197) + '…' : mapped;
+
+    // A runtime/code API skew (stale image) often surfaces here too — when the
+    // skew error lands in harness boilerplate, parseGccErrors drops it and the
+    // caller falls back to this raw summary. Append the same actionable hint so
+    // the guidance survives that path.
+    return detectRuntimeApiSkew(raw) ? `${out}\n\n${RUNTIME_API_SKEW_HINT}` : out;
 }
+
+/**
+ * dali-ui renamed its child-adding API between runtime-image versions
+ * (`View::Children(initializer_list)` → `View::AddChildren`, 2026-06). When the
+ * runtime IMAGE and the preview CODE disagree on which name exists, g++ emits e.g.
+ *   `'class Dali::Ui::FlexLayout' has no member named 'AddChildren'; did you mean 'Children'?`
+ * (or the reverse, when the image is NEWER than the code). That is NOT a bug the
+ * user can fix in their source — it means the runtime image is out of sync with the
+ * code, which in practice is almost always a STALE runtime (built before the code
+ * migrated). Detect that signature so we can point the user at the fix instead of
+ * leaving them staring at a cryptic compiler line.
+ *
+ * IMPORTANT: g++ quotes identifiers with Unicode curly quotes (U+2018 ‘ … U+2019 ’),
+ * NOT ASCII apostrophes, so the character classes below MUST accept both — matching
+ * only `'…'` silently never fires on real compiler output (verified the hard way).
+ */
+const RUNTIME_API_SKEW_RE =
+    /Dali::Ui::\w+['‘’]?\s+has no member named\s+['‘’']?(?:AddChildren|Children)['‘’']?/;
+
+/** True if `stderr` carries the dali-ui child-API version-skew signature. */
+export function detectRuntimeApiSkew(stderr: string): boolean {
+    return RUNTIME_API_SKEW_RE.test(stderr ?? '');
+}
+
+/**
+ * Actionable hint appended to a preview error caused by a runtime/code API skew.
+ * Covers BOTH runtime modes (the error is identical; only the fix differs):
+ *  - docker runtime → pull a fresh image,
+ *  - local runtime  → the native DALi prefix is older than the code.
+ */
+export const RUNTIME_API_SKEW_HINT =
+    '⚠️ Your DALi runtime is out of sync with this code (the dali-ui child API name '
+    + 'differs between the runtime and the preview) — almost always a STALE runtime. '
+    + 'Fix: • Docker runtime → Command Palette “DALi Preview: Download Runtime Image” '
+    + '(or “Check for Runtime Image Update”). • Local runtime '
+    + '(daliPreview.runtimeMode=local) → your native DALi prefix predates the code; '
+    + 'rebuild that prefix, or switch to the Docker runtime.';
 
 /**
  * Format parsed errors into a human-readable string suitable for the webview.
@@ -273,8 +316,11 @@ export function diagnoseGccErrors(
     if (errors.length === 0) {
         return null;
     }
+    const displayMessage = formatErrorsForDisplay(errors);
     return {
         diagnostics: errorsToDiagnostics(errors, document, startLine),
-        displayMessage: formatErrorsForDisplay(errors),
+        displayMessage: detectRuntimeApiSkew(stderr)
+            ? `${displayMessage}\n\n${RUNTIME_API_SKEW_HINT}`
+            : displayMessage,
     };
 }

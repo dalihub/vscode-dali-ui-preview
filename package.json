@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.47.0",
+  "version": "0.48.0",
   "publisher": "dalihub",
   "icon": "images/icon.png",
   "repository": {
@@ -289,6 +289,8 @@
     "test:e2e:server": "xvfb-run -a node out/test/e2e/serverGoldenRunner.js",
     "test:e2e:multifile": "xvfb-run -a node out/test/e2e/multiFileGoldenRunner.js",
     "test:e2e:all": "npm run test:e2e && npm run test:e2e:server && npm run test:e2e:multifile",
+    "verify:previews": "xvfb-run -a node test/e2e/previewCompileSweep.js",
+    "verify:previews:docker": "SWEEP_BACKEND=docker xvfb-run -a node test/e2e/previewCompileSweep.js",
     "test:golden:update": "UPDATE_GOLDENS=1 xvfb-run -a node out/test/e2e/goldenTestRunner.js",
     "test:click-to-code": "python3 test/e2e/click_to_code_e2e.py",
     "test:release": "npm run test:unit && npm run test:click-to-code && npm run test:e2e:all",

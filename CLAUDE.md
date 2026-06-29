@@ -66,6 +66,26 @@ npm run package       # Package as .vsix with vsce
 > via `AddChildren`, then `return` the root. The runtime is built from dali-ui
 > `v2.5.26.10708` (see `docker/Dockerfile.runtime`).
 >
+> **Stale-runtime symptom (read this before "fixing" the code):** a preview error
+> like `'class Dali::Ui::FlexLayout' has no member named 'AddChildren'; did you mean
+> 'Children'?` does **not** mean the code is wrong — it means the **runtime is older
+> than the code** (predates the `Children → AddChildren` rename). The fix depends on
+> `daliPreview.runtimeMode`, and BOTH must be checked — they fail identically:
+> - **docker** → refresh the image: `docker pull ghcr.io/lwc0917/dali-preview-runtime:latest`
+>   (or `:dali_2.5.26`). NOT by reverting samples.
+> - **local** → the **native DALi prefix** (`daliPreview.daliPrefix`) predates the code;
+>   rebuild that prefix, or switch `runtimeMode` to `docker`.
+>
+> Self-diagnosis: `errorParser.detectRuntimeApiSkew` appends an actionable hint to the
+> error panel. ⚠️ g++ quotes identifiers with **Unicode curly quotes** (U+2018/U+2019),
+> not ASCII — the detector regex MUST accept both (an ASCII-only regex silently never
+> fires on real output; tests must use real curly-quote fixtures). Verify previews in
+> your actual mode with `npm run verify:previews` (native) / `verify:previews:docker`,
+> which compile every `*.preview.dali.cpp` — the golden runners only cover
+> `test/samples/` in docker, so a stale **native** prefix went unverified once.
+> (The `parser`/`renderJson` path is insulated from the rename — it speaks a JSON
+> scene the in-runtime server translates — so only the g++ **compile** paths skew.)
+>
 > **Image assets:** `ImageView::New("…")` / `SetResourceUrl("…")` local-file URLs are
 > staged into the build mount by `BuildRunner.stageImageAssets` (called in
 > `previewOrchestrator.prepareSlice`) — use a path **relative to the preview file**
