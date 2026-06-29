@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as dockerAccessCheck from '../../src/dockerAccessCheck';
-import { ensureRuntimeImage, pullRuntimeImageCommand, formatPullMessage } from '../../src/pullImageCommand';
+import { ensureRuntimeImage, pullRuntimeImageCommand, formatPullMessage, analyzePullError } from '../../src/pullImageCommand';
 
 const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
 
@@ -121,5 +121,82 @@ describe('pullRuntimeImageCommand — force mode', () => {
         const ok = await pullRuntimeImageCommand(rt, fakeOut, true);
         expect(ok).to.equal(false);
         expect(rt.pullImage.called).to.equal(false);
+    });
+});
+
+describe('analyzePullError', () => {
+    it('categorizes auth/token failures as retryable auth errors', () => {
+        for (const msg of [
+            'failed to authorize: insufficient_scope',
+            'failed to fetch anonymous token: Get "https://ghcr.io/token..."',
+            'received unexpected HTTP status: 401 Unauthorized',
+            'denied with 403 Forbidden',
+        ]) {
+            const a = analyzePullError(msg);
+            expect(a.category, msg).to.equal('auth');
+            expect(a.shouldRetry, msg).to.equal(true);
+        }
+    });
+
+    it('categorizes connectivity failures as retryable network errors', () => {
+        for (const msg of [
+            'dial tcp: connection refused',
+            'read: connection reset by peer',
+            'context deadline exceeded (i/o timeout)',
+            'Get "https://ghcr.io": net/http: request canceled (timeout)',
+            'network is unreachable',
+            'httpReadSeeker: failed open',
+        ]) {
+            const a = analyzePullError(msg);
+            expect(a.category, msg).to.equal('network');
+            expect(a.shouldRetry, msg).to.equal(true);
+        }
+    });
+
+    it('categorizes a missing image as a non-retryable not-found error', () => {
+        for (const msg of ['manifest not found', 'image not found', 'repository not found']) {
+            const a = analyzePullError(msg);
+            expect(a.category, msg).to.equal('notfound');
+            expect(a.shouldRetry, msg).to.equal(false);
+        }
+    });
+
+    it('falls back to a retryable unknown category and echoes the raw error', () => {
+        const a = analyzePullError('some totally novel docker failure');
+        expect(a.category).to.equal('unknown');
+        expect(a.shouldRetry).to.equal(true);
+        expect(a.details).to.equal('some totally novel docker failure');
+    });
+
+    it('matches registry error strings case-insensitively', () => {
+        expect(analyzePullError('FAILED TO AUTHORIZE').category).to.equal('auth');
+        expect(analyzePullError('I/O TIMEOUT').category).to.equal('network');
+    });
+
+    it('prefers auth over network when a message matches both (auth checked first)', () => {
+        // GHCR token failures often arrive wrapped in an httpReadSeeker frame;
+        // the auth diagnosis is the actionable one, so it must win.
+        const a = analyzePullError('httpReadSeeker: failed open: failed to authorize: failed to fetch anonymous token');
+        expect(a.category).to.equal('auth');
+    });
+});
+
+describe('pullRuntimeImageCommand — auto-retry on transient failure', () => {
+    afterEach(() => sinon.restore());
+
+    it('retries after a transient network error and succeeds', async function () {
+        // First attempt fails with a (retryable) network error; the backoff is
+        // 2^0 = 1s, so allow headroom over the default 2s mocha timeout.
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const pullStub = sinon.stub()
+            .onFirstCall().rejects(new Error('docker pull exited 1: httpReadSeeker: failed open'))
+            .onSecondCall().resolves(undefined);
+        const rt = makeRuntime({ hasImage: sinon.stub().resolves(false), pullImage: pullStub });
+
+        const ok = await pullRuntimeImageCommand(rt, fakeOut, true);
+
+        expect(ok).to.equal(true);
+        expect(pullStub.callCount).to.equal(2);
     });
 });

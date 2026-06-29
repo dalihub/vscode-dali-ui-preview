@@ -24,6 +24,70 @@ export function formatPullMessage(
 }
 
 /**
+ * Categorize a docker pull error and suggest an action.
+ * Returns { category, userMessage, shouldRetry, details }
+ * Exported for testing.
+ */
+export function analyzePullError(errorMessage: string): {
+    category: 'network' | 'auth' | 'notfound' | 'unknown';
+    userMessage: string;
+    shouldRetry: boolean;
+    details: string;
+} {
+    const lower = errorMessage.toLowerCase();
+
+    if (
+        lower.includes('failed to authorize') ||
+        lower.includes('failed to fetch anonymous token') ||
+        lower.includes('401') ||
+        lower.includes('403')
+    ) {
+        return {
+            category: 'auth',
+            userMessage: 'Authentication or authorization failed. Check your network connectivity and firewall settings.',
+            shouldRetry: true,
+            details: 'GHCR registry returned an authentication error. This can be transient if your network/proxy blocks the token endpoint.',
+        };
+    }
+
+    if (
+        lower.includes('connection refused') ||
+        lower.includes('connection reset') ||
+        lower.includes('timeout') ||
+        lower.includes('i/o timeout') ||
+        lower.includes('network is unreachable') ||
+        lower.includes('httpreadseeker')
+    ) {
+        return {
+            category: 'network',
+            userMessage: 'Network connection issue detected. This is often temporary.',
+            shouldRetry: true,
+            details: 'The network connection to the registry was interrupted. This can happen due to proxy, firewall, or transient connectivity issues. Retrying often helps.',
+        };
+    }
+
+    if (
+        lower.includes('not found') ||
+        lower.includes('manifest not found') ||
+        lower.includes('image not found')
+    ) {
+        return {
+            category: 'notfound',
+            userMessage: 'Runtime image not found in the registry.',
+            shouldRetry: false,
+            details: 'The configured image does not exist or is no longer available.',
+        };
+    }
+
+    return {
+        category: 'unknown',
+        userMessage: 'An unexpected error occurred while pulling the runtime image.',
+        shouldRetry: true,
+        details: errorMessage,
+    };
+}
+
+/**
  * Pull the configured runtime image with a VS Code progress notification.
  * Shared by `pullRuntimeImageCommand` (explicit user command) and
  * `ensureRuntimeImage` (automatic setup flow). Resolves true on success.
@@ -36,61 +100,96 @@ async function pullWithProgress(
     const ref = runtime.imageRef(tag);
     outputChannel.appendLine(`[Runtime] Pulling ${ref} ...`);
 
-    return await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: `Downloading DALi runtime image (~290 MB)`,
-            cancellable: false,
-        },
-        async (progress) => {
-            const startMs = Date.now();
-            let completedLayers = 0;
-            let totalLayers = 0;
+    const maxRetries = 3;
+    let attempt = 0;
 
-            // Indeterminate bar — deliberately percentage-free. Off-TTY,
-            // `docker pull` emits no byte/percent detail (that bar is TTY-only),
-            // and a per-layer mean misreads a pull dominated by one big ~290 MB
-            // layer as "stuck near 0%" (the 0.39.1 approach). Reporting NO
-            // increment keeps VS Code's bar in its always-animating
-            // indeterminate state, and the heartbeat ticks an honest
-            // "N/M layers · elapsed" status every second — so the user sees it
-            // working without a misleading number. Install speed matters more
-            // than a progress percentage we cannot compute accurately here.
-            const render = (): void => {
-                progress.report({
-                    message: formatPullMessage(completedLayers, totalLayers, Date.now() - startMs),
-                });
-            };
+    while (attempt < maxRetries) {
+        attempt++;
+        outputChannel.appendLine(`[Runtime] Attempt ${attempt}/${maxRetries}`);
 
-            const heartbeat = setInterval(render, 1000);
+        const result = await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Downloading DALi runtime image (~290 MB)${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}`,
+                cancellable: false,
+            },
+            async (progress) => {
+                const startMs = Date.now();
+                let completedLayers = 0;
+                let totalLayers = 0;
+                let heartbeatTimer: any;
 
-            try {
-                await runtime.pullImage(tag, (p) => {
-                    completedLayers = p.completedLayers;
-                    totalLayers = p.totalLayers;
-                    // Never pass an increment → the bar stays indeterminate.
-                    render();
-                });
-                outputChannel.appendLine(`[Runtime] Pull complete: ${ref}`);
-                // Fire-and-forget: don't await, so the progress notification
-                // closes immediately at 100% instead of lingering until this
-                // toast is dismissed.
-                void vscode.window.showInformationMessage(
-                    `Runtime image downloaded. You can now open a sample preview.`,
-                );
-                return true;
-            } catch (err: any) {
-                const msg = err?.message ?? String(err);
-                outputChannel.appendLine(`[Runtime] Pull failed: ${msg}`);
-                await vscode.window.showErrorMessage(
-                    `Runtime image pull failed: ${msg.slice(0, 200)}`,
-                );
-                return false;
-            } finally {
-                clearInterval(heartbeat);
+                const render = (): void => {
+                    progress.report({
+                        message: formatPullMessage(completedLayers, totalLayers, Date.now() - startMs),
+                    });
+                };
+
+                heartbeatTimer = setInterval(render, 1000);
+
+                try {
+                    await runtime.pullImage(tag, (p) => {
+                        completedLayers = p.completedLayers;
+                        totalLayers = p.totalLayers;
+                        render();
+                    });
+                    outputChannel.appendLine(`[Runtime] Pull complete: ${ref}`);
+                    void vscode.window.showInformationMessage(
+                        `Runtime image downloaded. You can now open a sample preview.`,
+                    );
+                    return { success: true };
+                } catch (err: any) {
+                    const msg = err?.message ?? String(err);
+                    outputChannel.appendLine(`[Runtime] Pull failed (attempt ${attempt}): ${msg}`);
+                    return { success: false, error: msg };
+                } finally {
+                    if (heartbeatTimer) clearInterval(heartbeatTimer);
+                }
+            },
+        );
+
+        if (result.success) {
+            return true;
+        }
+
+        const analysis = analyzePullError(result.error);
+        outputChannel.appendLine(
+            `[Runtime] Error category: ${analysis.category}. Details: ${analysis.details}`,
+        );
+
+        if (!analysis.shouldRetry || attempt >= maxRetries) {
+            // Final attempt failed or not retryable
+            const items: string[] = ['View Logs'];
+            if (analysis.shouldRetry) {
+                items.unshift('Retry');
             }
-        },
-    );
+
+            const action = await vscode.window.showErrorMessage(
+                `${analysis.userMessage}\n\nFull error: ${result.error.slice(0, 150)}`,
+                ...items,
+            );
+
+            if (action === 'Retry') {
+                outputChannel.appendLine(`[Runtime] User requested retry`);
+                continue;
+            } else if (action === 'View Logs') {
+                outputChannel.show();
+                return false;
+            } else {
+                return false;
+            }
+        }
+
+        // Auto-retry with backoff
+        const delaySecs = Math.min(2 ** (attempt - 1), 16);
+        outputChannel.appendLine(
+            `[Runtime] Retrying in ${delaySecs}s (${analysis.category} error detected)...`,
+        );
+
+        await new Promise((r) => setTimeout(r, delaySecs * 1000));
+    }
+
+    return false;
 }
 
 /**
