@@ -1,5 +1,7 @@
 // ⚡ Parser path test (~80ms)
-// Pure fluent chain — TypeScript parses directly, NO C++ compile.
+// Imperative builder form (declarations + setters + AddChildren) — cppParser
+// parses it directly into a SceneNode tree, NO C++ compile. Rendered by the
+// resident preview-server's renderJson scene builder.
 // Expected log: parse: 0ms (success), renderJson: ~80ms
 
 FlexLayout root = FlexLayout::New();

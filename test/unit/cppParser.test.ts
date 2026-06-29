@@ -231,6 +231,102 @@ describe('cppParser', () => {
     });
 
     // -----------------------------------------------------------------------
+    // Imperative builder form (current dali-ui — fluent API removed 2026-06):
+    // `Type v = Type::New();` declarations + `v.SetX();` setters + AddChildren.
+    // -----------------------------------------------------------------------
+
+    describe('imperative builder form', () => {
+        it('parses a declaration + setters + return', () => {
+            const code = [
+                'FlexLayout root = FlexLayout::New();',
+                'root.SetDirection(FlexDirection::COLUMN);',
+                'root.SetBackgroundColor(UiColor(0x1e1e2e));',
+                'return root;',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.type).to.equal('FlexLayout');
+            expect(node!.properties['SetDirection']).to.deep.equal(['FlexDirection::COLUMN']);
+            expect(node!.properties['SetBackgroundColor']).to.deep.equal(['UiColor(0x1e1e2e)']);
+            expect(node!.children).to.deep.equal([]);
+        });
+
+        it('accepts the auto declaration specifier', () => {
+            const code = [
+                'auto root = View::New();',
+                'root.SetRequestedWidth(200.0f);',
+                'return root;',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.type).to.equal('View');
+            expect(node!.properties['SetRequestedWidth']).to.deep.equal(['200.0f']);
+        });
+
+        it('resolves AddChildren references against declared locals', () => {
+            const code = [
+                'FlexLayout root = FlexLayout::New();',
+                'Label title = Label::New("Hi");',
+                'title.SetFontSize(28);',
+                'View divider = View::New();',
+                'root.AddChildren({ title, divider });',
+                'return root;',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.children).to.have.length(2);
+            expect(node!.children[0].type).to.equal('Label');
+            expect(node!.children[0].constructorArgs).to.deep.equal(['"Hi"']);
+            expect(node!.children[0].properties['SetFontSize']).to.deep.equal(['28']);
+            expect(node!.children[1].type).to.equal('View');
+        });
+
+        it('nests grandchildren when a child is populated before being added', () => {
+            const code = [
+                'FlexLayout root = FlexLayout::New();',
+                'FlexLayout row = FlexLayout::New();',
+                'Label leaf = Label::New("L");',
+                'row.AddChildren({ leaf });',
+                'root.AddChildren({ row });',
+                'return root;',
+            ].join('\n');
+            const node = parseChainExpression(code);
+            expect(node).to.not.be.null;
+            expect(node!.children).to.have.length(1);
+            expect(node!.children[0].type).to.equal('FlexLayout');
+            expect(node!.children[0].children).to.have.length(1);
+            expect(node!.children[0].children[0].type).to.equal('Label');
+        });
+
+        it('tags each node with its absolute source line (click-to-code)', () => {
+            const code = [
+                'FlexLayout root = FlexLayout::New();',
+                'Label a = Label::New("A");',
+                'root.AddChildren({ a });',
+                'return root;',
+            ].join('\n');
+            const node = parseChainExpression(code, 100);
+            expect(node).to.not.be.null;
+            expect(node!.sourceLine).to.equal(100);          // line 0 + offset 100
+            expect(node!.children[0].sourceLine).to.equal(101); // line 1 + offset 100
+        });
+
+        it('returns null for an AddChildren reference to an undeclared variable', () => {
+            const code = [
+                'FlexLayout root = FlexLayout::New();',
+                'root.AddChildren({ ghost });',
+                'return root;',
+            ].join('\n');
+            expect(parseChainExpression(code)).to.be.null;
+        });
+
+        it('returns null for a setter statement on an undeclared variable', () => {
+            const code = 'ghost.SetFontSize(10);\nreturn ghost;';
+            expect(parseChainExpression(code)).to.be.null;
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Unsupported patterns → returns null (compile fallback)
     // -----------------------------------------------------------------------
 
@@ -245,7 +341,10 @@ describe('cppParser', () => {
             expect(parseChainExpression(code)).to.be.null;
         });
 
-        it('returns null for auto keyword', () => {
+        it('returns null for a lone declaration with no return (no scene root)', () => {
+            // `auto` is now a valid declaration specifier (see the imperative
+            // builder tests), but a declaration on its own names no scene root,
+            // so the parser declines and the preview takes the compile path.
             const code = 'auto v = View::New();';
             expect(parseChainExpression(code)).to.be.null;
         });
@@ -335,32 +434,33 @@ describe('cppParser', () => {
     // Real sample files
     // -----------------------------------------------------------------------
 
-    describe('real sample files (non-fluent → compile fallback)', () => {
+    describe('real sample files (imperative builder → parser fast path)', () => {
         // __dirname = out/test/unit → go up 3 levels to project root → test/samples
         const samplesDir = path.join(__dirname, '..', '..', '..', 'test', 'samples');
 
-        // dali-ui removed the fluent chaining API, so the shipped samples are now
-        // non-fluent (sequential `obj.SetX();` statements + `AddChildren`). The
-        // chain-expression fast-path parser only understands a single fluent
-        // `Type::New().Method()...` expression, so it declines these (returns null)
-        // and the preview routes to the (correct, ~500 ms) compile path. The
-        // parser's fluent-parsing capability itself is covered by the
-        // parseChainExpression() unit tests above. This block is a regression guard
-        // that the shipped samples stay valid against the current dali-ui API.
-        const nonFluentSamples = [
-            'hello-label.preview.dali.cpp',
-            'red-box.preview.dali.cpp',
-            'weather.preview.dali.cpp',
-            'tv-home.preview.dali.cpp',
-            'gallery.preview.dali.cpp',
-            path.join('flow-banking', 'card.preview.dali.cpp'),
+        // dali-ui removed the fluent chaining API (2026-06), so the shipped
+        // samples are written in the imperative builder form (`Type v = ...;`
+        // declarations + `v.SetX();` setters + `v.AddChildren({...})`). The parser
+        // now understands that form, so these resolve on the fast path (parse →
+        // server.renderJson, no g++ compile). Each declared local becomes a
+        // SceneNode, and AddChildren wires children by name. Regression guard that
+        // the shipped samples stay parseable against the current dali-ui API.
+        const imperativeSamples: Array<{ file: string; type: string; topChildren: number }> = [
+            { file: 'hello-label.preview.dali.cpp',                 type: 'FlexLayout',  topChildren: 1 },
+            { file: 'red-box.preview.dali.cpp',                     type: 'View',        topChildren: 0 },
+            { file: 'weather.preview.dali.cpp',                     type: 'FlexLayout',  topChildren: 3 },
+            { file: 'gallery.preview.dali.cpp',                     type: 'FlexLayout',  topChildren: 5 },
+            { file: 'path1-parser.preview.dali.cpp',                type: 'FlexLayout',  topChildren: 4 },
+            { file: path.join('flow-banking', 'card.preview.dali.cpp'), type: 'StackLayout', topChildren: 16 },
         ];
 
-        for (const file of nonFluentSamples) {
-            it(`declines ${file} on the fast path (non-fluent → compile path)`, () => {
+        for (const { file, type, topChildren } of imperativeSamples) {
+            it(`parses ${file} on the fast path (imperative builder)`, () => {
                 const code = fs.readFileSync(path.join(samplesDir, file), 'utf-8').trim();
                 const node = parseChainExpression(code);
-                expect(node, `${file} is non-fluent and must not parse on the fast path`).to.be.null;
+                expect(node, `${file} should parse on the fast path`).to.not.be.null;
+                expect(node!.type).to.equal(type);
+                expect(node!.children).to.have.length(topChildren);
             });
         }
     });
