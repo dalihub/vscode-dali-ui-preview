@@ -280,6 +280,12 @@ export interface OrchestratorDeps {
     outputChannel: vscode.OutputChannel;
     diagnosticCollection: vscode.DiagnosticCollection;
     /**
+     * Offer a one-click, pre-filled bug report from a genuine internal failure
+     * (not a user compile error). Injected from extension.ts; optional so tests
+     * and headless callers can omit it.
+     */
+    reportIssue?: (errorContext: string) => void;
+    /**
      * Gate a render on runtime readiness. Returns true if the render may
      * proceed. When the runtime isn't ready it surfaces actionable setup
      * guidance (docker install, or — in local mode — pick the DALi folder /
@@ -1042,6 +1048,26 @@ export class PreviewOrchestrator {
         this.deps.previewManager?.clearError();
     }
 
+    /**
+     * On a genuine internal failure, surface a toast with a one-click "Report
+     * Issue" that opens a pre-filled GitHub bug report carrying the error. No-op
+     * when no `reportIssue` dep was injected (tests / headless callers).
+     */
+    private offerIssueReport(message: string): void {
+        const report = this.deps.reportIssue;
+        if (!report) {
+            return;
+        }
+        const headline = message.split('\n')[0].slice(0, 120);
+        void vscode.window
+            .showErrorMessage(`DALi Preview: unexpected error — ${headline}`, 'Report Issue')
+            .then((choice) => {
+                if (choice === 'Report Issue') {
+                    report(`Unexpected error during preview render:\n${message}`);
+                }
+            });
+    }
+
     // -----------------------------------------------------------------------
     // Public: runPreview
     // -----------------------------------------------------------------------
@@ -1209,8 +1235,12 @@ export class PreviewOrchestrator {
             }
         } catch (err: any) {
             if (myGeneration === this.buildGeneration) {
-                this.scheduleShowError(`Unexpected error: ${err.message || err}`);
-                this.deps.statusBar?.showError(err.message || 'Error');
+                const msg = err?.message || String(err);
+                this.scheduleShowError(`Unexpected error: ${msg}`);
+                this.deps.statusBar?.showError(msg || 'Error');
+                // Genuine internal failure (not a user compile error) — offer a
+                // one-click, pre-filled bug report from the failure itself.
+                this.offerIssueReport(msg);
             }
         } finally {
             this.building = false;

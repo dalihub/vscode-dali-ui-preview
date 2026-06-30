@@ -186,6 +186,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             statusBar,
             outputChannel,
             diagnosticCollection,
+            reportIssue: (ctx: string) => void reportIssueCommand(context, ctx),
         },
         {
             width: initialWidth,
