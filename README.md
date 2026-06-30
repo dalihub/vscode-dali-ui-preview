@@ -311,6 +311,28 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
   `<view>` is a variable name from your code. `progress=<0..1>` picks an animation
   frame. (`focus` and `progress` are mutually exclusive in a single render.)
 
+## Using with an AI coding agent
+
+An AI agent in VS Code (GitHub Copilot, Cursor, Claude, …) can write DALi UI for you, and
+this extension gives **the human** instant visual feedback while it does. To make the agent
+write code that actually previews, drop a short guide into your project:
+
+- Run **DALi Preview: Add AI Agent Guide** (`Ctrl+Shift+P`). It writes — or refreshes — an
+  **`AGENTS.md`** in your workspace root, the cross-tool file Copilot/Cursor/Claude read for
+  project instructions. The guide teaches the previewable-file conventions
+  (`*.preview.dali.cpp`, the `@dali-preview` markers), the **non-fluent dali-ui API**, and the
+  exact types that are easy to guess wrong. Only the DALi block is managed — your own
+  `AGENTS.md` content is preserved.
+
+**Two ways an agent uses the preview:**
+
+1. **Pairing with you** — the agent writes a `.preview.dali.cpp`; you watch it render live in
+   the panel and steer. (The agent can't see the webview, so a human closes the loop.)
+2. **Headless self-verification** — to let the agent *see* its own render and fix it in a loop
+   without you, use the companion **[dali-ui-preview-cli](https://github.com/dalihub/dali-ui-preview-cli)**:
+   it prints the scene tree to stdout and writes a PNG the agent can read, using the same
+   runtime and conventions as this extension.
+
 ## Commands
 
 Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
@@ -331,6 +353,8 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | **Clean Runtime Images** | Remove cached runtime images to free disk |
 | **Reset Extension** | Remove containers, images, and caches and start fresh |
 | **Open Settings** | Jump to the extension's settings |
+| **Add AI Agent Guide** | Write/refresh an `AGENTS.md` so an AI agent writes previewable DALi code |
+| **Report Issue** | Open a pre-filled GitHub bug report with your environment attached |
 
 ## Settings
 
@@ -368,6 +392,16 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 - **Where are the logs?** — the **DALi Preview** output channel. Set `daliPreview.logLevel`
   to `debug` (or `trace` for structured JSON) and look for `[Perf]` lines to see which render
   path fired.
+
+## Reporting an issue
+
+Hit a bug? Run **DALi Preview: Report Issue** (`Ctrl+Shift+P`) — it opens a GitHub issue
+**pre-filled** with a short template *and* your environment (extension / VS Code / OS
+versions, runtime mode, runtime image), so you just describe what happened and submit. You
+can also use VS Code's native **Report Issue** entry on the extension's page (the gear menu),
+or file directly at the [issue tracker](https://github.com/dalihub/vscode-dali-ui-preview/issues).
+Before reporting, it helps to set `daliPreview.logLevel` to `debug`, reproduce, and paste the
+relevant **DALi Preview** output-channel lines into the report.
 
 ## Notes & limitations
 

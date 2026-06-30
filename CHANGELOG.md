@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.49.0] - 2026-06-30
 
-Release-prep hardening + legal/manifest hygiene ahead of the Marketplace launch
-(planned for October). **No behavior change to the preview/render pipeline.**
+Release-prep ahead of the Marketplace launch (planned for October): two AI-agent helpers,
+legal/manifest hygiene, and activation hardening. **No change to the preview/render output.**
 
 ### Added
 
+- **AI agent guide — `DALi Preview: Add AI Agent Guide`.** Scaffolds a merge-safe
+  `AGENTS.md` into the workspace so an AI coding agent (Copilot / Cursor / Claude) writes
+  *previewable* DALi UI: the file conventions (`*.preview.dali.cpp`, `@dali-preview`
+  markers), the non-fluent dali-ui API, and how to self-verify headlessly via the companion
+  CLI. Only the DALi block is managed; existing `AGENTS.md` content is preserved.
+- **One-click issue reporting — `DALi Preview: Report Issue`.** Opens a GitHub issue
+  pre-filled with a bug template **and** auto-collected environment (extension / VS Code / OS
+  versions, runtime mode, runtime image). `bugs`/`homepage` are declared so VS Code's native
+  "Report Issue" routes there too, and a `.github` bug-report template structures direct reports.
 - **`LICENSE` file (Apache-2.0)** and a `"license": "Apache-2.0"` manifest field. The
   project declared Apache-2.0 in its docs but shipped no license file — required by
   `vsce` and the Marketplace.
