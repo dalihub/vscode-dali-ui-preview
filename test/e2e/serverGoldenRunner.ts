@@ -72,6 +72,24 @@ function readSampleCode(filePath: string): string {
 }
 
 /**
+ * Resolve relative `ImageView::New("...")` / `SetResourceUrl("...")` asset paths to
+ * an absolute path under the sample's directory, so the native server can load
+ * them. The runner doesn't stage assets the way the extension's buildRunner does;
+ * this keeps a committed real-image sample portable — used by the `image-loads`
+ * guard that a real image actually renders instead of capturing a blank frame.
+ */
+function resolveImageAssetUrls(code: string, sampleDir: string): string {
+    return code.replace(
+        /((?:ImageView\s*::\s*New|SetResourceUrl)\s*\(\s*)"([^"]+)"/g,
+        (full: string, pre: string, url: string) => {
+            if (/^[a-zA-Z][\w+.-]*:\/\//.test(url) || path.isAbsolute(url)) { return full; }
+            const abs = path.resolve(sampleDir, url);
+            return fs.existsSync(abs) ? `${pre}"${abs}"` : full;
+        },
+    );
+}
+
+/**
  * Read `theme=light|dark` from the sample's `@preview-config:` line so the
  * server installs the matching color override before resolving UiColor tokens
  * (F3.3). readSampleCode strips config lines, so theme is parsed separately and
@@ -105,7 +123,7 @@ async function runSample(
 ): Promise<TestResult> {
     const name = sampleName(filePath);
 
-    const code = readSampleCode(filePath);
+    const code = resolveImageAssetUrls(readSampleCode(filePath), path.dirname(filePath));
     const tree: SceneNode | null = parseChainExpression(code);
     if (!tree) {
         return {
