@@ -2,12 +2,21 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.48.0",
+  "version": "0.49.0",
   "publisher": "dalihub",
+  "license": "Apache-2.0",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/dalihub/vscode-dali-ui-preview"
+  },
+  "bugs": {
+    "url": "https://github.com/dalihub/vscode-dali-ui-preview/issues"
+  },
+  "homepage": "https://github.com/dalihub/vscode-dali-ui-preview#readme",
+  "galleryBanner": {
+    "color": "#1a2238",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.85.0"

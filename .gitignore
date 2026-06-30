@@ -24,5 +24,15 @@ test/samples/assets/*.out
 
 # Nested sibling repo that sometimes lives under the project during dev
 dali-ui-preview/
+dali-ui-preview-cli/
 test/e2e/server-actual/
 test/e2e/actual-multifile/
+# Runtime-generated golden diff output (created on golden mismatch)
+test/e2e/server-diff/
+test/e2e/diff-multifile/
+
+# Dev-time scratch (also excluded from the .vsix via .vscodeignore)
+dali-animation-playground.html
+hello-dali.preview.dali.cpp
+samples/dali-examples/
+samples/test/

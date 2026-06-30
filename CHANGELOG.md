@@ -5,6 +5,39 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.0] - 2026-06-30
+
+Release-prep hardening + legal/manifest hygiene ahead of the Marketplace launch
+(planned for October). **No behavior change to the preview/render pipeline.**
+
+### Added
+
+- **`LICENSE` file (Apache-2.0)** and a `"license": "Apache-2.0"` manifest field. The
+  project declared Apache-2.0 in its docs but shipped no license file — required by
+  `vsce` and the Marketplace.
+
+### Fixed
+
+- **README settings defaults corrected.** `previewWidth` / `previewHeight` were documented
+  as `1024` / `600` but the product ships `1920` / `1080` (the TV FHD profile since 0.45.0).
+  Also documented the previously-undocumented `daliPreview.background` setting.
+
+### Changed
+
+- **Activation hardening.** `activate()` now wraps its setup in a try/catch that writes an
+  actionable breadcrumb to the **DALi Preview** output channel before failing, instead of
+  surfacing only VS Code's generic "extension activation failed".
+- **Live-preview hardening.** The queued-rebuild path no longer leaves a fire-and-forget
+  `runPreview` promise unhandled; a rejection is caught and logged.
+- **Manifest polish.** Added `bugs`, `homepage`, and `galleryBanner` for the listing.
+
+### Tests / chore
+
+- Added a unit suite for `localRuntimeCommand` (the docker↔local runtime switch wired into
+  activation — previously untested). **708 unit tests pass; e2e server-golden 8/8.**
+- `.gitignore` now covers the runtime-generated golden diff dirs (`test/e2e/server-diff/`,
+  `test/e2e/diff-multifile/`), the nested `dali-ui-preview-cli/`, and dev-time scratch.
+
 ## [0.48.0] - 2026-06-29
 
 Beta release for colleague testing — focused on **easy onboarding**.

@@ -341,8 +341,9 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | Runtime image used in Docker mode. |
 | `daliPreview.daliVersionTag` | string | `latest` | Runtime image tag (DALi version). `latest` follows the rolling tag. |
 | `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | How to handle a newer runtime image (checked once/day, Docker mode). |
-| `daliPreview.previewWidth` | number | `1024` | Default canvas width (px). |
-| `daliPreview.previewHeight` | number | `600` | Default canvas height (px). |
+| `daliPreview.previewWidth` | number | `1920` | Default canvas width (px). |
+| `daliPreview.previewHeight` | number | `1080` | Default canvas height (px). |
+| `daliPreview.background` | `dark` \| `light` \| `checker` | `dark` | Background style behind the rendered preview. |
 | `daliPreview.livePreview` | boolean | `true` | Re-render automatically as you type. |
 | `daliPreview.livePreviewDebounce` | number | `0` | Debounce (ms) between keystroke and re-render. `0` = every keystroke. |
 | `daliPreview.fontDirectories` | string[] | `[]` | Directories of custom TTF/OTF fonts (honored in local mode). |
