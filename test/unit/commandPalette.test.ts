@@ -13,6 +13,8 @@ const PALETTE_VISIBLE = [
     'dali.openPreview',
     'dali.toggleTheme',
     'dali.openSettings',
+    'dali.addAgentGuide',
+    'dali.reportIssue',
     'dali.openExamples',
     'dali.rerunSetup',
     'dali.useLocalRuntime',

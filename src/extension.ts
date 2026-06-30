@@ -26,6 +26,8 @@ import { BuildBackend } from './buildBackend';
 import { DockerBackend } from './backends/dockerBackend';
 import { LocalBackend } from './backends/localBackend';
 import { useLocalRuntimeCommand, presentLocalRuntimeIssues } from './localRuntimeCommand';
+import { addAgentGuideCommand } from './agentGuideCommand';
+import { reportIssueCommand } from './reportIssueCommand';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
 
 let previewManager: PreviewManager | undefined;
@@ -513,6 +515,17 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
         vscode.commands.executeCommand('workbench.action.openSettings', 'daliPreview');
     });
     context.subscriptions.push(openSettingsCmd);
+
+    // AI-agent helpers — scaffold an AGENTS.md guide, and a one-click pre-filled
+    // GitHub issue report. Always registered.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dali.addAgentGuide', () =>
+            addAgentGuideCommand(context),
+        ),
+        vscode.commands.registerCommand('dali.reportIssue', () =>
+            reportIssueCommand(context),
+        ),
+    );
 
     // Docker maintenance commands — always registered so the user can recover
     // from a broken docker setup at any time.

@@ -62,6 +62,16 @@
         "category": "DALi Preview"
       },
       {
+        "command": "dali.addAgentGuide",
+        "title": "Add AI Agent Guide (AGENTS.md)",
+        "category": "DALi Preview"
+      },
+      {
+        "command": "dali.reportIssue",
+        "title": "Report Issue",
+        "category": "DALi Preview"
+      },
+      {
         "command": "dali.previewFunction",
         "title": "DALi: Preview Function"
       },
