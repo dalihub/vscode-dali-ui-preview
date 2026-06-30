@@ -1,4 +1,4 @@
-# 06 · Render paths (advanced)
+# 07 · Render paths (advanced)
 
 Same UI, three render pipelines. DALi Preview picks one automatically from your
 code, trading fidelity for speed. **Watch the status bar** (bottom-right) as you
@@ -6,7 +6,7 @@ save each file — it tells you which path ran.
 
 | File | Path | Chosen when | Status bar | Typical |
 |---|---|---|---|---|
-| [`1-parser.preview.dali.cpp`](1-parser.preview.dali.cpp) | **Parser** | Pure fluent chain — parsed directly, no C++ compile | `⚡ Parser` | ~80 ms |
+| [`1-parser.preview.dali.cpp`](1-parser.preview.dali.cpp) | **Parser** | Flat, static setter calls (no `auto`/`for`/`if`) — parsed directly, no C++ compile | `⚡ Parser` | ~80 ms |
 | [`2-dlopen.preview.dali.cpp`](2-dlopen.preview.dali.cpp) | **dlopen** | Uses `auto`/`for`/`if` → parser falls back, compiles a `.so` and hot-loads it | `⚡ Server` | ~400 ms |
 | [`3-fullbuild.preview.dali.cpp`](3-fullbuild.preview.dali.cpp) | **Full build** | The whole g++ harness is compiled and run (fallback) | `🔨 Compile` | ~1100 ms |
 

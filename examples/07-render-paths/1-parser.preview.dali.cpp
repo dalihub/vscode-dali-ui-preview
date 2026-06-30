@@ -1,5 +1,5 @@
 // Parser path (~80ms)
-// Pure fluent chain — parsed directly, NO C++ compile.
+// Flat static setter calls (no auto/for/if) — parsed directly, NO C++ compile.
 // Status bar: ⚡ Parser
 
 FlexLayout root = FlexLayout::New();

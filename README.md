@@ -266,6 +266,14 @@ void MyApp::CreateUI() {
 }
 ```
 
+Or mark a whole function instead of a region: put **`// @preview`** on the line above any
+function that returns a view, and the extension previews what it returns:
+
+```cpp
+// @preview
+View ProfileCard() { /* … */ return root; }
+```
+
 You can also run **DALi Preview: Preview Function** with your cursor inside any function
 that returns a DALi view, or click the **▶ Preview** CodeLens that appears above it.
 

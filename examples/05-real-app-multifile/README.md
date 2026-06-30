@@ -42,4 +42,4 @@ Two valid entry shapes — pick whichever matches your code:
 **Why it matters:** this is the dominant real-app shape. You preview production
 code where it lives — no copying snippets, no stubbing data by hand.
 
-→ Next: [06 · Render paths](../06-render-paths/README.md)
+→ Next: [06 · Images](../06-images/README.md)
