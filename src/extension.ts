@@ -67,8 +67,24 @@ let daliLibWatchPrefix: string | undefined;
 let serverInitTriggered = false;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    // Set up the output channel + logger FIRST, so the wrapper below can leave an
+    // actionable breadcrumb if any of the synchronous activation spine throws —
+    // otherwise the user only sees VS Code's generic "activation failed".
     outputChannel = vscode.window.createOutputChannel('DALi Preview');
     initLogger(outputChannel);
+    const log = getLogger();
+    try {
+        await activateImpl(context);
+    } catch (err: any) {
+        const msg = err?.message ?? String(err);
+        log.error('Extension', 'Activation failed', { err: msg });
+        outputChannel.appendLine(`DALi Preview: activation failed — ${msg}`);
+        outputChannel.show(true);
+        throw err; // let VS Code still mark the extension as failed
+    }
+}
+
+async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
     const log = getLogger();
     log.info('Extension', 'DALi Preview extension activating...');
 

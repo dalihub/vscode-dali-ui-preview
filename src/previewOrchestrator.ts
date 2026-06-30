@@ -1219,7 +1219,13 @@ export class PreviewOrchestrator {
             if (this.pendingRebuildDoc) {
                 const nextDoc = this.pendingRebuildDoc;
                 this.pendingRebuildDoc = undefined;
-                setImmediate(() => this.runPreview(nextDoc, true));
+                // Fire-and-forget the queued rebuild, but never let its rejection
+                // escape as an unhandled promise in the extension host — log it.
+                setImmediate(() => {
+                    void this.runPreview(nextDoc, true).catch((e) => {
+                        log.debug('Extension', 'queued runPreview rejected', { err: String(e?.message ?? e) });
+                    });
+                });
             }
         }
     }
