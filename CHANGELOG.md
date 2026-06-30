@@ -25,6 +25,11 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
 - **`LICENSE` file (Apache-2.0)** and a `"license": "Apache-2.0"` manifest field. The
   project declared Apache-2.0 in its docs but shipped no license file — required by
   `vsce` and the Marketplace.
+- **Examples tour (`Open Examples`) now covers every feature.** Added an **images**
+  example (`ImageView` + a bundled asset) and a **live-animation** example (the playback
+  scrubber, previously only described), first-run notes on click-to-code / the Widget
+  Inspector / inline error mapping, the explicit non-fluent dali-ui rule, and a "Beyond the
+  files" index section listing the always-on features — a complete first-run learning path.
 
 ### Fixed
 
