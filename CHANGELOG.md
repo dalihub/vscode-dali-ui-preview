@@ -21,6 +21,7 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
   pre-filled with a bug template **and** auto-collected environment (extension / VS Code / OS
   versions, runtime mode, runtime image). `bugs`/`homepage` are declared so VS Code's native
   "Report Issue" routes there too, and a `.github` bug-report template structures direct reports.
+  A genuine internal error also surfaces a one-click **Report Issue** toast carrying the failure.
 - **`LICENSE` file (Apache-2.0)** and a `"license": "Apache-2.0"` manifest field. The
   project declared Apache-2.0 in its docs but shipped no license file — required by
   `vsce` and the Marketplace.

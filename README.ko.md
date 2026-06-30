@@ -282,6 +282,22 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 > **provenance 배지**(가짜/근사 표시), **깨진 이미지 placeholder**. cross-file 컴파일
 > 에러는 원본 파일·라인(예: `widgets/cards.cpp:38`)으로 매핑.
 
+## AI 코딩 에이전트와 함께 쓰기
+
+VS Code의 AI 에이전트(GitHub Copilot, Cursor, Claude 등)가 DALi UI를 대신 작성할 수 있습니다.
+하지만 이 확장의 프리뷰 패널은 **사람만 볼 수 있는 webview** — 에이전트는 못 읽습니다. 그래서
+에이전트는 **companion [`dali-ui-preview-cli`](https://github.com/dalihub/dali-ui-preview-cli)로
+자기 작업을 검증**해야 합니다. CLI는 같은 화면을 헤드리스로 **PNG + JSON 씬 트리(에이전트가 읽을
+수 있는 형태)** 로 렌더하므로, 작성 → 렌더 → 읽기 → 수정 루프를 돌 수 있습니다.
+
+**DALi Preview: Add AI Agent Guide** (`Ctrl+Shift+P`)로 이를 설정하세요. 워크스페이스 루트에
+**`AGENTS.md`**(Copilot/Cursor/Claude가 공통으로 읽는 크로스툴 지침 파일)를 작성/갱신하며, 바로
+그 내용을 가르칩니다: **CLI로 검증**, 프리뷰 가능 파일 규약(`*.preview.dali.cpp`, `@dali-preview`
+마커), **비-fluent dali-ui API**, 헷갈리기 쉬운 타입. DALi 블록만 관리하므로 기존 `AGENTS.md`
+내용은 보존됩니다.
+
+한편 **사람**은 에이전트가 편집하는 동안 라이브 패널을 그대로 받습니다 — 페어링하며 방향을 잡을 때 유용합니다.
+
 ## 명령
 
 명령 팔레트(`Ctrl+Shift+P`)에서 **DALi** 를 입력하세요.
@@ -302,6 +318,8 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 | **Clean Runtime Images** | 캐시된 런타임 이미지 삭제로 디스크 정리 |
 | **Reset Extension** | 컨테이너 · 이미지 · 캐시 제거 후 초기화 |
 | **Open Settings** | 확장 설정으로 이동 |
+| **Add AI Agent Guide** | AI 에이전트가 프리뷰 가능한 DALi 코드를 쓰도록 `AGENTS.md` 작성/갱신 |
+| **Report Issue** | 환경 정보가 채워진 GitHub 버그 리포트 열기 |
 
 ## 설정
 
@@ -312,8 +330,9 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | docker 모드에서 사용할 런타임 이미지. |
 | `daliPreview.daliVersionTag` | string | `latest` | 런타임 이미지 태그(DALi 버전). `latest` 는 롤링 태그를 따름. |
 | `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | 새 런타임 이미지 처리 방식(하루 1회 확인, docker 모드). |
-| `daliPreview.previewWidth` | number | `1024` | 기본 캔버스 너비 (px). |
-| `daliPreview.previewHeight` | number | `600` | 기본 캔버스 높이 (px). |
+| `daliPreview.previewWidth` | number | `1920` | 기본 캔버스 너비 (px). |
+| `daliPreview.previewHeight` | number | `1080` | 기본 캔버스 높이 (px). |
+| `daliPreview.background` | `dark` \| `light` \| `checker` | `dark` | 렌더된 프리뷰 뒤 배경 스타일. |
 | `daliPreview.livePreview` | boolean | `true` | 타이핑 중 자동 재렌더링. |
 | `daliPreview.livePreviewDebounce` | number | `0` | 키 입력과 재렌더링 사이 debounce(ms). `0` = 매 키 입력. |
 | `daliPreview.fontDirectories` | string[] | `[]` | 커스텀 TTF/OTF 폰트 디렉터리(로컬 모드에서 적용). |
@@ -337,6 +356,15 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
   (**DALi Preview: Use Local DALi Runtime** 으로 다시 지정 가능).
 - **로그 위치** — **DALi Preview** 출력 채널. `daliPreview.logLevel` 을 `debug`(구조화 JSON은
   `trace`)로 올리고 `[Perf]` 줄에서 어떤 렌더링 경로가 동작했는지 확인하세요.
+
+## 이슈 신고하기
+
+버그를 만났나요? **DALi Preview: Report Issue** (`Ctrl+Shift+P`)를 실행하면 짧은 템플릿과
+**환경 정보**(확장/VS Code/OS 버전, 런타임 모드, 런타임 이미지)가 **자동으로 채워진** GitHub
+이슈가 열립니다 — 증상만 적고 제출하면 됩니다. VS Code 확장 페이지의 기본 **Report Issue**
+(톱니 메뉴)나 [이슈 트래커](https://github.com/dalihub/vscode-dali-ui-preview/issues)에서 직접
+신고할 수도 있습니다. 신고 전에 `daliPreview.logLevel` 을 `debug` 로 두고 재현한 뒤 **DALi
+Preview** 출력 채널의 관련 줄을 붙여 넣으면 도움이 됩니다.
 
 ## 참고 & 한계
 
