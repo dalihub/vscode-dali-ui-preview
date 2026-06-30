@@ -45,6 +45,9 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
 - **Live-preview hardening.** The queued-rebuild path no longer leaves a fire-and-forget
   `runPreview` promise unhandled; a rejection is caught and logged.
 - **Manifest polish.** Added `bugs`, `homepage`, and `galleryBanner` for the listing.
+- **Renamed `Open Examples` → `Open Samples`** (command title, walkthrough, docs); the
+  copied tour folder is now `dali-samples/`. Tour auto-detection is now structural (index
+  README + numbered step folders) so renumbering the tour no longer breaks the auto-opened guide.
 
 ### Tests / chore
 

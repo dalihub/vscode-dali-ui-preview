@@ -3,18 +3,17 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 /** Folder name created inside the user-chosen location by `dali.openExamples`. */
-const EXAMPLES_DIRNAME = 'dali-examples';
+const EXAMPLES_DIRNAME = 'dali-samples';
 
-/** Signature subfolders that, alongside an index `README.md`, identify a copied
- *  examples tour (used by {@link maybeShowExamplesReadme} to auto-open the guide
- *  without a sentinel file cluttering the copy). */
-const EXAMPLES_SIGNATURE_DIRS = ['01-your-first-preview', '06-render-paths'];
+/** Marker the tour's index `README.md` carries, used (with the numbered step
+ *  folders) to recognise a copied tour without a sentinel file. */
+const TOUR_README_MARKER = 'DALi Preview';
 
 /**
  * Command: `dali.openExamples`
  *
  * Copies the bundled `examples/` tour (one folder per preview mode, each with
- * a README) into a user-chosen location as `dali-examples/`, then opens it in
+ * a README) into a user-chosen location as `dali-samples/`, then opens it in
  * a NEW window. Keeping it in its own folder + window means the throwaway
  * example edits never mix with — or dirty the git state of — the user's real
  * project.
@@ -23,7 +22,7 @@ export async function openExamplesCommand(context: vscode.ExtensionContext): Pro
     const sourceDir = path.join(context.extensionPath, 'examples');
     if (!fs.existsSync(sourceDir)) {
         vscode.window.showErrorMessage(
-            `Bundled examples not found at ${sourceDir}. Reinstall the extension.`,
+            `Bundled samples not found at ${sourceDir}. Reinstall the extension.`,
         );
         return;
     }
@@ -32,8 +31,8 @@ export async function openExamplesCommand(context: vscode.ExtensionContext): Pro
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Create DALi examples here',
-        title: 'Choose a folder to copy the DALi examples into',
+        openLabel: 'Create DALi samples here',
+        title: 'Choose a folder to copy the DALi samples into',
     });
     if (!picked || picked.length === 0) {
         return; // user cancelled
@@ -98,20 +97,31 @@ export async function showReadmeCommand(context: vscode.ExtensionContext): Promi
  * `dali.openExamples` opens the copy in a NEW window, which restarts the
  * extension host — so the guide can't be shown inline by the command itself;
  * it has to be re-detected here on the next activation. Detection is by
- * structure (index README + the tour's signature subfolders), not a sentinel
- * file, to keep the copy clean and avoid false positives on real projects.
+ * STRUCTURE — the index README (which names the tour) plus ≥2 numbered step
+ * folders (`NN-name`) — not a sentinel file or hard-coded folder names, so
+ * renumbering the tour never breaks it and real projects don't false-trigger.
  * VS Code dedupes the preview tab, so a reload simply re-focuses it.
  */
 export async function maybeShowExamplesReadme(): Promise<void> {
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
         const root = folder.uri.fsPath;
         const readme = path.join(root, 'README.md');
-        const isExamplesTour =
-            fs.existsSync(readme) &&
-            EXAMPLES_SIGNATURE_DIRS.every((d) => {
-                try { return fs.statSync(path.join(root, d)).isDirectory(); } catch { return false; }
-            });
-        if (isExamplesTour) {
+        if (!fs.existsSync(readme)) {
+            continue;
+        }
+        let namesTheTour = false;
+        try {
+            namesTheTour = fs.readFileSync(readme, 'utf8').slice(0, 500).includes(TOUR_README_MARKER);
+        } catch { /* unreadable — skip */ }
+        let numberedDirs = 0;
+        try {
+            for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+                if (e.isDirectory() && /^\d{2}-/.test(e.name)) {
+                    numberedDirs++;
+                }
+            }
+        } catch { /* unreadable — skip */ }
+        if (namesTheTour && numberedDirs >= 2) {
             await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(readme));
             return; // one tour per window
         }

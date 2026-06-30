@@ -1,10 +1,10 @@
-# Explore the examples and try a preview
+# Explore the samples and try a preview
 
 Once your runtime is set up (Docker installed, or Native prefix
 pointed), this is where you confirm everything works.
 
-Click **"Open Examples"** below. The extension copies a guided
-**Examples** tour into a folder you pick (as `dali-examples/`) and
+Click **"Open Samples"** below. The extension copies a guided
+**Samples** tour into a folder you pick (as `dali-samples/`) and
 opens it in a new window. Its `README.md` opens automatically — read
 that first; it walks you through each capability in order.
 
@@ -16,17 +16,18 @@ connection — subsequent previews start instantly).
 
 ## What the tour covers
 
-1. **01 · Your first preview** — a whole `*.preview.dali.cpp` file.
-   Save to render.
+1. **01 · Your first preview** — a whole `*.preview.dali.cpp` file. Save
+   to render; plus inline error mapping, click-to-code, and the inspector.
 2. **02 · Preview existing code** — preview one function inside a
    regular `.cpp` via a `// @preview` marker + the CodeLens.
 3. **03 · Config & theme** — `// @preview-config` for size, dark
    theme, font scale and RTL locale; `// @preview-preset` for variants.
-4. **04 · Focus & state** — `// @preview-state: focus=` to render the
-   D-pad highlight (TV apps).
+4. **04 · Focus, state & animation** — the D-pad focus ring, and a
+   **live animation scrubber** (`Animation` + `.Play()`).
 5. **05 · Real multi-file app** — a member function that calls
    factories in other `.cpp` files, previewed without rewriting.
-6. **06 · Render paths** — parser / dlopen / full-build, and when each
+6. **06 · Images** — load a local image with `ImageView` (auto-staged).
+7. **07 · Render paths** — parser / dlopen / full-build, and when each
    one fires.
 
 ## Where to from here

@@ -17,11 +17,11 @@ describe('openExamplesCommand', () => {
     beforeEach(() => {
         tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dali-ex-'));
         extDir = path.join(tmpRoot, 'ext');
-        // Mirror the real tour's signature: index README + the two folders
-        // maybeShowExamplesReadme() keys on (01-your-first-preview, 06-render-paths).
+        // Mirror a real tour: an index README + numbered step folders (the structure
+        // maybeShowExamplesReadme detects).
         const src = path.join(extDir, 'examples', '01-your-first-preview');
         fs.mkdirSync(src, { recursive: true });
-        fs.mkdirSync(path.join(extDir, 'examples', '06-render-paths'), { recursive: true });
+        fs.mkdirSync(path.join(extDir, 'examples', '07-render-paths'), { recursive: true });
         fs.writeFileSync(path.join(extDir, 'examples', 'README.md'), '# index');
         fs.writeFileSync(path.join(src, 'hello.preview.dali.cpp'), 'return X;');
         pickDir = path.join(tmpRoot, 'picked');
@@ -46,7 +46,7 @@ describe('openExamplesCommand', () => {
         sinon.stub(vscode.window, 'showOpenDialog').resolves(undefined as any);
         const exec = sinon.stub(vscode.commands, 'executeCommand').resolves(undefined as any);
         await openExamplesCommand(ctx);
-        expect(fs.existsSync(path.join(pickDir, 'dali-examples'))).to.equal(false);
+        expect(fs.existsSync(path.join(pickDir, 'dali-samples'))).to.equal(false);
         expect(exec.called).to.equal(false);
     });
 
@@ -54,7 +54,7 @@ describe('openExamplesCommand', () => {
         sinon.stub(vscode.window, 'showOpenDialog').resolves([{ fsPath: pickDir }] as any);
         const exec = sinon.stub(vscode.commands, 'executeCommand').resolves(undefined as any);
         await openExamplesCommand(ctx);
-        const dest = path.join(pickDir, 'dali-examples');
+        const dest = path.join(pickDir, 'dali-samples');
         expect(fs.existsSync(path.join(dest, 'README.md'))).to.equal(true);
         expect(fs.existsSync(path.join(dest, '01-your-first-preview', 'hello.preview.dali.cpp'))).to.equal(true);
         expect(exec.calledOnce).to.equal(true);
@@ -64,7 +64,7 @@ describe('openExamplesCommand', () => {
     });
 
     it('existing dir + "Open Existing" opens without re-copying', async () => {
-        const dest = path.join(pickDir, 'dali-examples');
+        const dest = path.join(pickDir, 'dali-samples');
         fs.mkdirSync(dest, { recursive: true });
         fs.writeFileSync(path.join(dest, 'marker.txt'), 'keep me');
         sinon.stub(vscode.window, 'showOpenDialog').resolves([{ fsPath: pickDir }] as any);
@@ -77,7 +77,7 @@ describe('openExamplesCommand', () => {
     });
 
     it('existing dir + "Replace" removes then re-copies', async () => {
-        const dest = path.join(pickDir, 'dali-examples');
+        const dest = path.join(pickDir, 'dali-samples');
         fs.mkdirSync(dest, { recursive: true });
         fs.writeFileSync(path.join(dest, 'marker.txt'), 'stale');
         sinon.stub(vscode.window, 'showOpenDialog').resolves([{ fsPath: pickDir }] as any);
@@ -90,7 +90,7 @@ describe('openExamplesCommand', () => {
     });
 
     it('existing dir + "Cancel" does nothing further', async () => {
-        const dest = path.join(pickDir, 'dali-examples');
+        const dest = path.join(pickDir, 'dali-samples');
         fs.mkdirSync(dest, { recursive: true });
         sinon.stub(vscode.window, 'showOpenDialog').resolves([{ fsPath: pickDir }] as any);
         sinon.stub(vscode.window, 'showInformationMessage').resolves('Cancel' as any);
@@ -119,8 +119,9 @@ describe('maybeShowExamplesReadme', () => {
     /** Lay down an examples-tour-shaped folder: index README + signature dirs. */
     function makeTour(root: string): void {
         fs.mkdirSync(path.join(root, '01-your-first-preview'), { recursive: true });
-        fs.mkdirSync(path.join(root, '06-render-paths'), { recursive: true });
-        fs.writeFileSync(path.join(root, 'README.md'), '# tour');
+        fs.mkdirSync(path.join(root, '07-render-paths'), { recursive: true });
+        // Detection is structural: an index README naming the tour + >=2 NN- folders.
+        fs.writeFileSync(path.join(root, 'README.md'), '# DALi Preview — Samples');
     }
 
     it('opens the index README in markdown preview for a tour folder', async () => {

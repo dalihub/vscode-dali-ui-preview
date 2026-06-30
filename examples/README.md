@@ -1,4 +1,4 @@
-# DALi Preview — Examples
+# DALi Preview — Samples
 
 A guided tour of **what the live preview can do** and **how to trigger each
 thing**. Work through the folders in order, or jump to whatever you need.
@@ -65,5 +65,5 @@ Put these in comments at the top of a preview file, or above a function:
 
 (A `*.preview.dali.cpp` file needs no marker — its whole body is the UI.)
 
-> Tip: open this folder in its own window via **`DALi: Open Examples`** so it
+> Tip: open this folder in its own window via **`DALi: Open Samples`** so it
 > never mixes with your real workspace.
