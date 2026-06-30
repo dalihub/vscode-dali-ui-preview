@@ -33,6 +33,16 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
 
 ### Fixed
 
+- **Images now render on the fast (parser/server) path.** A flat, static preview with an
+  `ImageView` takes the warm-server `RENDER_JSON` path, whose capture **fast path** grabbed the
+  frame before the async image even queued — so the image came up **blank**. The server now
+  detects an `ImageView` in the scene and always polls for the resource to finish loading first
+  (image-less previews keep the immediate fast path). Verified end-to-end via the server golden
+  runner. *(Docker mode needs the runtime image rebuilt to pick this up; local mode recompiles
+  the resident server on **Restart DALi Runtime**.)*
+- **Samples: the animation sample is now discoverable** — example `04` is renamed
+  **`04-focus-and-animation`** (it carries `pulse.preview.dali.cpp`, a real `Animation` + `.Play()`
+  with the live scrubber), so it's visible in the folder list rather than hidden under "state".
 - **README settings defaults corrected.** `previewWidth` / `previewHeight` were documented
   as `1024` / `600` but the product ships `1920` / `1080` (the TV FHD profile since 0.45.0).
   Also documented the previously-undocumented `daliPreview.background` setting.

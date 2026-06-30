@@ -46,4 +46,4 @@ Other built-in presets: `locales` (EN + Arabic), `font-sizes` (1.0 + 1.5),
 **Why it matters:** check responsive layout, theming, accessibility font sizes,
 and RTL — all from one file, without rebuilding the app per case.
 
-→ Next: [04 · Focus and state](../04-focus-and-state/README.md)
+→ Next: [04 · Focus & animation](../04-focus-and-animation/README.md)

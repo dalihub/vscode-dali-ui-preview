@@ -1,4 +1,4 @@
-# 04 · Focus, state & animation
+# 04 · Focus & animation
 
 Preview *runtime* behaviour you'd normally only see on a real device — the TV/D-pad
 **focus ring**, and **animations** (scrub them live, or freeze a single frame).

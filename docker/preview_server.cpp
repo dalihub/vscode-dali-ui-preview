@@ -1055,6 +1055,13 @@ public:
                           std::istreambuf_iterator<char>());
         f.close();
 
+        // Async image resources (ImageView URLs) load off the main thread, so the
+        // capture must wait for them. Flag their presence so ScheduleCapture takes
+        // the resource-polling path instead of grabbing the still-empty first frame
+        // (the bug: a flat/parser-path image preview captured before the load even
+        // queued → blank). Image-less scenes keep the immediate fast path.
+        mHasAsyncResource = (json.find("ImageView") != std::string::npos);
+
         // Parse
         size_t pos = 0;
         JSkipWs(json, pos);
@@ -1255,7 +1262,10 @@ public:
     {
         // Fast path: if no async image loads are pending, capture immediately.
         // Image-less previews (red-box, plain layouts) skip the polling overhead entirely.
-        if(AreAllResourcesReady(Actor(mWindow.GetRootLayer())))
+        // A scene with an ImageView always takes the polling path: right after Add()
+        // the load is not yet queued, so IsResourceReady() reads true here and the
+        // image would be missed — poll instead so it actually loads first.
+        if(!mHasAsyncResource && AreAllResourcesReady(Actor(mWindow.GetRootLayer())))
         {
             std::cout << "[ServerPerf] ScheduleCapture: fast path (resources ready immediately)" << std::endl;
             OnStartCapture();
@@ -1371,6 +1381,7 @@ private:
     Timer        mResourceTimer;
     Capture      mCapture;
     int          mResourceTickCount;
+    bool         mHasAsyncResource = false; // scene has an ImageView → wait for its async load before capturing
 
     void*        mPluginHandle;
     void       (*mSetPreviewProgress)(float) = nullptr;

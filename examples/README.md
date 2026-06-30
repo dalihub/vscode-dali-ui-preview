@@ -25,7 +25,7 @@ touches your own projects.
 | 01 | [your-first-preview](01-your-first-preview/README.md) | The simplest mode — a whole file is the UI | a `*.preview.dali.cpp` file + save |
 | 02 | [preview-existing-code](02-preview-existing-code/README.md) | Preview a function inside a normal `.cpp` | `// @preview` marker, or the `▶ Preview` CodeLens |
 | 03 | [config-and-theme](03-config-and-theme/README.md) | One UI under many configs — size, dark theme, font scale, RTL | `// @preview-config:` lines + `// @preview-preset:` |
-| 04 | [focus-and-state](04-focus-and-state/README.md) | TV/D-pad focus ring + a **live animation scrubber** (or a frozen frame) | `// @preview-state: focus=<view>` / `progress=<0..1>`, or an `Animation` + `.Play()` |
+| 04 | [focus-and-animation](04-focus-and-animation/README.md) | TV/D-pad focus ring + a **live animation scrubber** (`pulse.preview.dali.cpp`) | `// @preview-state: focus=<view>` / `progress=<0..1>`, or an `Animation` + `.Play()` |
 | 05 | [real-app-multifile](05-real-app-multifile/README.md) | A real multi-file screen — member `Build()` + cross-file helpers, nothing rewritten | `// @preview` on a member, or `// @dali-preview` factory |
 | 06 | [images](06-images/README.md) | Load a local image with `ImageView` — auto-staged into the runtime | `ImageView::New("assets/…")` + save |
 | 07 | [render-paths](07-render-paths/README.md) | Same UI, three pipelines — compare their speed | automatic (parser / dlopen / full build) |

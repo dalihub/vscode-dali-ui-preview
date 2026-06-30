@@ -1,0 +1,819 @@
+{
+ "docs": {
+  "projectDirection": "현재 제품은 사람 개발자용 VS Code 확장 — Tizen DALi C++ UI를 저장 즉시 렌더해 보여주는 라이브 프리뷰(README 비전: \"SwiftUI/Jetpack Compose/Flutter의 instant-preview 워크플로를 DALi 생태계로\"). 기획 문서 3종은 이 위에 두 번째 축을 얹는다: 동일한 렌더 인프라를 AI 코딩 에이전트의 '눈'으로 재사용하는 것.\n\n핵심 구상은 dali-ui-coding-agent — 입력(디자인 이미지 + 자연어 프롬프트) → dali-ui DSL 코드 생성 → `dali-ui-preview-cli`(Docker)로 렌더 → PNG + UI 트리 JSON + 구조화 컴파일 에러를 피드백으로 받아 → 구조 비교 후 재생성하는 draft-and-refine 루프 에이전트. 5개 서브시스템: ① 이미지→golden UI tree(정답지) 추출, ② 지식 주입(documentation MCP server), ③ 코드 생성, ④ 렌더 도구 호출, ⑤ 평가+피드백 루프.\n\n'눈 달린 코딩'과의 관계: \"Coding with Eyes\"(arXiv 2604.19750) 논문이 \"만들고 → 실행·관찰하며 고치는 루프\"(스크린샷 + a11y 트리 피드백)로 통과율 21.7%→28.3%를 보여 우리 \"이미지→코드→렌더→비교→수정 루프\" 골격을 외부에서 검증. 단 우리 태스크는 상호작용이 아닌 *정적 화면 재현*이라 논문의 핵심 이득원(직접 조작 탐지)은 없고, 화면 닮음 점수(0.43→0.56)가 더 맞는 잣대. 결론은 일관되게 \"완전 자동 완성기(one-shot)는 무리, 초안 생성 → 렌더·비교로 수렴 → 사람이 마무리하는 보조 에이전트가 현실적 목표\".\n\ndocs MCP 구상: dali-ui는 LLM 학습데이터에 거의 없는 저자원 niche C++ DSL이라 API 환각(코드 오류의 31.67%)이 최대 벽이고, 틀린 API는 곧 컴파일 실패. 완화책으로 \"documentation MCP server (RAG 기반)\"를 둔다 — 문서를 통째로 프롬프트에 붓지 않고 4개 도구(search_docs/get_component/list_examples/validate_symbols)로 서빙(Context7 패턴). 코퍼스는 산문 가이드가 아니라 컴포넌트 사전(정확한 시그니처+gotcha) + 컴파일 보장 골든 예제(test/samples에서 변환) + 기계검증용 API 인덱스(_index.json, 헤더 파싱 자동 생성). 원칙은 \"문서는 MCP(멀티 호스트 공유 가치), 렌더는 로컬 도구 호출(CLI 하나·양쪽 소유라 MCP 오버킬)\". 0608 문서는 이를 동작 코드 수준(build-index.ts, server.ts, .mcp.json, CLAUDE.md 규칙, TV 홈 트레이스)까지 구체화한 구현 예제.\n\n프로젝트의 최대 우위는 \"어려운 절반이 이미 구현돼 있음\" — 결정론적 렌더 + 구조화 UI 트리(CollectActorMetadata/Accessible::DumpTree) + 정확한 bounds + 구조화 컴파일 에러(errorParser)를 CLI가 제공하며, 이것이 문헌이 말하는 \"피드백 루프를 작동시키는 외부 신뢰 신호\". 가장 먼저 풀 벽은 이미지 지각이 아니라 niche 코드 생성(환각)이다.",
+  "keyDecisions": [
+   "목표 재설정: one-shot 완벽 생성기가 아니라 draft-and-refine 보조 에이전트 — '초안 → 렌더·비교로 수렴 → 사람이 마무리'. 웹조차 ~75% 수준이라는 문헌 근거",
+   "아키텍처 분리 원칙: '문서는 MCP, 렌더는 로컬' — 문서 도구 4종은 documentation MCP server로(Claude Code/Cursor/커스텀 에이전트 공유), render(code)→{image,tree,errors}는 로컬/인프로세스 도구로 dali-ui-preview-cli 직접 호출. 렌더의 MCP 서버화는 멀티 호스트 재사용이 필요해질 때만(마지막 단계)",
+   "지식 코퍼스 형태: 산문 가이드 대신 컴포넌트 사전(정확 시그니처+컴파일되는 예제+환각 방지 gotcha) + 골든 예제(test/samples/*.preview.dali.cpp에서 생성) + 기계검증용 API 인덱스(corpus/api/_index.json, dali-ui 헤더 파싱으로 자동 생성). 근거: 시그니처/예제 augmentation 41.8%→86.8%, 예제 RAG +83~220%",
+   "환각 차단 3중 장치: CLAUDE.md/AGENTS.md 규칙(트리거 조건 명시) + 도구 description에 '언제 호출' 명시(Opus가 도구를 덜 호출하는 보수성 대응) + 컴파일 게이트로 강제(규칙만으론 무시되는 사례 #47565). validate_symbols(De-Hallucinator 패턴)로 생성 코드 심볼을 API 인덱스와 대조",
+   "평가에서 픽셀 diff(SSIM/pixelmatch) 전면 금지 — DALi는 Xvfb+FreeType 렌더라 외부 목표 이미지와 구조가 같아도 픽셀 불일치. 대신 복합 AND 게이트: 빌드 성공(하드 게이트) + UI 트리 구조 일치(노드매칭 Hungarian ≥τ, TSED ≥τ, bounds IoU ≥τ, 텍스트 Dice) + VLM pairwise 판정(pointwise 점수 금지: 인간상관 0.45 vs pairwise 0.79). 색은 CIEDE2000",
+   "피드백 루프 안전장치: 국소·구조화 피드백(어느 node·어느 property가 어떻게 다른지; 모호 피드백은 무피드백과 동급), 반복 3~4회 cap, 개선 없음/점수 하락 시 즉시 종료, 통과 서브트리 anchor 고정(AlphaCodium), 마지막이 아닌 best 후보 반환, 상태 압축 유지, USD/토큰 예산 하드캡",
+   "정답지(golden UI tree)는 VLM 단독 금지 — detector(OmniParser v2/YOLO+OCR) + Set-of-Mark 오버레이 + 영역 단위 분해 + 타입 스키마 강제 JSON + 다중패스 자기일관성 + 잔여 항목 사람 spot-check의 하이브리드 파이프라인. TV 홈 동일 타일 격자가 최악 케이스(GPT-4o 좌표 정확도 0.8%)",
+   "단계별 계획 P0~P6에서 P2(텍스트 스펙→코드→컴파일 루프)를 이미지 입력보다 먼저 — 진짜 벽인 niche 코드 생성 환각을 먼저 잡고 시각 루프를 나중에 얹음",
+   "fine-tuning 보류 — retrieval+예제+컴파일검증이 비용·신선도에서 우월. 필요 시 WebSight식 역방향 합성(유효 코드→렌더→이미지)",
+   "생성 구조: planner(레이아웃·컴포넌트 결정)와 generator(채움) 분리, 자유 C++ 금지하고 dali-ui DSL 닫힌 어휘에 고정, 초안→자기-retrieval 재생성, 단일 writer + fresh-context 평가 subagent(코드 미작성, 채점만)",
+   "컴파일 에러를 1급 피드백 신호로 — 시각 비교 전에 빌드 게이트 먼저, 기존 errorParser의 {phase,message,sourceLine}을 그대로 재투입",
+   "용어 표준화: 'MCP knowledge base'→'documentation MCP server (RAG)', 'agent.md'→'AGENTS.md'(+CLAUDE.md 심볼릭링크), 'answer key'→'golden/ground-truth UI tree'",
+   "임베딩은 voyage-code-3(Anthropic 권장 Voyage AI), 단 코퍼스가 작아 키워드/BM25 폴백으로도 충분하다고 명시",
+   "데이터 자산화: 성공한 (이미지·프롬프트·코드·렌더) 사례를 골든 예제·평가셋으로 축적, 20~30개 과제 평가셋으로 지식 주입 변경의 회귀 측정",
+   "기대치 보정: 'Coding with Eyes'의 28%는 전부-통과 방식의 가혹한 지표이며 상호작용까지 채점한 수치라 우리 천장이 아님. 우리 출발선은 더 어려움(저자원 DSL이라 예제 주입 필수) — 향상폭을 그대로 기대하지 말 것"
+  ],
+  "featureIdeasAlreadyProposed": [
+   "dali-ui-coding-agent: 이미지+프롬프트 → dali-ui 코드 생성 → 렌더·검증 → 재생성 루프의 풀 파이프라인 에이전트",
+   "documentation MCP server (docs-mcp/): 도구 4종 — search_docs(자연어→골든 예제·가이드 조각 RAG 검색), get_component(컴포넌트별 정확 시그니처·enum·예제·gotcha 조회), list_examples(골든 예제 앱 목록, tag 필터), validate_symbols(생성 코드 심볼을 API 인덱스와 대조해 환각 색출 + 최근접 실제 심볼 제안)",
+   "기계가 읽는 권위 API 인덱스 corpus/api/_index.json (components/setters/enums/constants/valueTypes) — dali-ui 헤더 파싱으로 자동 생성해 신선도 유지",
+   "컴포넌트 가이드 문서 세트 (flexlayout.md, stacklayout.md, label.md, view.md, imageview.md, value-types.md) — Signature→Compilable example→Gotchas 구조",
+   "guides/ 3종: app-structure.md(preview 파일 규약·빌드 계약), layout.md(Flex vs Stack, 카드 레일 패턴, MATCH_PARENT), theming.md(색/폰트/코너)",
+   "골든 예제 코퍼스 corpus/examples/ — test/samples/*.preview.dali.cpp를 마크다운으로 변환 (hello-label.md, tv-home.md 등)",
+   "인덱서 build-index.ts: 마크다운 ## 헤딩 단위 청크 분할 + voyage-code-3 임베딩 → index/chunks.json; 임베딩 없는 키워드 점수식 폴백 옵션",
+   ".mcp.json 등록 파일로 Claude Code/Cursor에 코드 0줄 연동 (mcp__dali-ui-docs__* 도구 노출)",
+   "CLAUDE.md/AGENTS.md 작성 규칙 파일: 'get_component로 시그니처 확보 → search_docs로 골든 예제 → validate_symbols 검증 → render 빌드, 추측 금지' 4단계 강제 규칙 + AGENTS.md↔CLAUDE.md 심볼릭링크",
+   "render(code)→{image(PNG base64), tree(UI 트리 JSON), errors(구조화 컴파일 에러)} 로컬 도구 — Claude Agent SDK Bash 빌트인 또는 Zod 스키마 인프로세스 custom tool로 dali-ui-preview-cli(Docker) 호출",
+   "(후순위) preview MCP server 승격: 다른 호스트 재사용 시 MCP tool로 렌더 제공, PNG는 {type:'image', data: base64} + 파일 path 병행 반환 (Playwright MCP browser_take_screenshot 패턴)",
+   "이미지→golden UI tree 추출 파이프라인: detector 박스 추출(OmniParser v2 / YOLO+OCR) → Set-of-Mark 번호 오버레이(좌표 대신 ID 지칭) → 영역 단위 2단 분해(top-nav/hero/row-n → 크롭별 자식 열거) → 타입 스키마 강제 JSON(+스키마검증 재시도) → 다중패스 자기일관성(격자 타일 수 교차확인+레이아웃 휴리스틱) → 잔여 항목만 사람 확인(human-in-the-loop)",
+   "평가 하네스: golden tree vs 생성 tree 구조 비교 — Hungarian/Jonker-Volgenant 노드 매칭, TSED 계층 유사도, bounds IoU, 텍스트 Dice + VLM pairwise 판정('같은 화면인가? 직전보다 나아졌나?') + CIEDE2000 색 비교; 단일 점수 금지, 벡터로 보고",
+   "refiner 피드백 루프: 빌드 게이트 → 구조화 컴파일 에러 재투입 / 국소 구조화 피드백('node X: 기대 bounds vs 현재; role 누락; 텍스트 불일치') 재투입, anchor 고정, 3~4회 cap, best 롤백 반환, 예산캡",
+   "planner→generator 2단 생성 분리 + DSL 어휘 고정(전체 컴포넌트/프로퍼티 카탈로그 in-context) + 초안→자기-retrieval 재생성(De-Hallucinator)",
+   "fresh-context 평가/critic subagent: 렌더·트리 채점만 하고 코드는 쓰지 않는 별도 평가기",
+   "컴파일 게이트 필수 루프: generate→compile(g+++errorParser)→에러 재투입→재생성; API 인덱스에 없는 심볼 사용 시 강제 재조회/거부",
+   "20~30개 과제 평가셋 + 자동채점 회귀 하네스 — 지식 주입 변경 시 점수 상승 여부 측정",
+   "성공 사례 (이미지·프롬프트·코드·렌더) 골든 예제·평가셋 축적 (WebSight식 데이터 자산화)",
+   "(조건부 미래 옵션) 역방향 합성 fine-tuning 데이터: 유효 dali-ui 코드→렌더→이미지 triple 생성으로 컴파일 보장 학습쌍 확보"
+  ],
+  "implications": "사람용 프리뷰 UX 로드맵에 주는 시사점:\n\n1) 인프라가 이중 고객을 가짐 — 동일 렌더 코어가 사람(확장)과 에이전트(CLI)의 공용 자산. 문서들이 프로젝트의 '드문 우위'로 지목한 것이 정확히 프리뷰 인프라(결정론적 렌더, UI 트리 JSON, 정확한 bounds, errorParser의 구조화 에러)이므로, 프리뷰 UX 기능 중 구조화 신호를 강화하는 것(트리 메타데이터 충실도, bounds 정확도, 에러 라인 매핑)은 에이전트 투자와 겹친다. 반대로 이 출력 포맷(CollectActorMetadata의 트리 JSON, errorParser의 {phase,message,sourceLine})은 이제 에이전트 파이프라인이 의존하는 계약이므로 함부로 깨면 안 됨.\n\n2) 에이전트는 프리뷰 UX를 대체하지 않고 의존함 — 확정된 목표가 '초안 생성 후 사람이 마무리'이므로, 사람이 마무리하는 장소인 라이브 프리뷰·Click-to-Code·인라인 에러 매핑은 에이전트 시대에도 핵심 경로로 남는다. 오히려 '에이전트가 짠 초안을 사람이 프리뷰에서 다듬는' 핸드오프 UX가 새 시나리오가 됨.\n\n3) test/samples는 테스트 자산을 넘어 RAG 코퍼스의 원천 — corpus/examples는 test/samples/*.preview.dali.cpp에서 생성된다. 샘플 확충(특히 지배적 실패 지점으로 지목된 FlexLayout 중첩·간격, TV 홈식 격자/카드 레일 레이아웃)이 곧 에이전트 품질로 직결되므로 샘플 큐레이션이 로드맵 항목이 됨.\n\n4) 문서를 한 번 쓰면 두 번 쓰임 — 컴포넌트 사전(정확 시그니처+컴파일 예제+gotcha) 형식은 사람 온보딩 문서와 에이전트 코퍼스를 겸한다. 사람용 문서도 이 형식으로 쓰면 자동으로 코퍼스가 됨.\n\n5) 시각 비교류 기능에 픽셀 diff 금지 원칙 적용 — 사람용 기능(예: 시각 회귀, before/after 비교)을 구상하더라도 SSIM/픽셀 기반은 틀린 도구(Xvfb+FreeType 렌더 특성상 구조 동일해도 픽셀 불일치). 구조 트리 비교 기반으로 설계해야 함.\n\n6) human-in-the-loop 접점이 새 UX 표면 — 정답지 파이프라인의 '잔여 항목 사람 확인'(아이콘·모호 그룹·격자 수 불일치 spot-check)은 장차 확장 UI로 들어올 수 있는 사람-개입 지점.\n\n7) 단기 우선순위 정렬 — 권장 계획이 P2(텍스트 스펙→코드→컴파일, 이미지 없이)를 이미지 입력보다 앞세우므로, 프리뷰 UX 로드맵이 이미지-투-코드를 전제로 블로킹될 필요 없음. 가까운 시일의 공통 작업은 컴파일 게이트·골든 예제·문서 코퍼스 쪽.\n\n8) 중복 제안 주의 — documentation MCP server(도구 4종), render 로컬 도구, 구조 tree-diff 평가, 정답지 추출 파이프라인, 루프 안전장치 등은 이미 설계 확정 수준으로 제안돼 있으니 신규 기능 제안 시 위 featureIdeasAlreadyProposed 목록과 대조할 것."
+ },
+ "others": {
+  "tools": [
+   {
+    "tool": "Storybook",
+    "devLoop": "컴포넌트 옆에 *.stories.tsx 파일로 상태별 변형을 named export로 작성하면 로컬 dev 서버(npm run storybook)가 앱 비즈니스 로직과 격리된 iframe에 렌더링하고, 코드 저장 시 HMR(변경 모듈만 즉시 교체)로 바로 갱신된다. 이렇게 한 번 쓴 story가 문서·Controls 조작·테스트·디자인 리뷰에 그대로 재사용되는 루프다.",
+    "standoutFeatures": [
+     "Stories(CSF) = 상태의 영구 고정: loading/error/empty 같은 컴포넌트의 모든 변형을 named export로 기록해 재현 가능한 카탈로그가 되며, 공식 문서 표현대로 'Stories index all your components and their various states' — 팀이 기존 UI 패턴을 찾아 재사용하는 단일 진실 공급원(single source of truth)이 된다.",
+     "Controls 패널: args 기반으로 props를 코드 수정 없이 UI에서 실시간 토글·편집할 수 있어, 디자이너·QA 같은 비개발자도 직접 엣지케이스를 탐색할 수 있다.",
+     "공유·협업: 정적 빌드를 어디든 배포하거나 Chromatic으로 매 커밋의 Storybook을 URL로 퍼블리시 — 디자이너/PM/QA가 스크린샷이 아닌 '실행되는 실제 코드 산출물'을 보고 리뷰하므로 협업 기준점이 코드가 된다.",
+     "비주얼 회귀 테스트 연계: 'Chromatic automatically turns existing stories into test cases' — 프리뷰용으로 쓴 story가 픽셀 스냅샷 테스트 케이스로 자동 전환돼 의도치 않은 UI 변경을 CI에서 차단하며, 이 '한 번 작성, 개발·문서·테스트 3중 활용' 구조가 Storybook이 프리뷰를 넘어 컴포넌트 명세가 된 핵심 이유다."
+    ],
+    "painPoints": [
+     "대형 프로젝트에서 시작·빌드가 느림 — 200+ story 모노레포에서 빌드 1분+ 사례가 보고되고 addon·자동 docgen이 주범(Storybook 9에서 의존성 평탄화·번들 축소로 일부 개선).",
+     "story 유지보수 비용 — 컴포넌트의 모든 상태에 대해 story를 계속 작성·동기화해야 하므로 앱이 커질수록 시간 소모가 커진다.",
+     "격리의 역설 — 앱의 전역 스타일·컨텍스트(provider) 밖에서 실행되므로 실제 앱에 조합했을 때 스타일·동작 차이가 날 수 있고, 별도 환경 설정 오버헤드가 소규모 팀에는 부담이다."
+    ],
+    "codeExample": "// Button.stories.tsx — story 파일이 곧 컴포넌트 상태 명세\nimport type { Meta, StoryObj } from '@storybook/react';\nimport { Button } from './Button';\n\nexport default { component: Button } satisfies Meta<typeof Button>;\n\n// named export 하나 = 고정된 상태 하나 (프리뷰이자 테스트 케이스)\nexport const Primary: StoryObj<typeof Button> = {\n  args: { variant: 'primary', label: '저장' }, // Controls 패널에서 실시간 조작\n};"
+   },
+   {
+    "tool": ".NET MAUI (XAML Hot Reload + Live Visual Tree)",
+    "devLoop": "Visual Studio에서 Debug 구성 + 디버거 attach로 앱을 실행하면 XAML 편집이 저장 없이 타이핑 즉시 실행 중인 앱(에뮬레이터·실기기)에 반영된다. 페이지를 재생성하지 않고 변경된 속성만 패치하므로 내비게이션 위치와 UI 상태를 유지한 채 반복 수정한다.",
+    "standoutFeatures": [
+     "상태 보존 핫리로드: 'preserves your UI state, since it doesn't recreate the UI for the full page' — 변경 속성만 갱신해 깊은 화면까지 들어간 상태 그대로 UI를 고칠 수 있어, 재현 비용이 큰 화면일수록 가치가 커진다.",
+     "Live Visual Tree: 실행 중인 앱의 UI 요소 계층을 트리로 보여주고 'Select Element in the Running Application'으로 앱에서 클릭한 요소를 트리 노드와 선언된 XAML 소스 위치까지 역추적 — 화면→코드 방향 inspect로 '이 픽셀이 어느 코드인가'를 즉시 푼다.",
+     "Live Property Explorer(런타임 속성 편집): 실행 중 요소의 속성 값을 보고 즉석에서 수정해 결과를 바로 확인 — '코드 수정→리로드' 사이클조차 생략한 미세 튜닝 루프이며, layout adorners로 여백·정렬 가이드라인도 시각화한다.",
+     "멀티플랫폼 동시 리로드: Android·iOS 헤드 프로젝트를 동시에 디버깅하면 한 번의 XAML 편집이 두 플랫폼에 동시 반영 — 크로스플랫폼 프레임워크의 'N개 타깃 검증' 비용을 1회 편집으로 줄인다."
+    ],
+    "painPoints": [
+     "C# 코드는 리로드되지 않음 — 새 이벤트 핸들러나 x:Name 참조는 재빌드 후에만 쓸 수 있어 XAML만 핫하고 로직 변경은 루프 밖이다.",
+     "신뢰성·전제조건 — 변경이 반영되지 않아 full reload(Alt+F10)를 수동 트리거해야 하는 경우가 있고 그때 포커스·선택 상태가 소실되며, 빌드 구성 이름이 'Debug'여야 하고 iOS linker 'Don't Link', .cs 파일 UTF-8 with BOM 인코딩 등 조용히 깨지는 조건이 많다.",
+     "세션 중 파일·NuGet 패키지 추가/삭제/이름변경 불가 — 하려면 재빌드·재배포로 세션을 다시 시작해야 한다."
+    ]
+   },
+   {
+    "tool": "Qt/QML (Qt Design Studio Live Preview)",
+    "devLoop": "Qt Design Studio에서 Alt+P 한 번으로 현재 QML 파일이나 프로젝트를 데스크톱에서 즉시 프리뷰하고, 같은 프리뷰를 네트워크로 Android(Qt UI Viewer 앱)나 Boot2Qt 임베디드 보드에 푸시해 변경 사항을 실기기에서 라이브로 확인한다. C++ 백엔드는 mock QML로 대체해 디자인 단계에서는 UI만 빠르게 돈다.",
+    "standoutFeatures": [
+     "디바이스 즉시 푸시: Android는 Play Store의 Qt UI Viewer 앱 설치 + 동일 네트워크 + IP 입력만으로, Boot2Qt 보드는 USB/네트워크 연결로 빌드·플래싱 없이 UI 변경을 실기기에서 본다 — 임베디드 개발에서 가장 비싼 '빌드+배포+플래싱 사이클'을 제거하는 것이 핵심 가치.",
+     "Alt+P 데스크톱 라이브 프리뷰: 현재 파일 또는 Projects 뷰의 임의 파일을 단축키 하나로 프리뷰하고 QML viewer 런타임 교체 옵션까지 제공 — 진입 장벽이 거의 0이라 수시로 돌리게 된다.",
+     "mock 백엔드 공식 워크플로: Design Studio가 C++를 이해하지 못하는 대신 .qmlproject의 mockImports로 mock QML을 끼워 UI를 데이터에서 분리해 실행하는 패턴을 공식화 — 백엔드 없이도 디자이너가 인터랙션·상태를 시뮬레이션할 수 있다.",
+     "상태 보존 핫리로드 생태계: 상용 Felgo Hot Reload는 'without losing the current application state'로 QML/JS 변경을 연결된 모든 디바이스(임베디드·모바일·데스크톱)에 동시 적용하고, QML Live는 임베디드 원격 리로딩 전용 — 공식 도구의 빈틈을 서드파티가 메워 줄 만큼 수요가 검증된 영역."
+    ],
+    "painPoints": [
+     "프리뷰 범위가 QML/JS에 한정 — C++ 백엔드 변경은 재빌드가 필요하고, Design Studio는 C++로 만든 컴포넌트·속성을 아예 인식하지 못해 mock QML 파일을 따로 만들어 계속 유지해야 한다.",
+     "도구 이원화 — 디자이너는 Qt Design Studio, 개발자는 Qt Creator로 갈라져 같은 QML 프로젝트를 두 도구가 오가는 왕복 비용(designer-developer workflow gap)이 발생한다.",
+     "상태 유지 리로드는 사실상 상용 서드파티(Felgo) 영역 — 공식 라이브 프리뷰는 리로드 시 앱 상태 보존이 약해, 바로 그 점이 Felgo의 핵심 세일즈 포인트가 될 정도다."
+    ]
+   },
+   {
+    "tool": "HarmonyOS ArkUI (DevEco Studio Previewer)",
+    "devLoop": "DevEco Studio에 내장된 Previewer 패널이 @Entry 페이지나 @Preview 데코레이터가 붙은 커스텀 컴포넌트를 IDE 안에서 바로 렌더링하고, 코드 수정이 실시간으로 반영된다. 에뮬레이터 부팅 없이 Previewer로 UI 사이클을 돌리다가 하드웨어 의존 기능만 Emulator/실기기로 넘어가는 3단(Previewer→Emulator→실기기) 구조다.",
+    "standoutFeatures": [
+     "양방향 코드-프리뷰 inspect: 프리뷰 UI에서 컴포넌트를 클릭하면 컴포넌트 트리와 에디터의 해당 코드 블록이 하이라이트되고 역방향(코드 선택→UI 하이라이트)도 동작하며, 프리뷰에서 padding/margin 등 속성을 수정하면 코드로 역동기화된다 — '이 화면 요소가 코드 어디인가'라는 가장 비싼 탐색 작업을 정조준한 기능으로, Tizen DALi 프리뷰에 시사점이 가장 크다.",
+     "멀티 디바이스 동시 프리뷰: Profile Manager로 해상도·언어 등 디바이스 프로필을 정의해 최대 4개 디바이스(phone/tablet/foldable/2in1/car)를 동시에 띄운다 — 폼팩터가 다양한 단일 벤더 생태계에서 적응형 레이아웃 검증을 1회 편집으로 끝내는 장치.",
+     "@Preview 컴포넌트 단위 프리뷰: 페이지 엔트리가 아닌 개별 커스텀 컴포넌트를 독립 인스턴스화해 프리뷰 — Storybook의 story와 같은 '컴포넌트 격리 프리뷰' 발상을 IDE에 내장했다.",
+     "정적 스크린샷이 아닌 동적 프리뷰: 클릭 상호작용과 페이지 전환이 Previewer 안에서 동작하고, Huawei 공식 표현으로 'bidirectional, real-time, dynamic, component-based, and multi-device' 프리뷰를 표방 — 프리뷰가 단순 렌더 결과 확인을 넘어 가벼운 실행 환경 역할을 한다."
+    ],
+    "painPoints": [
+     "API·컴포넌트 커버리지 갭: Ability/App/MultiMedia 등 API와 Web·Video·RichText·XComponent 컴포넌트는 프리뷰 미지원이고 Ability 라이프사이클도 실행되지 않음 — 프리뷰와 실제 앱의 동작이 갈라지는 지점이 명시적으로 존재한다.",
+     "모듈·리소스 샌드박스 제약: HSP(앱 간 공유 패키지)를 참조하는 모듈은 프리뷰 불가, resources 디렉터리를 상대/절대 경로로 직접 접근 불가 등 실제 빌드와 다른 규칙을 따로 외워야 한다.",
+     "Previewer는 호스트 PC 시뮬레이션이라 렌더링 충실도가 실기기와 다를 수 있어 최종 검증은 결국 Emulator/실기기 몫이며, 호스트 GPU에 OpenGL 3.2 이상을 요구한다."
+    ]
+   }
+  ],
+  "sources": [
+   "https://storybook.js.org/docs/get-started/why-storybook",
+   "https://storybook.js.org/docs/writing-tests/visual-testing",
+   "https://www.chromatic.com/storybook",
+   "https://lemon.io/answers/storybook/what-are-the-disadvantages-of-storybook/",
+   "https://denieler.com/blog/efficient-storybook-for-large-repositories",
+   "https://talent500.com/blog/storybook-9-bloat-fix-performance-boost/",
+   "https://github.com/storybookjs/storybook/discussions/33608",
+   "https://learn.microsoft.com/en-us/dotnet/maui/xaml/hot-reload?view=net-maui-10.0",
+   "https://learn.microsoft.com/en-us/dotnet/maui/user-interface/live-visual-tree",
+   "https://www.syncfusion.com/blogs/post/net-maui-faster-hot-reload",
+   "https://doc.qt.io/qtdesignstudio/studio-live-preview.html",
+   "https://doc.qt.io/qtdesignstudio/studio-live-preview-desktop.html",
+   "https://doc.qt.io/qtdesignstudio/qt-ui-viewer.html",
+   "https://doc.qt.io/qtcreator/creator-live-preview-devices.html",
+   "https://doc.qt.io/qtdesignstudio/studio-designer-developer-workflow.html",
+   "https://felgo.com/qml-hot-reload-for-qt-with-felgo-live",
+   "https://doc.qt.io/QMLLive/qmllive-index.html",
+   "https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ide-previewer-overview",
+   "https://dev.to/isoneheart/previeweremulator-and-real-device-debugging-of-harmonyos-bd9",
+   "https://dev.to/zhzlm/journey-of-harmonyos-next-deveco-studio-user-guide-20-1n3m"
+  ]
+ },
+ "swiftui": {
+  "tool": "Xcode SwiftUI Previews (캔버스 기반 라이브 UI 프리뷰)",
+  "devLoop": "SwiftUI 파일을 열면 에디터 우측에 캔버스(canvas)가 자동 표시되고(Opt+Cmd+Enter 토글), 최초 1회는 해당 타깃을 빌드해야 해서 프로젝트 크기에 따라 수 초~수 분 대기. 이후 루프는 변경 종류에 따라 두 갈래: (1) 함수/computed property의 '구현부'만 고치면 Swift dynamic function replacement(함수 본문만 재컴파일해 실행 중인 프리뷰 프로세스에 주입)로 재빌드 없이 자동 갱신 — Apple 표현으로 \"within moments\", 체감 약 1~2초. (2) 함수 시그니처·접근제어자 변경, 프로퍼티 추가/삭제, 저장 프로퍼티 초기값 변경, 다른 파일 편집 등 dynamic replacement 비호환 변경이면 캔버스 상단에 'Automatic preview updating paused' 배너가 뜨며 자동 갱신이 멈추고, Opt+Cmd+P로 수동 resume → 모듈 증분 재빌드(소형 프로젝트 수 초, 대형 프로젝트 수십 초~분 단위, 거대 프로젝트는 timeout 보고도 있음). 컴파일 에러가 있어도 같은 pause 상태가 된다. Xcode 16부터는 새 실행 엔진 + dynamic linking 아키텍처로 프리뷰와 빌드&런이 동일 빌드 산출물을 공유해 프리뷰↔시뮬레이터 실행 전환 시 재빌드가 사라짐. 단 2025년 이후 Swift 6.2 strict concurrency 도입 환경에서 \"Builds that used to take two seconds are taking twelve\"(2초→12초) 회귀 보고가 있다.",
+  "coreFeatures": [
+   {
+    "name": "#Preview 매크로 (Xcode 15)",
+    "what": "PreviewProvider 프로토콜 + struct + static previews 프로퍼티 보일러플레이트를 트레일링 클로저 한 블록으로 대체. 파일당 여러 #Preview 블록과 이름 지정(\"기본\", \"다크\" 등)을 지원하고, SwiftUI뿐 아니라 UIKit/AppKit 뷰·뷰컨트롤러도 프리뷰 가능.",
+    "whyItMatters": "프리뷰 작성 비용이 거의 0이 되어 '모든 뷰에 프리뷰를 붙이는' 문화가 가능해짐. UIKit 지원으로 레거시 코드베이스도 같은 루프를 쓸 수 있게 됨."
+   },
+   {
+    "name": "@Previewable (Xcode 16)",
+    "what": "#Preview 블록 안에서 @Previewable @State var ... 식으로 @State·@Environment 등 dynamic property를 직접 선언하는 매크로. 매크로가 중간 래퍼 View를 자동 생성. iOS 17 / macOS 14까지 backdeploy.",
+    "whyItMatters": "바인딩($)을 받는 뷰를 프리뷰하려면 상태 보관용 래퍼 뷰를 손으로 만들어야 했던 고질적 번거로움을 제거 — 인터랙티브 프리뷰의 진입장벽을 크게 낮춤."
+   },
+   {
+    "name": "Live 모드 vs Selectable 모드",
+    "what": "Live(인터랙티브) 모드는 캔버스의 프리뷰를 실행 중인 앱처럼 탭·스크롤·애니메이션 조작 가능(Xcode 14부터 기본). Selectable 모드는 정적 스냅샷에서 캔버스 요소 클릭 ↔ 소스 코드 하이라이트가 양방향으로 연동.",
+    "whyItMatters": "동작 검증(라이브)과 레이아웃 검사·코드 탐색(셀렉터블)을 빌드&런 없이 캔버스 안에서 전환하며 처리 — 시뮬레이터 실행 횟수를 줄이는 핵심."
+   },
+   {
+    "name": "Variants 버튼 (Xcode 14)",
+    "what": "캔버스 하단 버튼 원클릭으로 color scheme(라이트/다크), orientation, Dynamic Type 전 단계의 변형을 그리드로 동시 렌더링. 코드의 environment 수정자 없이 동작.",
+    "whyItMatters": "다크모드·접근성 폰트 회귀를 코드 한 줄 안 바꾸고 한 화면에서 전수 검사 — 접근성 QA 비용을 극적으로 낮춤."
+   },
+   {
+    "name": "Preview on Device",
+    "what": "캔버스 하단 토글로 연결된 실기기에 프리뷰를 전송. 기기에 설치되는 'Xcode Previews' 전용 앱이 호스팅하며, 코드 수정 시 기기 화면도 라이브 갱신되고 인터랙션도 가능.",
+    "whyItMatters": "앱 전체를 빌드·설치·내비게이션하지 않고 실기기의 실제 look & feel(해상도, 햅틱, 성능)을 확인 — 디자인 검수 루프를 단축."
+   },
+   {
+    "name": "Xcode 16 신규 실행 아키텍처",
+    "what": "새 execution engine + dynamic linking 아키텍처로 프리뷰와 빌드&런이 같은 빌드 산출물을 사용 — 둘 사이 전환 시 재빌드 불필요. WWDC24 공식 표현: \"a huge leap forward for the performance and underpinnings of previews\".",
+    "whyItMatters": "수년간 쌓인 '프리뷰 따로 빌드' 비효율과 신뢰성 불만에 대한 Apple의 구조적 대응. 단 초기엔 LLVMError/JITError 등 새 크래시 유형을 낳아 'Use Legacy Previews Execution' 우회 토글이 함께 제공됨."
+   },
+   {
+    "name": "PreviewModifier (Xcode 16)",
+    "what": "makeSharedContext()로 mock 데이터 컨테이너·환경을 만들어 여러 프리뷰에 traits로 주입하는 프로토콜. 프리뷰 시스템이 컨텍스트를 캐시해 재사용.",
+    "whyItMatters": "프리뷰마다 mock 셋업을 반복하던 중복을 제거하고, 캐시 덕에 같은 trait를 쓰는 다중 프리뷰의 로딩 성능이 향상."
+   },
+   {
+    "name": "Dynamic replacement 기반 즉시 갱신",
+    "what": "함수·computed property 구현 변경 시 해당 부분만 재컴파일해 실행 중 프리뷰에 주입하는 Swift 언어 기능(NSHipster: \"update this preview without recompiling — within moments\"). 프리뷰 즉시성의 근간 메커니즘.",
+    "whyItMatters": "이 메커니즘이 적용되는 편집(=body 수정)은 초 단위 피드백을 주지만, 비호환 편집은 'paused' 상태로 떨어진다 — 프리뷰 UX의 빠름과 끊김이 모두 여기서 갈림."
+   }
+  ],
+  "codeExample": "import SwiftUI\n\nstruct GreetingView: View {\n    @Binding var name: String          // 바인딩을 받는 뷰\n    var body: some View {\n        Text(\"안녕, \\(name)!\")          // body 수정은 재빌드 없이 캔버스 즉시 갱신\n            .font(.title)\n    }\n}\n\n#Preview(\"기본\") {                      // 캔버스 탭에 표시될 프리뷰 이름\n    @Previewable @State var name = \"DALi\"  // Xcode 16: 래퍼 뷰 없이 상태 선언\n    GreetingView(name: $name)           // live 모드에서 직접 입력해볼 수 있음\n}",
+  "errorUX": "컴파일 에러 시 캔버스는 갱신을 멈추고 pause 상태로 에러 배너와 'Diagnostics' 버튼을 띄운다. Diagnostics를 누르면 빌드 로그 시트가 열리는데, 실사용 가이드(BleepingSwift)에 따르면 실제 원인은 \"usually buried under dozens of compilation commands\" — 수십 줄의 컴파일 명령 아래 묻혀 있어 맨 아래까지 스크롤해야 한다. \"Cannot preview in this file\" 같은 모호한 메시지는 무관한 파일의 빌드 에러가 원인인 경우가 많아 Cmd+B 선빌드가 통상 처방. 런타임 크래시 시에는 프리뷰 호스트 프로세스(XCPreviewAgent)가 죽고 캔버스에 크래시 안내가 표시되며, 크래시 로그는 ~/Library/Logs/DiagnosticReports/의 'XCPreviewAgent'/'Preview' 파일에서 수 분 지연 후 확인 가능. Diagnostics 시트의 'Generate Report'로 버그 리포트 첨부용 진단 번들 생성, Editor > Canvas > Debug Preview로 디버거를 attach해 브레이크포인트 디버깅도 가능. 그래도 안 되면 커뮤니티의 표준 복구 의식: xcrun simctl --set previews delete all → DerivedData 삭제 → Xcode 재시작 → Mac 재부팅 순서. Xcode 16 이후엔 LLVMError \"Failed to materialize symbols\"/JITError 같은 새 아키텍처발 크래시 유형이 추가됐고, Editor > Canvas > Use Legacy Previews Execution이 공식 우회로로 제공된다.",
+  "strengths": [
+   "빌드&런 없이 UI 변경을 초 단위로 시각 확인 — body 수정은 dynamic replacement로 재빌드 없이 갱신되며, 실무 블로그 추산 \"Preview updates are 45x faster than full app rebuilds\"",
+   "Variants 버튼으로 다크모드·orientation·Dynamic Type 전 변형을 코드 수정 없이 그리드 한 화면에서 전수 검증 — 접근성/테마 회귀 점검에 특히 강력",
+   "#Preview + @Previewable + PreviewModifier로 프리뷰 작성 보일러플레이트가 거의 0 — mock 데이터 공유·캐시까지 시스템이 처리",
+   "live 모드에서 애니메이션·제스처를 캔버스에서 직접 조작하고, Debug Preview로 브레이크포인트 디버깅까지 가능 — 단순 스크린샷 도구가 아닌 실행 환경",
+   "Preview on Device로 실기기에서도 동일한 라이브 루프 유지",
+   "Xcode에 내장되어 설치·설정이 전무하고 새 SwiftUI 파일 템플릿에 #Preview가 기본 포함 — 도입 마찰 0"
+  ],
+  "painPoints": [
+   "신뢰성 악명이 실사용 여론의 중심 — HN 실증 인용: \"SwiftUI Previews is notorious for crashing, timeouts and random errors\"(luigi23), \"Every once in a while I try SwiftUI previews, but those are usually broken anyways\"(manmal), 대형 프로젝트에선 \"fails >50% of the time\"(mpweiher). 아예 끄고 생산성을 되찾았다는 증언도: \"Once I disabled Canvas and removed the Preview struct, my dev time got more efficient\"(spike021)",
+   "'Automatic preview updating paused' — 시그니처 변경·프로퍼티 추가 같은 일상적 편집마다 자동 갱신이 멈춰 Opt+Cmd+P resume을 반복해야 함. 블로그 제목들이 여론을 압축: \"Fixing the dreaded SwiftUI paused previews\"(Tomáš Kafka), \"extremely frustrating\"(hybridcattt). 빌드 스크립트가 파일 타임스탬프만 건드려도 무한 pause 루프 발생",
+   "에러 진단이 불투명 — \"Cannot preview in this file\", RemoteHumanReadableError 등 모호한 메시지가 잦고 실제 원인은 Diagnostics 로그 최하단에 묻혀 있어 디버깅이 고고학에 가까움",
+   "대형 프로젝트·서드파티 SPM 의존성(Firebase, Maps SDK 등)에서 timeout과 크래시 빈발 — Apple Forums Xcode 16 스레드에서 \"I removed the Firebase SDK ... and now the Previews are working again\" 같은 사례가 다수",
+   "실패 시 복구가 의식(ritual) 수준 — preview 캐시 삭제→DerivedData 삭제→Xcode 재시작→Mac 재부팅이 커뮤니티 표준 절차이고, 일부 프리뷰 프로세스는 Xcode 재시작 후에도 살아남음('Xcode 재시작이 약'이라는 밈의 실체)",
+   "메이저 버전마다 회귀 반복 — Xcode 16 beta의 전면 크래시(LLVMError, Apple이 lab에서 known issue 인정), Swift 6.2 strict concurrency로 프리뷰 빌드 2초→12초 회귀(2025) 등. 다만 Apple도 지속 대응 중: Xcode 14 live 기본화·Variants → 15 #Preview 매크로 → 16 새 실행 엔진+빌드 산출물 공유+Legacy 토글 → 26 SwiftUI Instrument·프리뷰 성능 개선으로 매년 구조적 개선을 누적"
+  ],
+  "adoption": "유일한 공식 IDE인 Xcode에 내장되고 SwiftUI 템플릿에 #Preview가 기본 포함되어 사실상 모든 SwiftUI 개발자가 쓰는 표준 워크플로우이자 타 프레임워크 프리뷰 기능의 비교 기준 — 다만 신뢰성 문제로 대형 코드베이스 팀 일부는 비활성화하고 시뮬레이터 실행으로 회귀하는 양극화가 존재.",
+  "sources": [
+   "https://developer.apple.com/documentation/swiftui/previews-in-xcode",
+   "https://developer.apple.com/documentation/xcode/previewing-your-apps-interface-in-xcode",
+   "https://developer.apple.com/videos/play/wwdc2024/10135/ (What's new in Xcode 16 — 새 프리뷰 실행 엔진/dynamic linking)",
+   "https://www.avanderlee.com/xcode/preview-swiftui-uikit-appkit-views/ (#Preview 매크로 vs PreviewProvider)",
+   "https://www.avanderlee.com/swiftui/previewable-macro-usage-in-previews/ (@Previewable)",
+   "https://www.hackingwithswift.com/quick-start/swiftui/how-to-use-state-inside-swiftui-previews-using-previewable",
+   "https://swiftwithmajid.com/2024/11/26/the-power-of-previews-in-xcode/ (PreviewModifier, traits)",
+   "https://useyourloaf.com/blog/whats-new-in-xcode-14-previews/ (live 기본화, Variants)",
+   "https://sarunw.com/posts/xcode-previews/ (live/selectable 모드)",
+   "https://nshipster.com/swiftui-previews/ (dynamic replacement 아키텍처)",
+   "https://hybridcattt.com/blog/fixing-swiftui-previews/ ('Automatic preview updating paused' 트리거 분석)",
+   "https://tomaskafka.medium.com/fixing-the-dreaded-swiftui-paused-previews-8e9e20c502fe",
+   "https://bleepingswift.com/blog/debugging-swiftui-previews (Diagnostics/크래시 로그 UX)",
+   "https://developer.apple.com/forums/thread/756681 (Xcode 16 프리뷰 크래시 스레드, Legacy Previews Execution)",
+   "https://developer.apple.com/forums/thread/682552 (대형 프로젝트 프리뷰 timeout)",
+   "https://hn.algolia.com/?query=%22SwiftUI+previews%22 (HN 실사용 여론 인용 출처)",
+   "https://medium.com/@bhumibhuva18/swiftui-previews-are-slow-again-heres-exactly-why-and-what-you-can-do-cb5b37be04be (Swift 6.2 회귀 2초→12초)",
+   "https://cocoacasts.com/swiftui-recipes-how-to-preview-swiftui-views-on-a-physical-device (Preview on Device)",
+   "https://www.200oksolutions.com/blog/whats-new-in-xcode-26-smarter-faster-more-powerful-wwdc-2025-highlights/ (Xcode 26 프리뷰/SwiftUI Instrument)"
+  ]
+ },
+ "flutter": {
+  "tool": "Flutter Hot Reload + DevTools",
+  "devLoop": "1) `flutter run`으로 앱을 디버그 모드로 실행(최초 1회 풀 빌드, 수십 초~수 분). 2) Dart 코드를 수정하고 저장 — VS Code에서 `\"files.autoSave\": \"afterDelay\"` + `\"dart.flutterHotReloadOnSave\": \"all\"`, Android Studio에서 'Perform hot reload on save'를 켜면 저장만으로 자동 reload(CLI에서는 `r` 키, IDE 툴바 번개 버튼도 가능). 3) 호스트가 변경된 라이브러리만 증분 컴파일해 커널 파일로 만들어 실행 중인 Dart VM에 주입하고, 프레임워크가 위젯 트리를 자동 재빌드. 4) 앱의 현재 상태(네비게이션 스택, 폼 입력, 로그인 세션)는 그대로 유지된 채 화면만 갱신 — 이것이 'stateful hot reload'. main()과 initState()는 재실행되지 않음. 소요시간: hot reload는 통상 1초 미만(공식 문서 예시 \"Reloaded 1 of 448 libraries in 978ms\" — 448개 라이브러리 규모 앱에서도 ~1초; 변경분만 컴파일하므로 앱이 커져도 거의 일정). 전역/static 초기화·enum·main() 변경처럼 reload가 못 다루는 경우엔 hot restart(`R` 키): 코드를 VM에 로드한 뒤 앱을 main()부터 재시작, 상태는 소실되지만 네이티브 재컴파일을 건너뛰어 수 초(~10초 내) 수준. 네이티브(Kotlin/Swift) 코드·플러그인·에셋 변경은 풀 리스타트(앱 중지 후 재빌드, 수십 초~수 분, 특히 iOS) 필요. 화면 확인 후 DevTools Inspector에서 위젯을 탭해 코드로 점프하거나 Layout Explorer로 정렬을 라이브 조정한 뒤 다시 코드에 반영하는 루프가 일반적.",
+  "coreFeatures": [
+   {
+    "name": "Stateful Hot Reload",
+    "what": "변경된 Dart 소스만 커널 파일로 증분 컴파일해 실행 중인 Dart VM에 주입하고 위젯 트리를 재빌드. 앱 상태는 보존되며 main()/initState()는 재실행 안 됨. 통상 1초 미만(공식 예시 978ms/448개 라이브러리). 2025년 Flutter 3.32에서 웹에도 실험 도입(--web-experimental-hot-reload), 3.35(2025.8)부터 웹 기본 활성화.",
+    "whyItMatters": "'상태 유지'가 핵심인 이유: 코드 반영 1초보다 비싼 것이 '그 화면·그 상태까지 되돌아가는 재현 비용'이다. 로그인 후 네비게이션 몇 단계 아래 화면을 고칠 때 재로그인·재이동 없이 그 자리에서 결과를 보므로, 수정 1회당 비용이 사실상 타이핑+1초로 수렴한다. 공식 문서도 로그인 예시로 이 점을 강조."
+   },
+   {
+    "name": "Hot Restart",
+    "what": "코드 변경을 VM에 로드한 뒤 Flutter 앱을 main()부터 재시작. 상태는 소실. 네이티브 재컴파일을 생략하므로 풀 리스타트보다 훨씬 빠른 수 초 수준. CLI `R`, VS Code Shift+Cmd/Ctrl+F5.",
+    "whyItMatters": "hot reload가 구조적으로 못 다루는 변경(전역 변수·static 필드 초기화식, enum↔class 전환, generic 선언 변경, main()/initState() 수정)을 풀 빌드 없이 흡수하는 2단 안전망. '깨끗한 초기 상태에서의 동작'을 빠르게 확인해 stale-state 착시를 제거하는 용도로도 쓰임."
+   },
+   {
+    "name": "DevTools Widget Inspector",
+    "what": "실행 중인 앱의 위젯 트리를 시각화. 'Select Widget Mode'를 켜고 기기 화면에서 위젯을 탭하면 트리의 해당 노드로 자동 스크롤·선택되고, 위젯을 선택하면 속성(width/height/padding)·render object를 보여주며 IDE의 소스 코드 위치로 점프 가능. Show guidelines/baselines, repaint rainbow(다시 그려지는 영역 무지개 표시), slow animations(5배 감속), hot reload 후 트리 자동 갱신 옵션 제공.",
+    "whyItMatters": "'화면의 이 픽셀이 어느 코드인가'라는 역방향 탐색을 제공 — 깊은 위젯 트리에서 코드를 grep으로 찾는 시간을 없애고, 화면 탭→코드 점프→수정→hot reload의 폐루프를 완성한다."
+   },
+   {
+    "name": "Layout Explorer (Flex Explorer)",
+    "what": "Inspector에서 Row/Column/Flex 또는 그 직계 자식을 선택하면 main axis/cross axis, flex factor, flex fit, layout constraints를 다이어그램으로 시각화. mainAxisAlignment·crossAxisAlignment·flex 값을 코드 수정 없이 드롭다운으로 바꿔 실제 화면이 애니메이션으로 변하는 것을 확인 가능. 제약 위반은 빨간색, 오버플로는 노란 테이프 패턴으로 표시.",
+    "whyItMatters": "Flutter 최다 빈출 에러인 'RenderFlex overflowed by N pixels'와 제약(constraints) 모델 문제를 추측 대신 시각 진단으로 해결. 정렬 값을 라이브로 실험한 뒤 코드에 옮기면 reload 횟수 자체가 줄어든다."
+   },
+   {
+    "name": "Widget Previewer (실험적, 2025 신기능)",
+    "what": "Flutter 3.35(2025.8)에 실험 도입된 공식 위젯 미리보기. `package:flutter/widget_previews.dart`의 @Preview 어노테이션을 함수에 붙이면 앱 전체 실행 없이 해당 위젯만 격리 렌더링(DDC로 JavaScript 컴파일, 에뮬레이터 불필요). `flutter widget-preview start` 또는 IDE 패널로 실행, 테마/사이즈/로케일/라이트·다크 변형과 hot-restart 컨트롤 제공. 3.38에서 VS Code·IntelliJ/Android Studio 자동 시작 통합.",
+    "whyItMatters": "hot reload가 못 없애는 마지막 마찰인 '그 화면까지 가는 네비게이션'을 제거 — \"Hot Reload is great for code-change speed, but it still assumes you navigate your app to see each state.\" SwiftUI canvas·Compose Preview 대비 부재했던 격리 미리보기 공백을 공식으로 메움. 단 아직 experimental(API 불안정)이며 dart:io/dart:ffi 사용 위젯, 웹 미지원 플러그인은 동작 불가."
+   },
+   {
+    "name": "Widgetbook (서드파티 컴포넌트 카탈로그)",
+    "what": "Storybook.js에서 영감받은 오픈소스 패키지(pub.dev). 위젯·화면을 use-case 단위로 격리 빌드해 카탈로그화하고, knobs(슬라이더·컬러피커·텍스트 입력)로 파라미터를 UI에서 실시간 조작, 테마/디바이스 프레임/로케일/텍스트 스케일 변형(addons) 제공. Widgetbook Cloud로 디자이너 리뷰와 제로 설정 골든(시각 회귀) 테스트 지원.",
+    "whyItMatters": "디자인 시스템 규모에서 '도달하기 어려운 상태'(에러, 빈 목록, 극단적으로 긴 텍스트)를 데이터·API 없이 재현·문서화. 공식 Previewer가 실험 단계인 영역을 프로덕션 수준으로 커버하며 개발자-디자이너 협업 표준 도구로 자리잡음."
+   },
+   {
+    "name": "DevTools 통합 성능 스위트",
+    "what": "Inspector 외에 Performance(프레임 차트·jank 추적), CPU Profiler, Memory, Network, Logging 뷰가 한 도구에 통합. highlight oversized images(과대 메모리 이미지 반전 표시), repaint 경계 진단 등 포함. IDE 내장 또는 브라우저로 실행.",
+    "whyItMatters": "reload 루프와 같은 디버그 세션 안에서 성능 회귀까지 진단 — '빠르게 고치는 도구'와 '왜 느린지 보는 도구'가 분리돼 있지 않아 도구 전환 비용이 없다."
+   }
+  ],
+  "codeExample": "class _CounterPageState extends State<CounterPage> {\n  int count = 0; // 주의: 이 초기값을 바꿔도 hot reload엔 반영 안 됨(상태로 취급) → hot restart 필요\n  @override\n  Widget build(BuildContext context) => Scaffold(\n    // 이 blue를 red로 바꾸고 저장하면 ~1초 안에 색만 갱신되고,\n    // 그동안 버튼으로 올린 count 값(상태)은 그대로 유지된다 = stateful hot reload\n    appBar: AppBar(backgroundColor: Colors.blue, title: const Text('데모')),\n    body: Center(child: Text('count: $count')), // 문구·스타일 수정도 저장 즉시 반영\n    floatingActionButton: FloatingActionButton(\n      onPressed: () => setState(() => count++), // 핸들러 로직 변경도 reload로 반영됨\n      child: const Icon(Icons.add),\n    ),\n  );\n}",
+  "errorUX": "컴파일 에러: 문법 오류가 있는 채로 reload하면 변경이 거부되고 콘솔에 파일 경로+행/열 단위 메시지가 출력된다 — \"Hot reload was rejected: '/path/lib/main.dart': error: line 33 pos 5: unbalanced ')'\". 중요한 점은 앱이 죽지 않고 마지막 정상 코드+현재 상태 그대로 계속 실행된다는 것 — 에러를 고친 뒤 다시 reload하면 상태 손실 없이 이어진다. IDE에서는 Dart analyzer가 저장 전부터 빨간 밑줄로 선행 경고. 런타임 에러: 디버그 빌드에서 build/layout 중 미처리 예외가 발생하면 해당 위젯 서브트리가 빨간 바탕+노란 글씨의 에러 화면(통칭 \"red screen of death\", ErrorWidget)으로 대체되고, 콘솔에 위젯 트리 경로를 포함한 상세 스택이 출력된다(릴리즈 빌드에서는 회색 화면). 화면 전체가 아니라 실패한 서브트리만 대체되므로 앱의 나머지는 계속 동작. 레이아웃 오버플로(\"A RenderFlex overflowed by N pixels\")는 앱을 멈추지 않고 노란·검정 줄무늬 테이프로 넘친 위치를 화면에 직접 표시해, Inspector/Layout Explorer로 바로 추적할 수 있다.",
+  "strengths": [
+   "반복 루프가 1초 미만: 변경분만 증분 컴파일해 VM에 주입하므로 공식 문서 예시 기준 448개 라이브러리 앱도 978ms — 앱이 커져도 reload 시간이 거의 늘지 않는 구조",
+   "상태 유지가 비교우위의 본체: 깊은 네비게이션·로그인·폼 입력을 다시 재현할 필요가 없어 수정 1회당 비용이 '타이핑+1초'로 수렴. SwiftUI Preview 같은 모형이 아니라 실제 실행 중인 앱이 그대로 갱신됨",
+   "설문으로 입증된 만족도: 공식 Q3 2022 설문에서 응답자 81%가 hot reload를 상시 사용, 전체 만족도 85%, 58%가 '빠른 개발 사이클'을 장점으로 지목 — 커뮤니티에서 \"one of Flutter's killer features\"로 통칭",
+   "모든 타깃에서 일관: 모바일·데스크톱에 이어 2025년 웹까지 stateful hot reload 기본화(3.32 실험 플래그 → 3.35 기본) — 플랫폼별로 다른 미리보기 도구를 배울 필요가 없음",
+   "DevTools와 한 몸인 폐루프: 화면 탭→트리 선택→코드 점프(Inspector), 정렬 속성 라이브 수정(Layout Explorer), reload 후 트리 자동 갱신 — '보면서 고치는' 흐름이 한 세션에 통합",
+   "진입 비용 0: flutter run이면 기본 활성, 설정 두 줄(autoSave + flutterHotReloadOnSave)로 저장 즉시 자동 reload"
+  ],
+  "painPoints": [
+   "reload가 안 먹는 변경 클래스가 존재: enum↔class 전환, generic 타입 선언 변경, main()/initState() 수정, 전역 변수·static 필드 초기화식 변경은 hot restart가 필요 — 초보자는 '고쳤는데 안 바뀜'을 버그로 오인하기 쉬움",
+   "네이티브 경계에서 단절: Kotlin/Java/Swift/ObjC 코드, 플러그인, 에셋·폰트 변경은 hot restart로도 안 되고 풀 리빌드 필요(특히 iOS는 수 분) — \"Modifying assets, fonts, or platform specific resources often requires a full restart, but Hot Reload might give you false confidence\"",
+   "상태 보존의 양면성: 전역 싱글톤·DI 컨테이너가 reload를 넘어 살아남아 'Ghost bugs'(고친 듯 보였다가 재발), 'Phantom features'(개발 중엔 되는데 첫 실행에선 실패) 유발 — \"Hot Reload preserves that value, potentially masking bugs in your initialization code\"",
+   "갱신 규칙이 미묘함: const 필드는 별칭으로 취급돼 값 변경은 반영되지만 static 초기화식은 재실행되지 않는 등, 무엇이 갱신되고 무엇이 아닌지 경계를 학습해야 함(CupertinoTabView builder 등 알려진 미동작 케이스도 존재)",
+   "격리 미리보기 공백: hot reload는 '그 화면까지 직접 네비게이션'을 전제하므로 깊은 화면·엣지 상태 확인엔 비효율 — 공식 Widget Previewer는 2025년(3.35)에야 등장했고 아직 experimental(API 불안정, dart:io/ffi·웹 미지원 플러그인 불가)이라 그 전까지 Widgetbook 등 서드파티 의존",
+   "간헐적 reload 실패·불일치: 환경에 따라 reload/restart가 동작하지 않는 사례가 GitHub 이슈로 반복 보고(flutter/flutter#102540 등), 장시간 세션에서 잦은 reload 누적 시 렉 발생 보고"
+  ],
+  "adoption": "Statista 기준 크로스플랫폼 프레임워크 점유율 1위(약 42~46%로 React Native 35~38% 추월), 누적 100만+ 앱과 2024년 신규 iOS 앱의 약 30%가 Flutter — hot reload는 이 보급을 견인한 대표 DX(개발자 경험)이자 경쟁 프레임워크가 벤치마킹하는 사실상의 업계 기준이다.",
+  "sources": [
+   "https://docs.flutter.dev/tools/hot-reload",
+   "https://docs.flutter.dev/tools/devtools/inspector",
+   "https://docs.flutter.dev/tools/widget-previewer",
+   "https://docs.flutter.dev/testing/common-errors",
+   "https://blog.flutter.dev/whats-new-in-flutter-3-35-c58ef72e3766",
+   "https://blog.flutter.dev/whats-new-in-flutter-3-32-40c1086bab6e",
+   "https://www.walturn.com/insights/flutter-q3-2022-survey-results",
+   "https://dcm.dev/blog/2025/12/15/flutter-widget-previewer/",
+   "https://medium.com/@naufalprakoso24/the-dark-side-of-flutter-hot-reload-why-its-not-always-your-friend-and-how-to-tame-it-9c3419d4cebd",
+   "https://docs.widgetbook.io/knobs/overview",
+   "https://pub.dev/packages/widgetbook",
+   "https://tms-outsource.com/blog/posts/flutter-statistics/",
+   "https://blog.flutter.dev/dart-flutter-momentum-at-google-i-o-2025-4863aa4f84a4",
+   "https://github.com/flutter/flutter/issues/102540",
+   "https://tomasrepcik.dev/blog/2025/2025-08-16-flutter-widget-preview/"
+  ]
+ },
+ "compose": {
+  "tool": "Android Studio Jetpack Compose Preview",
+  "devLoop": "1) 컴포저블 옆에 @Preview 붙은 함수를 작성하고 에디터를 Split/Design 뷰로 전환 → 최초 표시에는 반드시 한 번 'Build & Refresh'(모듈 Gradle 컴파일)가 필요. 2) 이후 갱신은 변경 종류에 따라 3단계: (a) 리터럴(String/Int/Color/Dp) 수정은 빌드 없이 거의 즉시(<1초) 반영, (b) 같은 파일 안의 '호환 가능한' 코드 수정(함수 본문 수준)은 Electric Eel(2022.1.1, 2023.1)부터 자동 재렌더되며 보통 1~수 초, (c) 함수 시그니처 변경·함수 추가/삭제·다른 파일/리소스(strings.xml 등)·의존 모듈 수정은 프리뷰에 'Out of date'/'Needs Rebuild' 배너가 뜨고 수동으로 Build & Refresh(Ctrl+Shift+F5)를 눌러 증분 Gradle 빌드를 기다려야 함 — 소형 프로젝트 수 초, 대형 멀티모듈은 30초 이상~수 분(hotswan.dev 블로그; HN 증언 \"often the project has to be recompiled in order to preview changes\"). 3) 클릭/애니메이션 등 동작 확인은 Interactive mode로 IDE 안에서, 실기기 확인은 gutter의 Run Preview 아이콘 또는 (프리뷰 패널이 아닌 실행 중 앱 대상) Live Edit로 전환. 즉 '가벼운 수정은 자동·즉시, 구조 변경은 수동 rebuild'가 일상 루프이며, 체감 속도는 모듈 빌드 시간에 직접 비례한다.",
+  "coreFeatures": [
+   {
+    "name": "@Preview 파라미터 매트릭스",
+    "what": "device(\"id:pixel_4\" 또는 spec:width=...), locale, fontScale(0.01~), uiMode(다크모드), showSystemUi, showBackground/backgroundColor, widthDp/heightDp, apiLevel, wallpaper(동적 색상) 등으로 렌더 환경을 어노테이션만으로 구성. 한 함수에 @Preview를 여러 개 쌓으면 변형이 나란히 렌더됨.",
+    "whyItMatters": "에뮬레이터를 띄워 설정을 바꿔가며 확인하던 기기·언어·글꼴크기·테마 조합 테스트를 코드 한 줄로 대체 — RTL 로케일이나 fontScale 1.5에서 깨지는 레이아웃을 코딩 시점에 발견."
+   },
+   {
+    "name": "Multipreview (@PreviewLightDark, @PreviewScreenSizes, @PreviewFontScales, @PreviewDynamicColors + 커스텀)",
+    "what": "여러 @Preview 설정을 묶은 어노테이션 클래스. 내장 4종(Compose 1.6+) 또는 직접 정의한 어노테이션 하나를 붙이면 모든 변형이 자동 생성. 여러 multipreview를 겹치면 조합이 아닌 각각 독립 렌더.",
+    "whyItMatters": "프로젝트 표준 변형 세트(라이트/다크×3개 화면크기 등)를 매 컴포저블마다 복붙하던 보일러플레이트 제거; 팀 차원의 일관된 검증 매트릭스 강제."
+   },
+   {
+    "name": "@PreviewParameter + PreviewParameterProvider",
+    "what": "프리뷰 함수 파라미터에 샘플 데이터 공급자를 지정하면 데이터 항목당 프리뷰 1장씩 렌더. limit로 개수 제한, getDisplayName()으로 카드 이름 지정.",
+    "whyItMatters": "빈 목록/긴 이름/에러 상태 같은 데이터 변형별 UI를 가짜 데이터로 전수 시각화 — 프로덕션에서야 발견되던 엣지케이스 렌더 버그를 미리 잡음(dev.to)."
+   },
+   {
+    "name": "Interactive mode",
+    "what": "프리뷰 카드를 IDE 내 샌드박스에서 직접 조작 — 클릭·입력·제스처에 반응하고 애니메이션도 재생. 네트워크/파일/일부 Context API는 차단된 격리 환경.",
+    "whyItMatters": "\"버튼 눌렀을 때\" 같은 상태 전이 확인을 위해 앱 전체를 빌드·배포하던 과정을 생략; 단 복잡한 시나리오는 한계가 있어 실기기 보완 필요."
+   },
+   {
+    "name": "Run Preview on device",
+    "what": "@Preview 옆 gutter 아이콘으로 해당 컴포저블 하나만 새 Activity로 연결된 기기/에뮬레이터에 배포. 앱과 동일한 컨텍스트·권한 사용(단 @Preview 파라미터는 미적용).",
+    "whyItMatters": "전체 앱의 네비게이션을 거쳐 해당 화면까지 도달할 필요 없이 컴포저블 단위로 실기기 검증 — Layoutlib 렌더와 실제 기기의 차이를 빠르게 확인."
+   },
+   {
+    "name": "Animation Preview",
+    "what": "updateTransition, AnimatedVisibility, animate*AsState, Crossfade, AnimatedContent, rememberInfiniteTransition을 감지해 타임라인 스크럽·재생속도 조절·특정 애니메이션 freeze·값 그래프 시각화 제공.",
+    "whyItMatters": "수백 ms짜리 전환을 눈으로 수십 번 돌려보며 추측하던 디버깅을 프레임 단위 검사로 대체 — 여러 애니메이션의 동기화(choreography) 확인이 특히 수월."
+   },
+   {
+    "name": "UI Check mode",
+    "what": "프리뷰 하나를 여러 화면크기·폰트스케일·라이트/다크로 자동 전개해 접근성(콘텐츠 라벨, 터치 타깃 크기, 낮은 대비)과 적응형 문제(큰 화면에서 늘어난 텍스트 등)를 Problems 패널에 수정 제안과 함께 나열.",
+    "whyItMatters": "접근성·대화면 대응 검수를 수동 QA에서 정적 검사로 전환 — 폴더블/태블릿 대응 요구가 커진 상황에서 lint처럼 돌릴 수 있음(eevis.codes)."
+   },
+   {
+    "name": "Live Edit와 Preview의 관계 + 프리뷰 자동 갱신",
+    "what": "Live Edit(Giraffe+, API 30+ 기기)는 '실행 중인 에뮬레이터/실기기'에 함수 본문 변경을 핫스왑하는 기능으로 Preview 패널과는 별개(YouTrack FL-30035가 'Preview에도 Live Edit를' 요청 중). Preview 쪽은 Electric Eel부터 같은 파일 내 호환 변경 자동 갱신 + 리터럴 즉시 반영을 자체 제공.",
+    "whyItMatters": "\"IDE 안 정적 변형 확인은 Preview, 실기기 라이브 반복은 Live Edit\"라는 이원 체계를 이해해야 루프를 최적화할 수 있음 — 혼동하면 '왜 프리뷰는 실시간이 아니냐'는 불만으로 이어짐."
+   }
+  ],
+  "codeExample": "@Preview(name = \"phone\", showBackground = true)        // 기본 프리뷰: 빌드 후 IDE 패널에 렌더\n@Preview(locale = \"ar\", fontScale = 1.5f)              // 로케일·글꼴 배율 변형은 어노테이션 추가만으로\n@PreviewLightDark                                      // Multipreview: 라이트/다크 2장 자동 생성\n@Composable\nfun GreetingPreview(\n    @PreviewParameter(NameProvider::class) name: String // 샘플 데이터 주입: 항목당 프리뷰 1장\n) {\n    MyTheme { Greeting(name) }                          // 실제 앱과 같은 테마 코드 경로로 렌더\n}\n\nclass NameProvider : PreviewParameterProvider<String> { // 프리뷰 전용 가짜 데이터 공급자\n    override val values = sequenceOf(\"Elise\", \"Frank\")\n}",
+  "errorUX": "프리뷰는 컴파일 산출물을 Layoutlib(기기 밖 렌더용으로 포팅된 안드로이드 프레임워크)으로 렌더하므로 빌드 가능 상태가 전제다. (1) 컴파일 에러: 프리뷰는 새로 렌더하지 못하고 마지막 성공 렌더를 유지한 채 'Out of date'/'Needs Rebuild' 배너를 표시 — 에러가 같은 파일이 아니라 모듈 내 다른 파일에 있어도 Build & Refresh가 실패하며 Build 출력으로 안내된다. (2) 렌더 중 런타임 예외(ViewModel 생성, 네트워크/파일 접근 등 미지원 의존): 해당 프리뷰 카드 자리에 \"Some issues were found while rendering this preview\" 메시지와 함께 예외 보기 링크가 떠 Issues/Problems 패널에서 전체 스택트레이스를 확인할 수 있고, 공식 문서가 명시한 대표 사례가 \"Failed to instantiate a ViewModel\"이다 — 해법 자체가 '상태 호이스팅으로 프리뷰 가능한 컴포저블로 재설계'라는 코드 구조 변경. (3) stale 처리의 신뢰성 문제: 갱신이 조용히 실패하거나(Issue Tracker 225037182 \"Compose preview sometimes quietly fails to update\") 빌드를 해도 항상 Out of date로 남는 버그(374790915, AS Ladybug)가 보고되어, 사용자들은 캐시 무효화·재빌드를 반복하는 경험을 호소한다.",
+  "strengths": [
+   "에뮬레이터 없이 IDE 안에서 기기·로케일·폰트스케일·다크모드 매트릭스를 어노테이션만으로 한 화면에 나열 — 설정 조합 수동 검증 수고 제거 (공식 문서)",
+   "XML 프리뷰와 달리 실제 UI 로직·상태가 흐르는 같은 코드 경로를 렌더 — 조건부 렌더링 같은 동적 화면도 표현 가능 (Medium Compose vs XML 비교글)",
+   "Multipreview + @PreviewParameter로 상태·데이터 변형을 전수 시각화해 엣지케이스를 코딩 시점에 발견 (dev.to Advanced Previews)",
+   "리터럴 즉시 반영 + Electric Eel 이후 같은 파일 호환 변경 자동 갱신으로 가벼운 수정은 빌드 대기 없음 (Electric Eel 릴리스 노트)",
+   "프리뷰 함수가 그대로 스크린샷 테스트 자산으로 재사용되는 생태계 — Google 공식 Compose Preview Screenshot Testing, Paparazzi/Roborazzi + ComposablePreviewScanner (droidcon 2023~2025 다수 발표)",
+   "Interactive mode·Animation Preview·UI Check 등 프리뷰 위에 쌓인 검증 도구로 클릭 동작·애니메이션 타이밍·접근성까지 IDE 안에서 점검 (공식 문서, eevis.codes)"
+  ],
+  "painPoints": [
+   "코드 변경을 보려면 결국 컴파일이 필요한 구조 — \"Even with its preview feature, you need to compile your Compose tree to see how your change look\" (Hacker News)",
+   "대형 멀티모듈에서 Build & Refresh가 30초 이상~수 분씩 걸려 이터레이션이 사실상 막힘 — \"The rendering of the @Preview is very slow. I could've done the view equivalent faster in XML\" (GitHub android/compose-samples #354; hotswan.dev 블로그; Google Issue Tracker 278783531 'Slow Compose Preview')",
+   "strings.xml·색상 리소스·의존 모듈의 사소한 변경에도 모듈 내 모든 프리뷰가 'out of date'로 무효화돼 전체 리빌드를 강요 (hotswan.dev 블로그)",
+   "갱신 신뢰성 버그가 꾸준함 — 조용히 갱신 실패(Issue Tracker 225037182), 빌드해도 항상 Out of date(374790915), \"Previews are kinda wonky... Sometimes it wouldn't refresh\" (Hacker News)",
+   "ViewModel·네트워크·Context 의존 컴포저블은 렌더 실패('Failed to instantiate a ViewModel') — 프리뷰를 쓰려면 상태 호이스팅으로 코드를 재설계해야 하는 비용 (공식 문서, nimblehq 블로그)",
+   "Live Edit는 실기기 전용이라 Preview 패널은 실시간이 아니며(YouTrack FL-30035에서 별도 기능 요청), 복잡한 화면은 프리뷰가 감당 못해 결국 실기기 확인 — \"previews do not handle complex situations well, so a device is always the most preferred method\" (Hacker News)"
+  ],
+  "adoption": "Compose 개발의 사실상 표준 워크플로우 — 새 프로젝트 템플릿이 프리뷰 함수를 기본 생성하고, 공식 스크린샷 테스트 도구와 서드파티 생태계(Paparazzi/Roborazzi/ComposablePreviewScanner)가 @Preview 함수를 기반 자산으로 삼을 만큼 보편화됐으나, 속도·신뢰성 불만으로 Compose Hot Reload/HotSwan 같은 대안도 등장하는 위상.",
+  "sources": [
+   "https://developer.android.com/develop/ui/compose/tooling/previews",
+   "https://developer.android.com/develop/ui/compose/tooling/iterative-development",
+   "https://developer.android.com/develop/ui/compose/tooling/animation-preview",
+   "https://developer.android.com/studio/releases/past-releases/as-electric-eel-release-notes",
+   "https://medium.com/androiddevelopers/compose-tooling-42621bd8719b",
+   "https://github.com/android/compose-samples/issues/354",
+   "https://issuetracker.google.com/issues/225037182",
+   "https://issuetracker.google.com/issues/374790915",
+   "https://issuetracker.google.com/issues/278783531",
+   "https://hotswan.dev/blog/compose-preview-driven-development",
+   "https://hn.algolia.com/api/v1/search?query=compose%20preview%20android&tags=comment",
+   "https://nimblehq.co/blog/tips-for-working-with-preview-in-jetpack-compose",
+   "https://dev.to/markkazakov/advanced-jetpack-compose-previews-1f49",
+   "https://eevis.codes/blog/2024-03-16/accessibility-checks-with-jetpack-compose-previews/",
+   "https://youtrack.jetbrains.com/issue/FL-30035/Support-Live-Edit-for-Compose-Preview",
+   "https://medium.com/@YodgorbekKomilo/jetpack-compose-vs-xml-in-android-a-detailed-comparison-aa411f5391d9",
+   "https://github.com/sergio-sastre/ComposablePreviewScanner",
+   "https://www.droidcon.com/2023/09/19/automate-screenshot-testing-for-compose-previews-via-reflection/",
+   "https://screenshotbot.io/blog/googles-compose-preview-screenshot-tests"
+  ]
+ },
+ "codebase": {
+  "pipeline": "[공통 진입] 파일 저장 → extension.ts의 onDidSaveTextDocument 핸들러 → codeExtractor.isPreviewable()로 판정(.preview.dali.cpp이거나, .cpp/.h에 '// @dali-preview-begin' 또는 '// @preview' 마커 존재) → ensurePreviewManager()로 웹뷰 패널 생성/reveal(previewManager.show(true)) → VNC 모드면 orchestrator.hotReloadVnc(), 아니면 orchestrator.runPreview(doc) (previewOrchestrator.ts). 패널 자동 오픈 정책: 저장·Open Preview 명령·CodeLens 클릭만 패널을 열고, 포커스 이동/타이핑은 이미 열린 패널만 갱신(닫으면 닫힌 채 유지 — Unreleased 변경).\n\n[runPreview 내부] ① extractPreviewCode(codeExtractor.ts): 3개 모드 — preview-file(파일 전체), single-marker(// @preview 다음 함수 바디, 최대 20줄 내 여는 중괄호 탐색), marker(@dali-preview-begin/end 사이). 이때 '// @preview-config:' 줄을 PreviewConfig[]로 파싱·코드에서 제거하고 선두 변수선언을 'return '으로 재작성. ② instrumentCode(): Actor 계열 ::New() 호출을 __tag(..., \"__L{절대라인}\")로 감싸 클릭-투-코드용 이름 주입(원본 파일은 불변). ③ 분기 — animation=true 컨피그가 있으면 runAnimationPreview, 컨피그 2개 이상이면 runMultiPreview(순차 빌드), 아니면 단일 경로. ④ 단일 경로는 Strategy 패턴 3단 폴백:\n  (a) ParserStrategy('parser'): cppParser.parseChainExpression(LRU 10개 캐시; 제어흐름/ternary/#/사용자 함수 호출이면 null 반환→폴백) → SceneNode JSON을 tmp에 쓰고 previewServer.renderJson()이 상주 서버 stdin에 \"RENDER_JSON <json> <png> <meta> <w> <h> <theme> <color>\\n\" 전송 → server/preview_server.cpp가 BuildScene+Capture 후 \">>>OK:<png>\" 응답.\n  (b) DlopenStrategy('server'): buildRunner.compilePlugin() — preview_plugin.cpp.template의 {{USER_CODE}} 치환 후 .so 컴파일(docker 모드면 dockerRuntime.compilePlugin이 상주 컨테이너에 docker exec, 없으면 docker run --rm; native면 호스트 g++ -shared) → previewServer.reload()가 \"RELOAD <so> <png> <meta> <w> <h> <theme> <color> <locale> <fontScale> <font>\\n\" 전송 → 서버가 dlopen→CreatePreview()→Capture.\n  (c) HarnessStrategy('compile', 최종 폴백): buildRunner.buildAndRun() — preview_harness.cpp.template 치환({{USER_CODE}}/{{PREVIEW_WIDTH/HEIGHT}}/{{OUTPUT_PATH}}/{{METADATA_PATH}}/{{BACKGROUND_COLOR}}/{{FONT_SETUP}}) 후 전체 컴파일+실행. 하네스 바이너리는 100ms Timer로 최소 3틱(300ms) 대기, 리소스(IsResourceReady) 미완 시 최대 30틱(3초)까지 대기 후 Capture::Start → stdout \"OK:<png>\".\n⑤ 성공 시: preview_metadata.json 읽기 → flexMetadata.enrichMetadataWithFlexProps()로 파서 트리의 Flex 속성/레이아웃 정책 병합 → previewManager.updateImage()가 webview에 postMessage({command:'updateImage', uri, buildTime, metadata}) → media/preview.html이 PNG 교체 + 메타데이터 기반 클릭 오버레이/Inspector 트리 재구축. statusBar.showSuccess(시간)·showMode(parser/server/compile). ⑥ 실패 시: errorParser.parseGccErrors()가 템플릿의 {{USER_CODE}} 라인 오프셋(getHarnessCodeOffset/getPluginCodeOffset)을 빼서 사용자 라인으로 역매핑 → diagnosticCollection(에디터 물결선) + 500ms 디바운스 후 웹뷰 에러 오버레이(scheduleShowError). buildGeneration 카운터로 빌드 중 새 요청이 오면 stale 결과 폐기, building 중 라이브 요청은 pendingRebuildDoc로 큐잉 후 setImmediate 재실행.\n\n[Docker 경로 (runtimeMode='docker', 기본값)] 활성화 시(onLanguage:cpp + onStartupFinished) previewable 파일이 보이면 initPreviewServer 즉시, 아니면 첫 previewable 에디터 포커스 때 lazy 기동(extension.ts). checkDockerAccess→ensureRuntimeImage(없으면 ~290MB 자동 풀, 태그별 in-flight 풀 코얼레싱)→PreviewServer.start()가 \"docker run -i --rm --init --name dali-preview-server-<md5(tmpDir)12자>\" 실행 — 이미지 ghcr.io/lwc0917/dali-preview-runtime:<daliVersionTag>, entrypoint /usr/local/bin/dali-preview-serve, tmpDir(/tmp/dali_preview_<workspace md5 8자>)를 동일 경로 bind-mount(IPC 경로 변환 불필요), 워크스페이스 폴더·fontDirectories ro 마운트, dali-preview-shader-cache·dali-preview-ccache named volume, LP_NUM_THREADS=0/GALLIUM_DRIVER=llvmpipe(멀티코어 소프트웨어 GL). \">>>READY\" 수신(타임아웃 15초) 시 dockerRuntime.setActiveServerContainer() 등록 → 이후 compilePlugin은 docker exec(컨테이너 기동비 ~300-500ms 절약). 서버 다운 시 하네스 폴백은 dockerRuntime.buildAndCapture: source.cpp를 /work에 쓰고 docker run --rm(60초 타임아웃) — 컨테이너가 컴파일+Xvfb+실행+PNG 기록, 호스트가 /tmp 경유로 회수. 서버 비정상 종료 시 500ms 후 자동 재시작 최대 3회.\n\n[Native 경로 (runtimeMode='native')] 활성화 시 XvfbManager가 :99/:98/:97 후보로 Xvfb(2048x2048x24) 기동(500ms 대기). daliEnvironment.findDaliPrefix(설정→DESKTOP_PREFIX env→워크스페이스 setenv→~/dali-env/opt 등 순서 자동탐지)·validateDaliPrefix(libdali2-core.so + dali2-ui-foundation.pc 존재 확인). preview_server는 server/build_server.sh로 호스트 컴파일(60초, mtime 비교로 재빌드) 후 상주. 컴파일은 ccache 있으면 'ccache g++', pkg-config(dali2-core/adaptor/ui-foundation/ui-components/glib-2.0), 실행은 DISPLAY=<xvfb>/LD_LIBRARY_PATH 주입.\n\n[라이브 프리뷰] onDidChangeTextDocument → LivePreviewDebouncer(기본 0ms=키스트로크마다, 최대 3000ms 설정 가능) → 패널이 열려 있을 때만 runPreview(live=true) — 로딩 오버레이 생략. [Perf] 로그로 T1(디바운스 발화)→T2(runPreview 시작)→T5(postMessage 전송, 총 파이프라인 시간) 계측.",
+  "features": [
+   {
+    "name": "저장 시 자동 프리뷰",
+    "detail": "previewable 파일을 Ctrl+S 하면 패널이 열리고 3단 폴백 파이프라인으로 렌더. 패널을 닫으면 다시 자동으로 열리지 않음(명시적 제스처만 오픈).",
+    "file": "src/extension.ts (onDidSaveTextDocument)"
+   },
+   {
+    "name": "라이브 프리뷰 (타이핑 중 갱신)",
+    "detail": "텍스트 변경마다 디바운스(기본 0ms) 후 무음 재렌더. daliPreview.livePreview로 on/off, livePreviewDebounce로 간격 조정. 빌드 중 입력은 큐잉 후 최신 것만 실행.",
+    "file": "src/livePreviewDebouncer.ts, src/extension.ts"
+   },
+   {
+    "name": "3가지 코드 추출 모드",
+    "detail": "① *.preview.dali.cpp 파일 전체 ② '// @preview' 단일 마커 아래 함수 바디 ③ '@dali-preview-begin/end' 마커 영역. 선두 변수선언은 자동으로 return으로 재작성.",
+    "file": "src/codeExtractor.ts"
+   },
+   {
+    "name": "CodeLens '▶ Preview'",
+    "detail": "DALi View 계열을 반환하고 본문에 컴포넌트 ::New()가 있는 함수 위에 렌즈 표시 → 클릭 시 그 함수만 추출해 프리뷰. DALi 프로젝트 판정(setenv의 DESKTOP_PREFIX, daliPrefix 설정, pkg-config) 통과 시에만 노출. 이후 그 함수에 대한 라이브 프리뷰도 추적.",
+    "file": "src/previewCodeLens.ts, src/extension.ts (dali.previewFunction)"
+   },
+   {
+    "name": "3단 렌더 경로 (parser→dlopen→full compile)",
+    "detail": "체이닝 코드를 TS 파서로 JSON 트리화해 상주 서버에서 즉시 렌더(최속) → 실패 시 .so 컴파일+dlopen → 최후엔 전체 하네스 컴파일. 상태바에 사용된 경로(⚡Parser/⚡Server/🔨Compile) 표시. daliPreview.disablePreviewServer로 진단용 강제 슬로우패스.",
+    "file": "src/previewOrchestrator.ts, src/cppParser.ts, src/previewServer.ts, src/buildRunner.ts, server/preview_server.cpp"
+   },
+   {
+    "name": "Docker 런타임 (기본)",
+    "detail": "호스트에 DALi 설치 불필요 — ghcr.io 이미지(기본 ghcr.io/lwc0917/dali-preview-runtime) 안에서 컴파일·Xvfb·렌더 수행. 상주 서버 컨테이너 + docker exec 컴파일 + shader/ccache named volume으로 반복 렌더 가속.",
+    "file": "src/dockerRuntime.ts, src/previewServer.ts, src/buildRunner.ts"
+   },
+   {
+    "name": "첫 실행 온보딩 (Docker 설치+이미지 다운로드 제안)",
+    "detail": "머신당 1회, 프리뷰 파일 없이도 onStartupFinished에서 'Set Up Now' 모달 → Docker 설치(터미널, sudo 1회)→setfacl로 재부팅/리로드 없이 즉시 소켓 접근→이미지 자동 풀→서버 자동 기동. dockerAccessPoller가 2초 간격 최대 150회(~5분) 폴링하며 자동 이어감.",
+    "file": "src/dockerOnboarding.ts, src/installDocker.ts, src/dockerAccessCheck.ts, src/dockerAccessPoller.ts"
+   },
+   {
+    "name": "런타임 이미지 다운로드 (진행 표시)",
+    "detail": "~290MB 이미지를 풀 — off-TTY docker pull 한계 때문에 퍼센트 대신 indeterminate 바 + 'N/M layers · 경과시간' 1초 하트비트(0.39.3의 '정직한 진행률'). 동시 호출은 태그별로 단일 풀로 코얼레싱.",
+    "file": "src/pullImageCommand.ts, src/dockerRuntime.ts (PullProgressTracker)"
+   },
+   {
+    "name": "런타임 업데이트 정책",
+    "detail": "daliPreview.runtimeUpdatePolicy(off/notify/auto): docker 모드에서 하루 1회 digest 비교 — notify(기본)면 알림+상태바 배지($(cloud-download) Update available), auto면 백그라운드 풀+서버 재기동. 수동 'Check for Runtime Image Update'도 제공.",
+    "file": "src/checkUpdateCommand.ts"
+   },
+   {
+    "name": "오프라인 버전 스위처 (Select Runtime Version)",
+    "detail": "로컬 캐시 태그(docker images)와 GHCR 원격 태그를 병합한 QuickPick — 'current/downloaded/will download (~290 MB)' 표기, latest 같은 롤링 태그는 io.dalihub.dali.version 라벨로 실제 DALi 버전 표기. 다운로드된 버전은 오프라인에서도 즉시 전환·비교 가능.",
+    "file": "src/checkUpdateCommand.ts (selectRuntimeVersionCommand), src/registryClient.ts"
+   },
+   {
+    "name": "Docker 유지보수 (Clean/Reset)",
+    "detail": "Clean Runtime Images: 캐시 이미지 다중 선택 삭제(용량 합계 표시). Reset Extension: 컨테이너·이미지·캐시 볼륨 제거 + 첫 실행 플래그 재무장(온보딩 다시 표시 가능).",
+    "file": "src/dockerMaintenance.ts"
+   },
+   {
+    "name": "멀티 컨피그 프리뷰 (@preview-config)",
+    "detail": "'// @preview-config: name=\"...\" width= height= theme= locale= fontScale=(0.5~2.0) font=' 주석을 2개 이상 쓰면 각 구성을 독립 빌드해 웹뷰 그리드로 나란히 표시(이름/크기/빌드시간/개별 에러 카드). 1개면 해당 크기·테마로 단일 렌더(사용자 테마 토글이 우선).",
+    "file": "src/codeExtractor.ts (parsePreviewConfigLine), src/previewOrchestrator.ts (runMultiPreview), src/previewConfig.ts"
+   },
+   {
+    "name": "애니메이션 프리뷰 (GIF)",
+    "detail": "animation=true duration=(500~10000ms, 기본 2000) fps=(5~30, 기본 10) 컨피그 시 전용 하네스가 프레임 연속 캡처(ANIM_DONE 프로토콜) 후 ffmpeg로 GIF 합성 — 웹뷰에 재생/일시정지·재시작·속도 0.25x~3x 컨트롤. ffmpeg 없으면 첫 프레임 PNG 폴백. native 런타임 전용.",
+    "file": "src/buildRunner.ts (buildAndRunAnimation), server/preview_animation.cpp.template"
+   },
+   {
+    "name": "인터랙티브 모드 (VNC)",
+    "detail": "전용 Xvfb(4096x4096)에서 app.MainLoop()를 도는 바이너리를 띄우고 x11vnc(5900~5910)+websockify(6080~6090)로 webview의 noVNC에 연결 — 패널 안에서 클릭/스크롤/입력 가능. 저장 시 DALi 앱만 재시작하는 핫리로드. x11vnc/websockify 설치 + native DALi 필요.",
+    "file": "src/vncManager.ts, src/previewOrchestrator.ts (startVncMode/hotReloadVnc), server/preview_interactive.cpp.template"
+   },
+   {
+    "name": "실기기 디바이스 프리뷰 (SDB)",
+    "detail": "Select Target Device로 sdb 디바이스 선택(1대면 자동) → 로컬(또는 tizenSysroot로 ARM 크로스) 컴파일 → sdb push → 기기에서 실행 → PNG/메타데이터 pull 후 패널 표시.",
+    "file": "src/sdbManager.ts, src/buildRunner.ts (buildAndRunOnDevice), src/extension.ts"
+   },
+   {
+    "name": "클릭-투-코드 / 코드-투-프리뷰",
+    "detail": "렌더 전 ::New()를 __tag()로 계측해 Actor NAME에 소스 라인 기록 → 메타데이터로 웹뷰에 히트박스 오버레이 — 요소 클릭 시 에디터 해당 라인으로 점프+2초 하이라이트. 역방향: 에디터 커서 이동 200ms 디바운스 후 프리뷰·Inspector에서 해당 요소 하이라이트.",
+    "file": "src/codeExtractor.ts (instrumentCode), src/extension.ts (onSelectElement/onDidChangeTextEditorSelection), media/preview.html"
+   },
+   {
+    "name": "Widget Inspector + FlexLayout Explorer",
+    "detail": "🔍 버튼으로 씬 트리 패널 토글(상태 워크스페이스 저장) — 노드 선택 시 속성 패널, FlexLayout 노드면 파서에서 병합한 direction/alignItems/justifyContent/wrap과 레이아웃 정책(MATCH_PARENT 등) 시각화.",
+    "file": "media/preview.html, src/flexMetadata.ts, src/previewManager.ts"
+   },
+   {
+    "name": "인라인 컴파일 에러 매핑",
+    "detail": "g++ stderr를 정규식 파싱해 템플릿 보일러플레이트 오프셋을 빼고 원본 소스 라인의 Diagnostic(물결선)으로 표시 + 웹뷰 에러 오버레이(500ms 디바운스로 타이핑 중 깜빡임 방지). 매핑 불가 에러는 첫 의미 줄 요약(formatRawError).",
+    "file": "src/errorParser.ts, src/previewOrchestrator.ts"
+   },
+   {
+    "name": "테마 토글·배경색 피커",
+    "detail": "다크/라이트 전환(명령·상태바 🌙/☀ 아이콘·웹뷰 버튼 3곳) — 워크스페이스에 영속, 토글 후엔 컨피그의 theme= 지정보다 우선. 배경색은 컬러피커 팝업(HEX/RGB/Reset)으로 임의 #RRGGBB 지정(300ms 디바운스 재렌더).",
+    "file": "src/statusBar.ts (ThemeStatusBarItem), src/extension.ts, media/preview.html"
+   },
+   {
+    "name": "해상도 프리셋·커스텀·드래그 리사이즈",
+    "detail": "툴바 프리셋(1024x600/720x1280/360x640/1920x1080/480x800/Custom), W·H 직접 입력(최대 7680x4320), 패널 모서리 드래그 — 변경 시 새 크기로 재렌더(레이아웃 재계산). @preview-config의 width/height가 파일 전환 시 기준값 리셋.",
+    "file": "media/preview.html, src/extension.ts (onResize), src/previewOrchestrator.ts (applyConfigSize)"
+   },
+   {
+    "name": "상태바 표시기",
+    "detail": "메인 항목(우측, priority 100): $(eye) Ready→$(sync~spin) Building→$(check) Updated (X.Xs, 5초 후 복귀)/$(zap) 모드 라벨/$(error) Error/$(cloud-download) Update available(클릭=업데이트 체크). 보조 항목(priority 99): 테마 토글 🌙/☀.",
+    "file": "src/statusBar.ts"
+   },
+   {
+    "name": "설정 워크스루 (6단계)",
+    "detail": "Get started with DALi Preview: Welcome→런타임 선택(Docker/Native)→Docker 설치→이미지 다운로드→Native 설정→샘플 열기. native 모드 첫 실행 시 자동 오픈, 'Run Setup Walkthrough'로 재실행.",
+    "file": "package.json (walkthroughs), src/walkthroughController.ts, media/walkthrough/*.md"
+   },
+   {
+    "name": "샘플·예제 투어",
+    "detail": "Open Sample File: hello-dali.preview.dali.cpp를 워크스페이스에 복사 후 오픈. Open Examples: 5개 모드별 폴더+README로 구성된 dali-examples/를 사용자가 고른 위치에 복사해 새 창으로 오픈(실제 프로젝트 git 오염 방지).",
+    "file": "src/sampleCommand.ts, examples/"
+   },
+   {
+    "name": "native 환경 자동 설정",
+    "detail": "native 모드에서 daliPrefix 자동 탐지(설정→DESKTOP_PREFIX→setenv→공통 경로), 미설정 시 폴더 픽커 위자드 + 누락 의존성(g++/xvfb/ccache/x11vnc/websockify) apt 설치 제안, 활성화 시 환경 검증 경고.",
+    "file": "src/setupWizard.ts, src/daliEnvironment.ts"
+   },
+   {
+    "name": "구조화 로깅",
+    "detail": "'DALi Preview' 출력 채널에 레벨별(error~trace) 로그 — trace는 AI 친화 JSON. [Perf] T1/T2/T5 마커로 단계별 소요시간 계측, [ServerPerf]로 서버 내부 캡처 경로 표시.",
+    "file": "src/logger.ts"
+   },
+   {
+    "name": "커스텀 폰트 디렉토리",
+    "detail": "daliPreview.fontDirectories의 TTF/OTF를 FontClient::AddCustomFontDirectory로 등록 — @preview-config font=파일명으로 참조(native 경로; docker 하네스 폴백에선 무시).",
+    "file": "src/buildRunner.ts ({{FONT_SETUP}}), src/codeExtractor.ts"
+   }
+  ],
+  "uxTouchpoints": "■ 명령 팔레트 — 노출 7개(카테고리 'DALi Preview'): Open Preview, Toggle Theme, Toggle Interactive Mode (VNC), Open Settings, Open Sample File, Open Examples, Run Setup Walkthrough. 숨김 13개(menus.commandPalette when:false — 등록은 유지되어 워크스루 버튼/CodeLens/내부 호출로만 실행): previewFunction, selectDevice, devicePreview, verifyDocker, cleanRuntimeImages, resetExtension, useDockerRuntime, useNativeRuntime, installDocker, pullRuntimeImage, checkRuntimeUpdate, selectRuntimeVersion, showReadme. 의도: \"typing 'preview' no longer surfaces a wall of internal commands\" (CHANGELOG Unreleased), commandPalette.test.ts가 노출/숨김 분류를 고정.\n\n■ 상태바 2개 — 메인(우측 priority 100): \"$(eye) DALi Preview\"(클릭=Open Preview) / \"$(sync~spin) DALi: Building...\" / \"$(check) DALi: Updated (X.Xs)\"(5초 후 복귀) / \"$(zap) DALi: ⚡ Parser|⚡ Server|🔨 Compile\" / \"$(vm-active) DALi: Interactive\" / \"$(device-mobile) DALi: Device\" / \"$(error) DALi: Error\"(툴팁=에러 첫 줄) / \"$(cloud-download) DALi: Update available\"(클릭=업데이트 체크, 지속 표시). 보조(priority 99): 🌙/☀ 테마 토글.\n\n■ 웹뷰 패널(media/preview.html, ViewColumn.Two, retainContextWhenHidden) — 툴바: Resolution 프리셋 select(1024x600·720x1280·360x640·1920x1080·480x800·Custom), W/H 숫자 입력(1~7680 / 1~4320), ↻ Refresh, 🌙 테마 토글, 배경색 버튼→컬러피커 팝업(native color input + HEX + R/G/B + 'Reset to default'), 🔍 Widget Inspector 토글, ▦ FlexLayout Explorer(Flex 노드 있을 때만 표시), 🖥 VNC 토글(x11vnc+websockify 설치 시에만 표시). 본문: 단일 PNG(클릭 가능한 element overlay 히트박스), 멀티 컨피그 그리드(이름/크기/빌드시간/실패 카드), 애니메이션 컨테이너(⏸ Play/Pause·⏮ Restart·Speed 슬라이더 0.25x~3x·GIF 배지), VNC 캔버스(\"Connecting...\" 상태 표시), 드래그 resize handle+치수 라벨. 오버레이 3종: 로딩 스피너 / \"Preview Error\"+<pre> 에러 박스 / 웰컴(\"Save a .preview.dali.cpp file to see preview\"). 하단 상태줄: 빌드 시간·타임스탬프. 우측: Inspector 패널(트리뷰+속성 패널+FlexLayout Explorer 섹션). 고대비 테마 CSS 대응.\n\n■ 에디터 내: CodeLens \"▶ Preview\"(View 반환 함수 위), 컴파일 에러 물결선(source='DALi Preview'), 클릭-투-코드 라인 하이라이트(파란 배경 2초).\n\n■ 알림/모달: 첫 실행 온보딩 모달(\"DALi Preview renders your UI inside a Docker container. Set it up now? … no reboot or reload needed.\" → Set Up Now), Docker 설치 사전 모달→통합 터미널('DALi Preview · Install Docker', sudo 1회), permission-denied 시 'Fix for this session'/'Why?'/'Reboot guide' 3택, 'DALi Preview · Docker setup' 진행 알림(폴링 중 취소 가능), 이미지 다운로드 진행(\"Downloading DALi runtime image (~290 MB)\" + \"N/M layers · M:SS elapsed\"), 다운로드 완료/실패 토스트, 업데이트 가능 알림('Update now'/'Later'), 디바이스 선택 QuickPick, 버전 선택 QuickPick(current/downloaded/will download (~290 MB), latest엔 'DALi 2.x.x' detail), 이미지 정리 다중선택 QuickPick+삭제 확인 모달, Reset 확인 모달, native 전환 경고 모달+Reload 제안, native 의존성 설치 제안.\n\n■ 설정 키(daliPreview.*): runtimeMode(docker 기본), daliPrefix, dockerImage, daliVersionTag, runtimeUpdatePolicy, previewWidth(1024), previewHeight(600), background, livePreview(true), livePreviewDebounce(0), fontDirectories(package.json에 중복 선언됨), vncPort(5900), websocketPort(6080), sdbPath, tizenSysroot, targetDevice, logLevel(info), disablePreviewServer(진단용).\n\n■ 워크스루 'Get started with DALi Preview'(when isLinux, 6단계): Welcome(Open Documentation→README 마크다운 프리뷰) → Choose Your Runtime(Docker/Native 버튼) → Install Docker → Download DALi Runtime Image → Configure Native DALi(onSettingChanged:daliPreview.daliPrefix로 완료 체크) → Open a Sample(\"Hit Ctrl+S to render — should appear in ~1 second\").",
+  "latency": "[코드에 존재하는 수치 — 사실]\n• 라이브 디바운스: 기본 0ms(package.json; \"0 = update on every keystroke\"), 설정 범위 0~3000ms. configurationService.ts의 코드 폴백은 300ms이나 VS Code는 package.json 기본값을 반환하므로 실효 기본 0ms.\n• parser 경로: 설정 설명에 \"best with the parser fast path, ~100ms per update\"; 코드 주석 \"Phase 4-2: Parser-first path (~200ms)\". 파서 자체는 LRU 10개 캐시로 동일 코드 재파싱 0ms 근접. CHANGELOG 0.17.0: 파서 성공 ~200ms / 실패 → 컴파일 ~500ms 폴백.\n• dlopen 경로: compilePlugin 타임아웃 30초(docker/native 동일). docker exec 재사용으로 \"saves ~300-500ms of container startup per compile\"(dockerRuntime.ts 주석).\n• full harness 경로: disablePreviewServer 설명 \"always run the full g++ harness compile (~1100ms)\". docker ccache 효과: \"harness recompiles drop from ~700ms to ~50ms\"(dockerRuntime.ts 주석). shader cache 미사용 시 매 렌더 셰이더 컴파일 ~100-200ms(주석). 2520x4480 대형 렌더는 LP_NUM_THREADS=0으로 ~500ms→~100ms(previewServer.ts 주석).\n• 하네스 내부 캡처: 100ms Timer, 최소 3틱(=300ms) 후 캡처, 리소스 미준비 시 최대 30틱(=3초) 대기. 상주 서버 ScheduleCapture: 리소스 즉시 준비면 fast path, 아니면 100ms 폴링 최대 3초. 서버 stdin 폴링 100ms.\n• 실행/빌드 타임아웃: native compile·compileShared 30초, 하네스 바이너리 실행 10초, docker buildAndCapture 60초, 크로스컴파일 60초, build_server.sh 60초, ffmpeg 60초, 애니메이션 캡처 duration+15000ms.\n• PreviewServer: READY 대기 15000ms, 비정상 종료 시 500ms 후 재시작 최대 3회.\n• 이미지 풀: ~290MB 1회(버전당), 진행 하트비트 1초 간격. Docker access 폴러: 2000ms 간격 × 최대 150회(~5분).\n• 업데이트 자동 체크: 24시간(ONE_DAY_MS) 1회, digest 조회 buildx 15초/manifest 15초/registry API 10초 타임아웃.\n• VNC: Xvfb 기동 대기 500ms, x11vnc/websockify 시작 폴백 800ms, DALi 앱 READY 타임아웃 8000ms, 앱 내부 READY 타이머 300ms.\n• SDB: exec 기본 15초, shell 기본 30초, 디바이스 실행 20초.\n• UI 디바운스: 에러 오버레이 500ms, 커서→하이라이트 200ms, 배경색 재렌더 300ms(확장)+컬러피커 100ms(웹뷰), 애니메이션 속도 슬라이더 500ms(CHANGELOG), Xvfb 기동 확인 500ms.\n• 상태바 Updated 표시 5000ms 후 Ready 복귀. 클릭-투-코드 라인 하이라이트 2000ms.\n\n[추정 — 코드에 직접 수치 없음]\n• 저장→화면 끝-끝: 서버 가동+캐시 워밍 후 parser 경로 기준 '수백 ms 이내'(README \"~100 ms\", 워크스루 \"~1 second\"는 마케팅성 문구로 실측은 [Perf] T1~T5 로그로만 확인 가능 — 추정).\n• 콜드 스타트(첫 프리뷰): docker 이미지 캐시 시 컨테이너 기동+첫 컴파일로 수 초, 이미지 미캐시 시 ~290MB 다운로드 시간이 지배(네트워크 의존 — 추정).\n• 멀티 컨피그 N개: 순차 빌드이므로 대략 단일 빌드 × N (추정).",
+  "limitations": [
+   "기본 프리뷰는 정적 1프레임 PNG: 버튼/스크롤/입력 동작 확인 불가. 상호작용은 VNC 모드뿐인데, buildInteractive()가 ensureDaliPrefix()를 먼저 요구하고 docker 분기가 없어(src/buildRunner.ts:519-579) 기본값인 Docker 모드에서는 인터랙티브 모드가 사실상 동작하지 않음 — 호스트에 native DALi + x11vnc + websockify가 모두 필요.",
+   "애니메이션(GIF) 프리뷰도 native 전용(buildAndRunAnimation 역시 ensureDaliPrefix 필수, README: 'Custom fonts and animation preview are native-runtime features. In Docker mode they are currently skipped') + ffmpeg 없으면 첫 프레임 PNG로 격하. duration 500~10000ms·fps 5~30 범위 밖 값은 조용히 무시(codeExtractor.ts 상수).",
+   "상태 비유지: 모든 렌더가 새 프로세스(또는 dlopen 재로드)라 스크롤 위치·입력값·애니메이션 진행 등 앱 상태가 매번 초기화. VNC '핫리로드'조차 restartDaliApp()이 앱 프로세스를 kill 후 재시작하는 방식(vncManager.ts:156-169)이라 상태 보존이 아님.",
+   "렌더 대상은 추출된 단일 return 식뿐 — 실제 앱 코드 프리뷰 불가: #include·헬퍼 함수·클래스 멤버·모델 데이터 사용 불가({{USER_CODE}}가 함수 바디 안에 삽입되므로). 파서 경로는 if/for/auto/ternary/전처리기/사용자 함수 호출이 보이면 즉시 null(FAIL_KEYWORDS, cppParser.ts:89-95) — 동적 UI는 항상 느린 컴파일 경로. 멀티 파일 의존(다른 .cpp의 View 빌더 호출)은 어떤 경로로도 컴파일 안 됨.",
+   "에러 라인 매핑은 'GCC 진단 라인 정규식 1종 + 템플릿 오프셋 빼기' 단순 산술(errorParser.ts): 하네스 보일러플레이트에서 난 에러는 통째로 skip, 링커/pkg-config 에러는 라인 매핑 없는 요약문 폴백, 템플릿 다중행 치환으로 오프셋이 어긋날 수 있는 케이스(USER_CODE 위 라인 수가 곧 오프셋이라는 가정) 보정 없음. 멀티 컨피그 에러는 Diagnostic 없이 웹뷰 카드에만 표시(runMultiPreview는 diagnosticCollection 미설정).",
+   "실기기 충실도 한계: Docker 렌더는 llvmpipe 소프트웨어 GL + 컨테이너 폰트/DPI 환경이라 실제 Tizen 기기의 GPU 렌더링·시스템 폰트·스케일과 다를 수 있음. 디바이스 프리뷰는 native 전용 + tizenSysroot 미설정 시 호스트 x86 컴파일러로 빌드해 ARM 기기에서 실행 실패 가능(buildRunner.ts:846-848 폴백), 그리고 기기에서도 스크린샷 1장 pull 방식이라 인터랙션 없음.",
+   "Docker 모드 기능 공백: custom font는 경고 후 무시(buildAndRunDocker, 'docker mode: custom font ignored'), 하네스 폴백 경로에선 locale/fontScale도 전달되지 않음(buildAndRun→buildAndRunDocker 시그니처에서 탈락) — 상주 서버 RELOAD 경로로만 locale/fontScale/font 지원. 또 CodeLens 노출 조건(checkDaliProject)이 setenv/daliPrefix/pkg-config만 검사해 Docker-only 사용자(호스트 DALi 없음)에겐 CodeLens가 안 뜰 수 있음(previewCodeLens.ts:46-82).",
+   "Linux 전용(package.json os:['linux'], 워크스루 when:isLinux) — Windows/macOS 미지원(README: 'would need a DALi WebAssembly port').",
+   "협업·공유 부재: 결과물이 /tmp/dali_preview_<hash>/ 임시 PNG뿐 — 내보내기/스냅샷 저장/이전 렌더와 비교/URL 공유/팀 공유 기능 없음. dispose 시 임시 산출물 삭제(cleanupBuildTmpDir).",
+   "동시성 제약: 상주 서버는 pendingRequest 1개 — 진행 중 reload에 새 요청이 오면 기존 요청을 'reload already in progress'로 실패 처리(previewServer.ts:158-161). 멀티 컨피그는 순차 빌드라 구성 수에 비례해 느려짐. IPC가 공백 구분 텍스트라 경로에 공백이 있으면 거부('path contains invalid characters') — 공백 포함 워크스페이스 폴더 마운트 경로에 잠재 문제.",
+   "VNC조차 noVNC 마우스/키보드 수준: 멀티터치·제스처(핀치, 회전)·기기 센서 시뮬레이션 없음. VNC 포트 5900-5910/6080-6090 고갈 시 실패.",
+   "기타: fontScale은 DALI_FONT_SCALE env 주입만 하는 stub('Phase 3-1 stub: env var set for future DALi API hook', buildRunner.ts:489-491) — 실제 반영은 미완. package.json에 fontDirectories 설정이 중복 선언됨. native 모드 전환은 창 리로드 필요(useNativeRuntimeCommand)."
+  ],
+  "extensionPoints": "① PreviewStrategy 인터페이스(src/previewOrchestrator.ts:24-35): name/canHandle/execute 3메서드로 렌더 경로가 추상화돼 있고 runPreview가 parser→dlopen→harness 순서로 폴백 — 새 렌더 백엔드(원격 빌드 서버, WASM 렌더, 캐시된 스냅샷 재사용)를 전략 하나 추가로 끼울 수 있는 1순위 지점. ② 프리뷰 서버 IPC 프로토콜(src/previewServer.ts + server/preview_server.cpp): stdin 줄 단위 텍스트 명령(RELOAD/RENDER_JSON)과 '>>>READY/OK:/ERROR:' 응답 — 명령 동사 추가가 쉬워 UI 트리 덤프(DumpTree), hit-test, 접근성 정보 추출 같은 신규 질의를 붙이기 좋음(MEMORY의 'code→PNG+UI-tree CLI' 구상과 직결). ③ 웹뷰 메시지 채널(src/previewManager.ts handleMessage + media/preview.html): command 문자열 스위치 + 콜백 배열 패턴으로 양방향 메시지가 정형화 — 새 패널 UI(비교 뷰, 측정 자, 디바이스 프레임)를 메시지 1쌍 추가로 구현 가능. ④ C++ 템플릿 시스템(server/*.cpp.template + buildRunner의 {{PLACEHOLDER}} 정규식 치환): harness/plugin/interactive/animation 4종이 이미 변형 패턴을 증명 — 접근성 트리 내보내기·성능 계측·다중 프레임 비교용 하네스를 템플릿 파일 추가로 확장. errorParser의 getHarnessCodeOffset이 {{USER_CODE}} 위치만 보므로 새 템플릿도 에러 매핑 자동 호환. ⑤ @preview-config 디렉티브 파서(src/codeExtractor.ts parsePreviewConfigLine + src/previewConfig.ts): 키별 정규식 1줄 + 인터페이스 필드 1개로 새 디렉티브(예: device=, orientation=, accessibility=) 추가 가능 — runMultiPreview/buildAndRun으로 전달 경로도 이미 관통. ⑥ DockerRuntime(src/dockerRuntime.ts): buildAndCapture/compilePlugin이 '소스 문자열 → 컨테이너 실행 → 산출물' 범용 계약이라 린트, 정적 분석, 스크린리더 트리 추출 등 컨테이너 내 임의 작업의 실행 기반으로 재사용 가능. ⑦ cppParser의 SceneNode JSON(src/cppParser.ts): UI 구조의 언어 중립 표현 — AI 에이전트용 구조 출력, 디자인 토큰 검증, 코드 생성 역방향 변환의 데이터 소스. flexMetadata.ts가 이미 '파서 트리 ↔ 런타임 메타데이터 병합' 패턴을 제공. ⑧ 로거(src/logger.ts): 카테고리 enum + trace 레벨 JSON 구조 로그 — 외부 도구/AI가 파싱할 진단 스트림 확장 지점. ⑨ StatusBarManager.showMode(src/statusBar.ts): 모드 문자열 union에 추가만 하면 새 파이프라인 상태 노출. ⑩ PreviewCodeLensProvider(src/previewCodeLens.ts): FUNC_RE/DALI_UI_COMPONENTS 셋 확장으로 새 컴포넌트·함수 패턴 인식 — checkDaliProject에 docker 모드 인지 추가가 즉효성 높은 개선점.",
+  "sampleCode": "// ── samples/dali-examples/04-multi-config/responsive.preview.dali.cpp (실제 파일 전문, test/samples/multi-config.preview.dali.cpp와 동일) ──\n// @preview-config: name=\"Phone Light\", width=720, height=1280, theme=light\n// @preview-config: name=\"Phone Dark\", width=720, height=1280, theme=dark\n// @preview-config: name=\"Watch\", width=360, height=360\nreturn FlexLayout::New()\n    .SetDirection(FlexDirection::COLUMN)\n    .Children({\n        Label::New(\"Multi Preview Demo\"),\n        ImageView::New(),\n    });\n\n// ── test/samples/multi-config-locale.preview.dali.cpp 발췌 — locale/fontScale/font 디렉티브 ──\n// @preview-config: name=\"Korean Large\", width=720, height=1280, locale=ko_KR, fontScale=1.5\n// @preview-config: name=\"Custom Font\", width=720, height=1280, font=NotoSansKR.ttf\nreturn FlexLayout::New().Children({\n    Label::New(\"안녕하세요?\"),\n});\n\n// ── test/samples/animation.preview.dali.cpp 발췌 — 애니메이션 캡처 디렉티브 ──\n// @preview-config: name=\"AnimTest\" width=360 height=640 animation=true duration=2000 fps=10\nauto box = View::New()\n    .SetBackgroundColor(Color::BLUE)\n    .SetRequestedWidth(100.0f)\n    .SetRequestedHeight(100.0f);\nAnimation anim = Animation::New(3.0f);\nanim.AnimateTo(Property(box, Actor::Property::POSITION),\n               Vector3(200.0f, 0.0f, 0.0f), AlphaFunction::EASE_IN_OUT);\nanim.SetLooping(true);\nanim.Play();\nreturn box;"
+ },
+ "sentiment": {
+  "tableStakes": [
+   {
+    "point": "갱신 속도 임계치 — 프리뷰가 코드 변경을 '수 초' 안에 따라오지 못하면 도구로 인정받지 못한다. 속도는 기능이 아니라 존재 조건",
+    "evidence": "Compose Preview 빌드 3분을 옹호하는 분위기를 'gaslighting'이라 반박한 r/androiddev 고득점 댓글(Zhuinden, 2022); 'I would avoid using / relying SwiftUI Previews as they are too slow to develop with'(r/iOSProgramming, JoCoMoBo); 반대로 M1 전환 후 프리뷰가 'almost instantly' 뜨자 다시 쓰기 시작했다는 증언(r/iOSProgramming, mimikme92); Flutter Q3 2022 공식 설문에서 응답자 81%가 hot reload를 상시 사용, 58%가 '빠른 개발 사이클'을 채택 이유로 꼽음(walturn.com 정리)"
+   },
+   {
+    "point": "결정적 신뢰성/재현성 — 같은 코드면 항상 같은 결과가 떠야 하며, 수동 Resume·재시작 의식(ritual)이 필요한 순간 기본기 미달로 취급된다",
+    "evidence": "Xcode 혹평 스레드 상위 댓글 'the swiftui previews constantly failing / needing manual resumption'(r/iOSProgramming, score 12); WWDC 2024 위시리스트에 'Make SwiftUI Previews work Reliably (whenever app builds for Simulator)'가 오름(r/iOSProgramming, Jeehut) — 신뢰성 자체가 소원 목록에 오를 정도로 결핍"
+   },
+   {
+    "point": "실제 앱 코드에서 동작 — DB·DI·네트워크 의존성이 있는 진짜 화면에서 무거운 mock 작성을 강요하면 개발자는 프리뷰 자체를 포기한다",
+    "evidence": "Core Data를 프리뷰에 주입하지 못해 'For the first two years of building my app, I simply gave up on previews entirely'라는 iOS 개발기(kubamilcarz, Medium 2025); 'Previews dont work in them and its hard to conceptualise a screen... given up on compose Previews'(r/androiddev, badvok666, score 11); Storybook도 컴포넌트 API 변경 때마다 mock/stories 갱신 비용이 발생해 제거 사유가 됨(Atomic Object 블로그 2024)"
+   },
+   {
+    "point": "실물 충실도 — 프리뷰 렌더가 프로덕션/실기기와 한 번이라도 다르게 나오면 도구 전체에 대한 신뢰가 무너진다",
+    "evidence": "'my components were rendering differently in prod to storybook' — Storybook이 프로젝트 빌드와 별개로 자체 webpack을 돌리는 구조가 원인이라는 HN 증언(JusticeJuice, HN item 28494559)"
+   },
+   {
+    "point": "기존 툴체인과의 통합 — 도구가 자체 빌드 파이프라인을 강요하거나 의존성 업그레이드를 인질로 잡으면 버려진다",
+    "evidence": "'Don't forget when you wanna upgrade Webpack but you can't because Storybook still only works with the old version months in'(HN felixfbecker, item 28494559); 'it's gotten slower and heavier over the years... it takes forever to install and launch'(HN claviska, 같은 스레드) — 설치·기동 비용 증가가 이탈 사유로 직결"
+   },
+   {
+    "point": "프로젝트 규모 내성 — 데모용 소형 앱에서만 돌고 멀티모듈/대형 코드베이스에서 무너지는 프리뷰는 기본기 미달로 낙인찍힌다",
+    "evidence": "'SwiftUI previews not working is just something you have to deal with on a project with lots of modules'(r/iOSProgramming, saintmsent); 'SwiftUI previews which dont work at all in large projects'(r/iOSProgramming, Common-Inspector-358); 'I still always end up deleting the preview struct... because it doesn't work well or at all with even the smallest bit of complexity'(r/iOSProgramming, aleradders)"
+   }
+  ],
+  "delighters": [
+   {
+    "point": "상태 유지(stateful) hot reload — 로그인 후 깊이 들어간 화면의 상태를 잃지 않고 수정분만 반영되는 경험이 '밤과 낮(night and day)' 수준의 감동으로 회자되며 프레임워크 선택 사유가 된다",
+    "evidence": "Flutter 공식 문서가 '로그인 재입력 없이 네비게이션 몇 단계 아래 화면을 수정·hot reload' 시나리오를 핵심 가치로 명시(docs.flutter.dev/tools/hot-reload); 'the real killer feature is Flutters hot reload experience... it really is like night and day'(HN tmpfs, item 41214953); 'The iteration speed with Flutter's fast, solid, hot reload is seriously a big deal'(HN price, item 41080587)"
+   },
+   {
+    "point": "타이핑 속도보다 빠른 갱신 — 지연이 지각 임계 아래로 내려가면 '빠르다'를 넘어 자발적 전파(자랑)의 대상이 된다",
+    "evidence": "'Compose previews render about as fast as I can type'(r/androiddev, bah_si_en_fait, score 7); M1 하드웨어에서 SwiftUI 프리뷰가 'almost instantly' 뜬다는 간증이 구매 결정 근거로 공유됨(r/iOSProgramming, mimikme92)"
+   },
+   {
+    "point": "실기기 즉시 반영 — 시뮬레이터가 아니라 손에 든 실제 폰에서 저장 즉시 동작이 바뀌는 경험은 별도의 감동 축",
+    "evidence": "'Fast refresh: incredible DX improvement to be able to just save a file and instantly see the behavior of your app update without rebuilding'(HN tcoff91, Expo/React Native 관련, item 46485889)"
+   },
+   {
+    "point": "프리뷰 자산의 이중 활용 — 작성해 둔 프리뷰/스토리가 그대로 스크린샷·시각 회귀 테스트 입력이 되면 유지보수 비용이 투자로 역전된다",
+    "evidence": "Material UI가 스토리를 Argos 시각 회귀에 5년째 재사용하며 'it's a must have'(HN olivtassinari, item 34336758); r/androiddev에서 Compose Preview 기반 screenshot testing으로 기존 시각 회귀 파이프라인을 대체할 수 있는지 검토하는 스레드 등장(2024)"
+   },
+   {
+    "point": "격리된 컴포넌트 놀이터 — 앱 전체를 띄우지 않고 디자인 시스템과 엣지 상태를 눈으로 확인하는 워크플로 자체가, 도구 불만과 별개로 '지키고 싶은 가치'로 꼽힌다",
+    "evidence": "Storybook 혹평 HN 스레드에서조차 'the great thing is implementing a design system and developing components in isolation, not SB... next time around I might just roll my own'(dimal, item 28494559) — 도구는 버려도 워크플로는 직접 만들어서라도 유지; 'I have it write Storybook components so I can visually confirm things look how I want'(HN jeremy_k)"
+   },
+   {
+    "point": "AI 코딩 에이전트가 프리뷰를 '읽는' 시각 피드백 루프 — 2025년 이후 새로 부상한 감동 포인트로, 프리뷰가 사람만이 아닌 에이전트의 눈 역할을 할 때 가치가 배가된다",
+    "evidence": "'It can render and view SwiftUI previews... This closes the feedback loop on the visual side'(HN turnsout, item 47074697); 에이전트가 SwiftUI 프리뷰의 시각 출력을 이해한다는 점을 핵심 장점으로 꼽는 댓글(HN Austin_Conlon, item 47269154)"
+   }
+  ],
+  "killers": [
+   {
+    "point": "'됐다 안 됐다' 간헐 실패 — 열 때마다 결과가 복불복이면 개발자는 원인을 고치는 대신 프리뷰 코드를 지우고 기능을 꺼버린다. 불안정성은 점진적 불만이 아니라 즉각적 이탈 사유",
+    "evidence": "'I still always end up deleting the preview struct and disabling the canvas'(r/iOSProgramming, aleradders); 'Compose Previews have been such a pain with things breaking we've stopped bothering'(r/androiddev, danzero003); 'Every once in a while I try SwiftUI previews, but those are usually broken anyways'(HN manmal, item 45061477)"
+   },
+   {
+    "point": "갱신 대기가 분 단위로 늘어져 대안(에뮬레이터/실기기 직접 실행)보다 느려지는 순간 — 프리뷰의 존재 이유가 소멸한다",
+    "evidence": "'Compose previews don't take 3 minutes to build'라는 옹호를 정면 반박한 고득점 댓글(r/androiddev, Zhuinden, 2022); 에뮬레이터 직접 실행이 'far outperforms compose previews'라는 증언(r/androiddev, Cykon) — 프리뷰가 본체 실행보다 느린 역전 현상"
+   },
+   {
+    "point": "호스트 IDE/머신까지 끌고 죽는 부작용 — 프리뷰 기능 하나가 작업 환경 전체를 멈추게 하면 팀 차원에서 비활성화된다",
+    "evidence": "'Previews cause Android studio to freeze my Intel and m1 Mac'(r/androiddev, theschulk, score 14); 'IDE hangs frequently and unpredictably if previews are open'(r/androiddev, lakshman5876)"
+   },
+   {
+    "point": "조용한 상태 불일치 — hot reload가 낡은 상태를 들고 있어 '코드와 다른 화면'을 보여주면, 아낀 시간을 디버깅 혼란으로 고스란히 반납하고 신뢰가 무너진다",
+    "evidence": "'hot reload saves you a bunch of time when it's working, and then costs you the same amount of time when it randomly breaks and you spend half an hour getting confused about what the hell is going on before realising that a simple refresh fixes it'(HN IshKebab, item 29890511)"
+   },
+   {
+    "point": "스케일 한계 노출 — 멀티모듈/대형 코드베이스에서 프리뷰가 무너지면 '장난감용 도구'로 낙인찍히고 개인이 아닌 팀 단위로 이탈한다",
+    "evidence": "'SwiftUI previews are fucking trash. If your app gets big enough...'(r/iOSProgramming, Hedylove); 'given up on compose Previews'(r/androiddev, badvok666, score 11); 'SwiftUI previews which dont work at all in large projects'(r/iOSProgramming, Common-Inspector-358)"
+   },
+   {
+    "point": "유지보수 부채의 역전 — 프리뷰/스토리 파일과 mock을 관리하는 비용이 그것을 보는 가치보다 커지면(특히 디자이너·클라이언트가 안 볼 때) 팀이 도구를 통째로 뜯어낸다",
+    "evidence": "'After having ripped out or just abandoning Storybook on a few projects, I will be cautious about automatically reaching for it the next time'(Atomic Object 블로그, 2024-04-09); 'Storybook is just a heavy, complicated, awkward set of abstraction layers over that very simple core experience'(HN koboll, item 28494559)"
+   }
+  ],
+  "quotes": [
+   "\"In my experience hot reload saves you a bunch of time when it's working, and then costs you the same amount of time when it randomly breaks and you spend half an hour getting confused about what the hell is going on before realising that a simple refresh fixes it. The only really good hot reload system I've seen is Flutter's.\" — IshKebab, Hacker News, 2022 (news.ycombinator.com/item?id=29890511)",
+   "\"Stop gaslighting people into thinking that Compose previews don't take 3 minutes to build.\" — Zhuinden, r/androiddev, 2022 (reddit.com/r/androiddev/comments/wufiwr/_/ilbe5t7/)",
+   "\"Not even a 4T dollar company can make a reliable SwiftUI preview work, in their own IDE.\" — manmal, Hacker News, 2025 (news.ycombinator.com/item?id=45921144)",
+   "\"Oh and the real killer feature is Flutters hot reload experience, it's easily the best DX I've seen for GUI work.\" — tmpfs, Hacker News, 2024 (news.ycombinator.com/item?id=41214953)",
+   "\"But whenever I fire up that SwiftUI Preview, I am crossing my fingers that maybe I'll see something instead of an error.\" — bluk, Hacker News, 2023 (news.ycombinator.com/item?id=37248669)"
+  ],
+  "sources": [
+   "https://news.ycombinator.com/item?id=29890511",
+   "https://news.ycombinator.com/item?id=45921144",
+   "https://news.ycombinator.com/item?id=37248669",
+   "https://news.ycombinator.com/item?id=41214953",
+   "https://news.ycombinator.com/item?id=41080587",
+   "https://news.ycombinator.com/item?id=28494559",
+   "https://news.ycombinator.com/item?id=45061477",
+   "https://news.ycombinator.com/item?id=47074697",
+   "https://news.ycombinator.com/item?id=47269154",
+   "https://news.ycombinator.com/item?id=34336758",
+   "https://news.ycombinator.com/item?id=46485889",
+   "https://www.reddit.com/r/androiddev/comments/wufiwr/_/ilbe5t7/",
+   "https://www.reddit.com/r/androiddev/comments/ujublq/_/i7lxndp/",
+   "https://www.reddit.com/r/androiddev/comments/ote39l/_/h6vrpab/",
+   "https://www.reddit.com/r/androiddev/comments/1ag6u8i/_/kohgj94/",
+   "https://www.reddit.com/r/androiddev/comments/rxmb0z/_/hrly0r7/",
+   "https://www.reddit.com/r/androiddev/comments/ubxfy4/_/i68ill2/",
+   "https://www.reddit.com/r/androiddev/comments/1fqo30a/_/lpbz4nd/",
+   "https://www.reddit.com/r/androiddev/comments/1gkyk5v/compose_screenshot_testing_pros_cons_pitfalls/",
+   "https://www.reddit.com/r/iOSProgramming/comments/t4qqhz/_/hz0mv8o/",
+   "https://www.reddit.com/r/iOSProgramming/comments/ts5s59/_/i2pps7r/",
+   "https://www.reddit.com/r/iOSProgramming/comments/12wdppp/_/jhem0pe/",
+   "https://www.reddit.com/r/iOSProgramming/comments/qb5gpu/_/hh9f4p9/",
+   "https://www.reddit.com/r/iOSProgramming/comments/1cx2kck/_/l50m012/",
+   "https://www.reddit.com/r/iOSProgramming/comments/jx9k3x/_/gcxraxa/",
+   "https://www.reddit.com/r/iOSProgramming/comments/xgwb3m/_/iovof3n/",
+   "https://www.reddit.com/r/iOSProgramming/comments/1deful1/_/l8ebwvr/",
+   "https://www.reddit.com/r/iOSProgramming/comments/11vc9ta/_/jcth3cf/",
+   "https://spin.atomicobject.com/using-storybook-reconsider/",
+   "https://kubamilcarz.medium.com/mocking-core-data-for-swiftui-previews-my-two-year-journey-bbeae673ea86",
+   "https://www.walturn.com/insights/flutter-q3-2022-survey-results",
+   "https://docs.flutter.dev/tools/hot-reload"
+  ]
+ },
+ "personas": {
+  "persona:ai-agent": {
+   "persona": "Claude 같은 AI 코딩 에이전트에게 DALi UI 생성·수정을 맡기고, 에이전트가 CLI 한 방 호출로 받은 스크린샷+UI 트리(JSON)+구조화 에러를 '눈' 삼아 스스로 고치는 coding-with-eyes 루프를 구축하려는 개발자 — 사람용 GUI 품질만큼 머신용 인터페이스(결정적 렌더, MCP 연동, 안정된 출력 계약)를 요구한다.",
+   "topNeeds": [
+    {
+     "need": "IDE 비의존 헤드리스 CLI — 한 번 호출로 코드 입력→{PNG, UI 트리 JSON, 구조화 에러, exit code}를 동시 반환하는 render 명령",
+     "why": "현재 모든 렌더 경로가 VS Code 이벤트(저장/타이핑/CodeLens)와 웹뷰 패널에 묶여 있어 에이전트가 프로그래밍 방식으로 렌더를 트리거할 진입점 자체가 없음 — coding-with-eyes 루프의 존재 조건이며, 이게 없으면 나머지 요구는 전부 무의미.",
+     "evidence": "HN turnsout \"It can render and view SwiftUI previews... This closes the feedback loop on the visual side\"(item 47074697), HN Austin_Conlon(item 47269154) 등 '에이전트가 프리뷰를 읽는 시각 피드백 루프'가 2025년 이후 새 감동 축으로 부상한 여론; Flutter `flutter widget-preview start`·Qt Design Studio Alt+P처럼 IDE 의존 없이 단독 기동되는 경쟁 도구의 실행 진입점; Coding with Eyes(arXiv 2604.19750)의 스크린샷+a11y 트리 피드백 루프(통과율 21.7%→28.3%)."
+    },
+    {
+     "need": "문서화·버전화된 UI 트리 출력 계약 — role/text/bounds/속성을 포함한 a11y 수준 트리 JSON을 안정 스키마로 외부 제공 (Accessible::DumpTree(FULL)+CalculateCurrentScreenExtents 수준)",
+     "why": "DALi는 Xvfb+FreeType 렌더라 픽셀 diff가 금지된 환경이므로 트리 구조 비교가 에이전트의 유일하게 신뢰 가능한 시각 신호인데, 현재 메타데이터는 웹뷰 클릭-투-코드/Inspector용 내부 포맷일 뿐 스키마 문서·버전 표기·role/접근성 정보가 없어 에이전트 파이프라인이 의존할 계약이 못 됨 — 스키마가 예고 없이 바뀌면 파이프라인이 조용히 깨짐.",
+     "evidence": "Coding with Eyes가 a11y 트리를 스크린샷과 함께 핵심 피드백으로 사용; Flutter Widget Inspector의 위젯 트리+속성(width/height/padding) 노출과 코드 점프; HarmonyOS ArkUI Previewer의 컴포넌트 트리 양방향 inspect; tableStakes '기존 툴체인과의 통합'(Storybook이 Webpack 버전을 인질로 잡아 버려진 HN felixfbecker 사례)이 보여주는 계약 안정성 요구."
+    },
+    {
+     "need": "기계 가독 에러 채널 전체 커버리지 — 컴파일·링커·하네스 보일러플레이트·런타임·멀티 컨피그 에러까지 {phase, message, sourceLine} JSON + non-zero exit로 일관 반환",
+     "why": "컴파일 게이트가 refine 루프의 1차 피드백 신호인데, 현재 에러는 VS Code Diagnostics·웹뷰 오버레이라는 사람용 표면에만 닿고, 하네스 보일러플레이트 에러는 통째로 skip·링커/pkg-config 에러는 라인 매핑 없는 요약 폴백·멀티 컨피그 에러는 웹뷰 카드 전용이라 에이전트가 받는 신호에 구멍이 많음 — 에러를 고칠 수 없는 형태로 받으면 루프가 공회전.",
+     "evidence": "Flutter의 \"Hot reload was rejected: '/path/lib/main.dart': error: line 33 pos 5: unbalanced ')'\" 같은 파일·행·열 정밀 콘솔 에러가 모범; 반면교사로 SwiftUI Diagnostics는 실제 원인이 \"usually buried under dozens of compilation commands\"(BleepingSwift)에 묻혀 디버깅이 고고학이라는 여론과 \"Cannot preview in this file\" 류 모호 메시지 불만."
+    },
+    {
+     "need": "에이전트가 생성하는 '진짜 코드' 수용 — 제어흐름(if/for/ternary)·헬퍼 함수·#include·멀티파일 의존·샘플 데이터 주입을 렌더 가능하게",
+     "why": "LLM은 루프·헬퍼·조건부가 섞인 관용적 코드를 생성하는데 현재는 추출된 단일 return 식만 렌더되고(파서는 FAIL_KEYWORDS만 보여도 즉시 포기→항상 느린 경로), 다른 .cpp의 View 빌더 호출 같은 멀티파일 의존은 어느 경로로도 컴파일 불가 — 에이전트 출력을 프리뷰 가능한 형태로 비틀게 강요하면 생성 품질과 루프가 동시에 깨짐.",
+     "evidence": "tableStakes '실제 앱 코드에서 동작' — Core Data를 주입 못해 \"For the first two years of building my app, I simply gave up on previews entirely\"(kubamilcarz, Medium), \"given up on compose Previews\"(r/androiddev badvok666, score 11); Compose 'Failed to instantiate a ViewModel' 렌더 실패가 상태 호이스팅 재설계를 강요하는 비용; Storybook Controls/@PreviewParameter처럼 가짜 데이터 주입을 1급 기능으로 둔 경쟁 도구들."
+    },
+    {
+     "need": "결정적 렌더의 명문화된 보장 — 리소스 미준비 시 타임아웃 후 그냥 캡처하는 동작을 '명시 실패 또는 완료까지 대기'로 바꾸고, 폰트·로케일·런타임 버전 고정으로 '같은 코드→같은 트리·같은 픽셀' 계약 제공",
+     "why": "에이전트는 이터레이션 간 트리·bounds를 비교해 수렴하는데, 현재 하네스는 IsResourceReady 미완이어도 최대 30틱(3초) 후 캡처해 이미지 빠진 부분 렌더가 나올 수 있음 — 비결정 출력은 유령 diff를 만들어 refine 루프를 발산시키므로, 이 페르소나에게 결정성은 기능이 아니라 평가 신호의 전제.",
+     "evidence": "tableStakes '결정적 신뢰성/재현성 — 같은 코드면 항상 같은 결과'; killers의 HN IshKebab \"hot reload saves you a bunch of time when it's working, and then costs you the same amount of time when it randomly breaks\"(item 29890511); SwiftUI \"crossing my fingers that maybe I'll see something instead of an error\"(bluk) 같은 복불복 불신 여론."
+    },
+    {
+     "need": "병렬·배치 렌더 처리량 — 동시 요청 큐잉/다중 워커, 멀티 컨피그 병렬 빌드, CLI에서도 warm 상주 서버 재사용으로 호출당 컨테이너 기동비 제거",
+     "why": "draft-and-refine 에이전트는 이터레이션마다 후보 N개와 컨피그 매트릭스를 렌더하고 서브에이전트가 병렬 호출하는데, 현재 상주 서버는 pendingRequest 1개라 진행 중이면 새 요청을 'reload already in progress'로 실패시키고 멀티 컨피그는 순차 빌드 ×N — 병렬 호출이 곧 간헐 실패·대기 누적이 되는 구조.",
+     "evidence": "Compose Multipreview가 변형 전체를 자동으로 나란히 렌더하는 매트릭스 모델; ArkUI 최대 4개 디바이스 동시 프리뷰; killers '갱신 대기가 분 단위로 늘어져 대안보다 느려지는 순간 존재 이유 소멸'(r/androiddev Zhuinden의 3분 빌드 반박, Cykon의 에뮬레이터 역전 증언)."
+    },
+    {
+     "need": "MCP 연동 표면 — documentation MCP server(search_docs/get_component/list_examples/validate_symbols) 제공 + .mcp.json 한 줄 등록, 렌더 도구의 멀티 호스트 재사용 경로(후순위 MCP 승격 포함)",
+     "why": "dali-ui는 LLM 학습데이터에 거의 없는 저자원 niche DSL이라 API 환각(코드 오류의 31.67%)이 곧 컴파일 실패로 직결되는 최대 벽 — 렌더 루프만 있고 지식·검증 도구가 없으면 에이전트는 환각→컴파일 실패→재시도 공회전에 토큰을 태우며, Claude Code/Cursor/커스텀 에이전트가 같은 도구를 공유하려면 MCP 표준 표면이 필요.",
+     "evidence": "Context7 패턴(문서를 통째로 붓지 않고 도구로 서빙); Playwright MCP browser_take_screenshot의 {type:'image', base64}+파일 path 병행 반환 패턴; 시그니처/예제 augmentation 41.8%→86.8%, 예제 RAG +83~220% 향상 근거; De-Hallucinator 패턴의 validate_symbols(심볼 대조+최근접 제안)."
+    }
+   ],
+   "dealBreakers": [
+    "헤드리스 진입점 부재 — VS Code 확장을 띄우지 않고는 렌더를 한 번도 못 돌리면 에이전트 루프 자체가 성립 불가라, 스크린샷 없는 맹목 생성으로 후퇴하거나 머신 인터페이스가 있는 타 스택으로 즉시 이탈한다.",
+    "비결정 렌더 — 같은 코드를 두 번 렌더했는데 트리/픽셀이 달라지면(리소스 타임아웃 부분 캡처, 폰트/환경 비고정) 에이전트가 유령 diff를 쫓아 루프가 발산한다. 복불복은 사람에겐 짜증이지만 에이전트에겐 평가 신호 오염이라 즉각 폐기 사유 — killers '됐다 안 됐다 간헐 실패는 점진적 불만이 아니라 즉각적 이탈 사유'(HN IshKebab: 아낀 시간을 혼란으로 그대로 반납).",
+    "기계가 파싱 못 하는 실패 — 에러가 웹뷰 오버레이/Diagnostics에만 뜨고 CLI가 exit 0을 주거나 stdout이 비구조 텍스트면 에이전트는 실패를 인지도 수정도 못 한다. SwiftUI의 \"usually buried under dozens of compilation commands\" 진단 UX가 머신 인터페이스에 재현되는 순간 도구 탈락.",
+    "에이전트 생성 코드 거부 — 단일 return 식·헬퍼 불가·멀티파일 불가 제약으로 현실적인 생성 코드가 안 그려지면 프리뷰를 우회해 풀 빌드+실기기 확인으로 회귀한다(r/iOSProgramming aleradders \"I still always end up deleting the preview struct\", r/androiddev danzero003 \"we've stopped bothering\" 포기 패턴의 에이전트판).",
+    "호출당 콜드스타트 지배 — CLI 호출마다 컨테이너 기동·이미지 풀이 끼어 렌더가 수십 초가 되면 이터레이션 3~4회×후보 N개×변형 매트릭스 루프가 시간·토큰 예산 초과로 무너진다. 프리뷰가 본체 빌드보다 느려지는 역전(Zhuinden의 'gaslighting' 반박, Cykon \"far outperforms compose previews\")은 자동 루프에선 사람보다 더 치명적."
+   ],
+   "delighters": [
+    "도구가 diff까지 계산해주는 국소 피드백 — golden 트리를 입력하면 'node X: 기대 bounds vs 실제 bounds, 텍스트 불일치, role 누락' 식 노드·속성 단위 차이를 직접 반환. '모호 피드백은 무피드백과 동급'이라는 원칙을 도구가 흡수해 에이전트 수렴 속도가 뛰는 지점 — Compose UI Check가 접근성·적응형 문제를 Problems 패널에 수정 제안과 함께 나열하는 모델의 머신판.",
+    "헤드리스 상호작용 주입 — 트리 노드 ID 지칭(Set-of-Mark식)으로 tap/scroll/텍스트 입력을 보내고 상태 전이 후 PNG+트리를 재캡처. 정적 1프레임 한계를 넘어 Coding with Eyes의 핵심 이득원이었던 '직접 조작 탐지'를 확보 — Compose Interactive mode·ArkUI 동적 프리뷰(클릭·페이지 전환 동작)의 에이전트 버전.",
+    "1회 호출 변형 매트릭스 — locale×fontScale×theme×해상도 조합을 병렬 렌더해 변형별 {PNG, 트리} 묶음으로 반환. Compose Multipreview·SwiftUI Variants 그리드가 사람에게 준 '전수 검증 한 화면' 가치를 에이전트가 RTL·큰 글꼴 레이아웃 깨짐 자동 검출에 그대로 사용.",
+    "렌더 자산 자동 축적 — 성공한 (프롬프트·코드·PNG·트리) 묶음을 골든 예제·회귀 평가셋·RAG 코퍼스로 자동 저장해 프리뷰 호출 자체가 투자로 역전됨. sentiment delighter '프리뷰 자산의 이중 활용'(Material UI가 story를 Argos 시각 회귀에 5년 재사용, \"it's a must have\")과 WebSight식 데이터 자산화의 결합.",
+    "에이전트→사람 핸드오프 — CLI로 렌더한 결과·세션을 VS Code 패널이 그대로 이어받아(warm 서버·캐시 공유) click-to-code·Inspector로 사람이 마무리. '초안은 에이전트, 마무리는 사람'이라는 현실적 목표의 접합부가 무비용이 되는 경험 — HN jeremy_k \"I have it write Storybook components so I can visually confirm things look how I want\"가 가리키는 워크플로의 완성형."
+   ]
+  },
+  "persona:newcomer": {
+   "persona": "Compose Preview·Flutter hot reload를 기준선으로 가진 채 Tizen에 입문한 신규 앱 개발자 — DALi 문법과 C++ 빌드체인이 처음이라 예제·자동완성·친절한 에러로 배우면서 만들어야 하며, 셋업 30분 초과나 빈약한 예제면 즉시 이탈",
+   "topNeeds": [
+    {
+     "need": "복붙해서 시작하는 UI 패턴 단위 예제 갤러리 — 카드·리스트·그리드·폼·TV 레일 등 실전 레이아웃 카탈로그를 IDE 안에서 검색·미리보기·원클릭 삽입",
+     "why": "문법을 모르는 페르소나의 첫 작업 방식은 '예제를 베껴서 고치기'다. 현재 제공물은 hello 샘플 1개 + 확장 기능 모드별 5폴더(dali-examples)로 '도구 사용법' 예제이지 'UI를 이렇게 만든다' 패턴 카탈로그가 아니며, 페르소나 정의상 예제가 빈약하면 곧장 이탈한다.",
+     "evidence": "Flutter 위젯 카탈로그/쿡북과 Widgetbook(도달하기 어려운 상태를 카탈로그화해 디자인 시스템 표준 도구화), Storybook 'Stories index all your components and their various states'(기존 패턴을 찾아 재사용하는 단일 진실 공급원), Compose 새 프로젝트 템플릿이 프리뷰 함수를 기본 생성하는 관행. 프로젝트 방향 문서도 test/samples 확충(FlexLayout 중첩·TV 격자/카드 레일)이 에이전트 RAG 코퍼스 품질과 직결된다고 지목 — 사람용 갤러리 투자가 이중으로 회수됨."
+    },
+    {
+     "need": "DALi API 자동완성·시그니처 도움·호버 문서 (에디터 언어 지원)",
+     "why": "컴포넌트 이름과 체이닝 메서드를 모르는 상태에서는 빈 파일에 코드를 칠 수 없다. Compose/Flutter 출신에게 IDE 자동완성과 사전 분석은 기능이 아니라 공기 — 부재 시 도구 결함으로 인식한다. 현재 확장은 렌더만 하고 completion/hover/signature help 등 언어 지원이 전무하다.",
+     "evidence": "Flutter는 Dart analyzer가 저장 전부터 빨간 밑줄로 선행 경고(errorUX), Android Studio는 Compose 전용 통합(템플릿·gutter 아이콘·자동완성)이 기본 전제. 프로젝트가 에이전트용으로 이미 설계한 컴포넌트 사전(정확 시그니처+gotcha)과 corpus/api/_index.json이 사람용 자동완성/호버의 데이터 원천이 될 수 있는데 사람 쪽 표면만 없음."
+    },
+    {
+     "need": "초보자용 에러 번역 — raw g++ 출력을 DALi 용어의 원인 설명과 수정 제안으로 변환 ('did you mean SetDirection?', 흔한 실수 DB, 한 줄 요약 우선 표시)",
+     "why": "C++를 모르는 페르소나에게 g++ 템플릿 에러 원문은 해독 불가능한 벽이고, 첫 에러에서 막히면 DALi 학습 자체를 포기한다. 현재 errorParser는 라인 위치 매핑까지만 하고 메시지는 원문 그대로이며, 링커/pkg-config 에러는 라인 매핑 없는 요약 폴백, 하네스 보일러플레이트 에러는 통째로 skip, 멀티 컨피그 에러는 Diagnostic 미설정.",
+     "evidence": "Flutter의 'A RenderFlex overflowed by N pixels' — 노란 테이프로 넘친 위치를 화면에 직접 표시하고 앱은 계속 동작하는 친절함이 페르소나의 기준선. 반면교사로 Xcode Diagnostics는 실제 원인이 'usually buried under dozens of compilation commands'(BleepingSwift)라 디버깅이 고고학이라는 악평."
+    },
+    {
+     "need": "실제 앱 코드 프리뷰 — 같은 파일의 헬퍼 함수·#include·클래스 멤버·샘플 데이터를 쓰는 코드도 렌더 (Compose @PreviewParameter식 가짜 데이터 주입 포함)",
+     "why": "hello-world 다음 날 함수를 분리하거나 리스트에 데이터를 넣는 순간 프리뷰가 깨지면 '장난감' 판정 후 이탈한다. 현재는 추출된 단일 return 식만 렌더 — 사용자 함수 호출이 보이면 파서가 즉시 null(cppParser.ts FAIL_KEYWORDS), {{USER_CODE}}가 함수 바디 안에 삽입되므로 헬퍼/멤버/모델 사용 불가, 멀티 파일 의존은 어느 경로로도 컴파일 불가 — 학습 2~3일차에 반드시 부딪힌다.",
+     "evidence": "sentiment tableStakes '실제 앱 코드에서 동작 — 무거운 mock 작성을 강요하면 프리뷰 자체를 포기': 'For the first two years of building my app, I simply gave up on previews entirely'(kubamilcarz, Medium), 'given up on compose Previews'(badvok666, r/androiddev score 11), 'doesn't work well or at all with even the smallest bit of complexity'(aleradders). Compose는 @PreviewParameter+PreviewParameterProvider로 빈 목록/긴 이름 등 데이터 변형 전수 시각화 제공."
+    },
+    {
+     "need": "제로 셋업(Docker 기본) 모드에서 전체 기능 동작 — 인터랙티브(클릭/스크롤), 애니메이션 프리뷰, 커스텀 폰트·locale·fontScale, CodeLens까지 기능 패리티",
+     "why": "이 페르소나는 native DALi 셋업(30분+)을 절대 하지 않으므로 Docker 기본 모드가 곧 제품의 전부다. 그런데 인터랙티브(VNC)·애니메이션 GIF·디바이스 프리뷰가 모두 native 전용(buildInteractive에 docker 분기 부재, src/buildRunner.ts:519-579; README 'In Docker mode they are currently skipped'), 커스텀 폰트는 무시되고 하네스 폴백에선 locale/fontScale 전달 누락, CodeLens조차 Docker-only 사용자에겐 안 뜰 수 있음(previewCodeLens.ts:46-82) — 광고된 기능 대부분이 이 페르소나에게 잠겨 있다.",
+     "evidence": "경쟁 도구는 동작 확인이 기본 경험: Compose Interactive mode(IDE 내 클릭·애니메이션 재생), SwiftUI Live 모드(Xcode 14부터 기본), Flutter는 실행 중인 앱 그 자체. 정적 1프레임 PNG만으로는 버튼 하나 못 눌러보는 격차가 첫 주에 체감됨."
+    },
+    {
+     "need": "Windows/macOS 지원 (또는 원격 컨테이너·웹 렌더로 호스트 OS 제약 해소)",
+     "why": "Android/Flutter 출신 신규 개발자의 기존 장비는 대부분 Windows/macOS다. Linux 전용이면 진입 비용이 '셋업 30분'이 아니라 듀얼부팅/VM 구축이 되어 시작 전에 이탈한다.",
+     "evidence": "현재 package.json os:['linux'] + 워크스루 when isLinux, README 'would need a DALi WebAssembly port'. 경쟁 도구는 전부 개발자의 기존 OS에서 동작 — Android Studio(Win/mac/Linux), Flutter(전 플랫폼 + 2025년 웹까지 hot reload), Xcode(macOS 생태계 내 완결)."
+    },
+    {
+     "need": "한계·폴백의 명시적 안내 — 설정이나 기능이 무시될 때 조용히 넘어가지 않기 (Docker에서 skip되는 기능, 범위 밖 컨피그 값, 미구현 옵션을 인라인 경고/배너로 노출)",
+     "why": "배우는 사람은 '내 코드 탓인지 도구 한계인지' 구분할 수 없다. fontScale이 실은 stub(env 주입만, buildRunner.ts:489-491)이고 duration/fps 범위 밖 값은 조용히 무시(codeExtractor.ts)되며 Docker 폴백 경로에선 locale/fontScale이 전달조차 안 되는 현재 상태에서, 학습자는 자기 문법을 의심하며 시간을 태우고 도구 신뢰를 잃는다.",
+     "evidence": "sentiment killers '조용한 상태 불일치': 'hot reload saves you a bunch of time when it's working, and then costs you the same amount of time when it randomly breaks'(IshKebab, HN). Compose 'Out of date' 배너·SwiftUI 'Automatic preview updating paused' 배너는 불만 대상이지만 최소한 상태를 선언한다 — 무음 미동작은 그보다 아래 등급으로 취급됨."
+    }
+   ],
+   "dealBreakers": [
+    "첫 렌더까지 30분 초과 — Windows/macOS라서 시작 자체가 불가하거나, Docker 설치·이미지 풀 실패 시 수동 복구를 요구하거나, 원하는 기능(인터랙션·애니메이션·실기기)이 native DALi 빌드를 전제하는 순간 페르소나 정의상 즉시 이탈 (Qt가 '빌드+배포+플래싱 사이클 제거'를 핵심 가치로 파는 이유와 동일한 임계)",
+    "탐색 첫 1시간에 베껴서 변형할 예제가 hello 수준뿐일 때 — '예제 빈약하면 이탈'은 이 페르소나의 명시 조건이며, Flutter 쿡북/Widgetbook과 Storybook 카탈로그가 이미 기준선",
+    "헬퍼 함수·데이터 주입 등 최소한의 복잡도에서 프리뷰가 무너질 때 — 'I still always end up deleting the preview struct... with even the smallest bit of complexity'(aleradders), 'given up on compose Previews'(badvok666)처럼 프리뷰를 지우고 도구를 끄는 패턴으로 직행",
+    "해독 불가능한 raw C++/g++ 에러 벽 — 문법을 모르는 상태에서 템플릿 에러 원문이 그대로 노출되면 도구가 아니라 DALi 플랫폼 자체를 포기 (Xcode의 'buried under dozens of compilation commands'식 진단 불투명성이 반면교사)",
+    "복불복·조용한 미동작 — 같은 코드가 됐다 안 됐다 하거나 설정(fontScale, 애니메이션, 폰트)이 무음으로 무시되면 신뢰 붕괴; sentiment killers대로 불안정성은 '점진적 불만이 아니라 즉각적 이탈 사유'('Compose Previews have been such a pain with things breaking we've stopped bothering' — danzero003)"
+   ],
+   "delighters": [
+    "컴파일 언어(C++)인데 타이핑과 동시에 갱신되는 경험이 실코드에서도 유지 — 'Compose previews render about as fast as I can type'(bah_si_en_fait)급 즉시성이 파서 경로뿐 아니라 헬퍼 함수 포함 코드(컴파일 경로)에서도 1초 미만이면 'C++가 이렇게 된다고?'라는 자발적 전파 포인트가 됨 (M1에서 'almost instantly' 간증이 구매 근거로 공유된 것과 동일 축)",
+    "AI가 프리뷰를 '보며' DALi 코드를 대신 짜고 스스로 고치는 루프 — 문법을 모르는 페르소나에게 초안 생성→렌더 자가검증→사람은 프리뷰에서 마무리 흐름은 온보딩 장벽 자체를 우회시킴; 'It can render and view SwiftUI previews... This closes the feedback loop on the visual side'(HN turnsout)가 2025년 이후 새 감동 축으로 부상했고 프로젝트의 dali-ui-coding-agent 방향과 정합",
+    "인스펙터에서 속성(정렬·간격·색)을 라이브로 조작하고 결과를 코드로 역반영 — 문법을 몰라도 UI를 만지며 거꾸로 배우는 학습 루프; DevEco Previewer의 양방향 동기화(프리뷰에서 padding 수정→코드 역동기화), Flutter Layout Explorer의 mainAxisAlignment 드롭다운 라이브 조정, MAUI Live Property Explorer가 선례 (현재 Widget Inspector는 읽기 전용)",
+    "원클릭 실기기(Tizen TV·워치) 프리뷰 — sdb 자동 감지와 크로스컴파일(tizenSysroot)을 숨기고 저장 즉시 손안의 기기가 갱신되면 독립적 감동 축; 'just save a file and instantly see the behavior of your app update without rebuilding'(tcoff91, HN), Qt UI Viewer의 무플래싱 디바이스 푸시가 근거 (현재는 native 전용 + 수동 설정)",
+    "인터랙티브 모드의 상태 유지 핫리로드 — 스크롤 위치·입력값을 보존한 채 수정분만 반영되면 Flutter 출신에게 'it really is like night and day'(tmpfs, HN) 감동 재현; 현재 VNC 핫리로드는 앱 kill 후 재시작(vncManager.ts:156-169)이라 매번 상태 초기화"
+   ]
+  },
+  "persona:veteran": {
+   "persona": "GBS 빌드·타겟 플래싱으로 수년간 Tizen 가전·워치 제품 UI를 DALi로 만들어온 숙련 C++ 개발자 — 수정 1회당 수 분 걸리는 루프가 고질 고통이며, 실기기와의 픽셀 단위 충실도와 제품 .cpp 코드를 재작성 없이 그대로 프리뷰할 수 있는지에 가장 민감",
+   "topNeeds": [
+    {
+     "need": "제품 .cpp 코드를 재작성 없이 그대로 프리뷰 — 헬퍼 함수·클래스 멤버·#include·다중 파일 의존(다른 .cpp의 View 빌더)·이미지 리소스 경로까지 해석되는 추출/컴파일 모델",
+     "why": "수년치 제품 코드가 자산인 페르소나에게 현재의 '추출된 단일 return 식' 모델은 정작 고통이 큰 진짜 화면에서 무력하다. 마커로 감싼 본문도 제어흐름·사용자 함수 호출이 보이면 파서가 포기해 느린 경로로 떨어지고, 다중 파일 의존은 어떤 경로로도 컴파일되지 않으므로 사실상 프리뷰 전용 토이 코드를 따로 유지하라는 요구가 된다 — 이는 mock 유지보수 부채이며 프리뷰 포기의 1순위 원인.",
+     "evidence": "여론 table stakes '실제 앱 코드에서 동작': \"For the first two years of building my app, I simply gave up on previews entirely\"(kubamilcarz, Core Data 주입 불가), \"Previews dont work in them... given up on compose Previews\"(r/androiddev badvok666, score 11); Qt Design Studio가 C++ 컴포넌트를 인식 못해 mock QML을 따로 만들어 유지시키는 painPoint; Compose의 'Failed to instantiate a ViewModel' — 프리뷰를 쓰려면 상태 호이스팅으로 코드를 재설계해야 하는 비용에 대한 불만."
+    },
+    {
+     "need": "실기기 픽셀 충실도 — Tizen 기기와 동일한 시스템 폰트·DPI·텍스트 메트릭·GL 렌더 결과 보장, 불가능한 영역은 '기기와 다를 수 있음'을 명시적으로 표시",
+     "why": "픽셀 단위 검수가 업의 기준인데 현재 Docker 렌더는 llvmpipe 소프트웨어 GL + 컨테이너 폰트/DPI라 줄바꿈·자간부터 기기와 어긋날 수 있고, fontScale은 env 주입 stub로 실제 미반영, Docker 모드는 커스텀 폰트를 경고 후 무시하며 하네스 폴백에선 locale/fontScale도 누락된다. '프리뷰에서 OK였는데 기기에서 다름'이 한 번이라도 발생하면 이 페르소나는 도구 전체를 불신하고 GBS+플래싱으로 회귀한다.",
+     "evidence": "table stakes '실물 충실도 — 한 번이라도 다르게 나오면 신뢰가 무너진다': \"my components were rendering differently in prod to storybook\"(HN JusticeJuice, item 28494559); ArkUI painPoint 'Previewer는 호스트 PC 시뮬레이션이라 렌더링 충실도가 실기기와 다를 수 있어 최종 검증은 결국 실기기 몫'; Compose가 Layoutlib 렌더와 실기기 차이를 Run Preview on device로 보완하는 이원 구조."
+    },
+    {
+     "need": "플래싱 없는 실기기 라이브 루프 — sdb 연결 기기에 저장 즉시 푸시·갱신(ARM 크로스 컴파일 기본 보장, 1회 스크린샷 pull이 아닌 연속 갱신과 기기 위 인터랙션)",
+     "why": "GBS 빌드+타겟 플래싱 수 분 루프가 이 페르소나의 본질 고통인데, 현재 디바이스 프리뷰는 native 전용 + tizenSysroot 미설정 시 호스트 x86 컴파일러 폴백으로 ARM 기기에서 실행 실패 가능 + PNG 1장 pull로 끝난다. 데스크톱 프리뷰가 아무리 빨라도 최종 판정은 기기에서 나므로, 기기 루프가 살아야 도구가 플래싱 사이클을 실제로 대체한다.",
+     "evidence": "Qt/QML의 핵심 가치가 정확히 이 지점 — 'Boot2Qt 임베디드 보드에 빌드·플래싱 없이 UI 변경을 실기기에서 본다: 임베디드 개발에서 가장 비싼 빌드+배포+플래싱 사이클 제거'; SwiftUI Preview on Device(코드 수정 시 기기 화면 라이브 갱신+인터랙션); 여론 delighter \"save a file and instantly see the behavior of your app update without rebuilding\"(HN tcoff91, item 46485889)."
+    },
+    {
+     "need": "기본(Docker) 모드에서의 동작·애니메이션 검증 — 인터랙티브 조작과 애니메이션 타임라인(스크럽·감속·프레임 단위 검사)이 native DALi 설치 없이 동작",
+     "why": "DALi는 이름부터 Dynamic Animation Library — 제품 UI 검증의 절반이 전환·포커스 이동·애니메이션인데, 기본 모드 산출물은 정적 PNG 1장이고 VNC 인터랙티브는 buildInteractive가 daliPrefix를 요구하며 Docker 분기가 없어 기본값 모드에서 사실상 불능, 애니메이션 GIF도 native+ffmpeg 전용이다. 즉 온보딩이 유도하는 Docker 사용자는 동작 확인 수단이 0이며, GIF가 되더라도 프레임 검사·스크럽이 불가하다.",
+     "evidence": "Compose Animation Preview — '수백 ms짜리 전환을 눈으로 수십 번 돌려보며 추측하던 디버깅을 프레임 단위 검사로 대체'(타임라인 스크럽·재생속도·freeze·값 그래프); Compose Interactive mode와 Xcode 14의 Live 모드 기본화, ArkUI의 'bidirectional, real-time, dynamic' 동적 프리뷰; 여론 \"previews do not handle complex situations well, so a device is always the most preferred method\"(HN) — 정적 프리뷰만으론 결국 기기로 돌아간다는 증언."
+    },
+    {
+     "need": "Tizen 폼팩터 디바이스 프로필 — 원형 워치 디스플레이(마스킹·베젤)·가전 패널·TV 프레임과 실기기 시스템 테마/폰트 프로필을 프리셋으로 제공하고 멀티 컨피그와 결합",
+     "why": "워치 UI는 원형 클리핑 영역에서 잘림·여백 판정이 갈리는데 현재의 사각 해상도 프리셋(360x640 등)과 width/height 컨피그만으로는 실제 가시 영역을 판단할 수 없다. 워치·가전·TV로 폼팩터가 다양한 단일 벤더 생태계라 1회 편집으로 전 폼팩터를 '그 기기처럼 보이는' 상태로 검증할 수 있어야 한다.",
+     "evidence": "Compose @Preview의 device(\"id:pixel_4\")·showSystemUi·wallpaper 파라미터 매트릭스와 Multipreview(팀 표준 변형 세트 강제); ArkUI Profile Manager의 최대 4개 디바이스(phone/tablet/foldable/2in1/car) 동시 프리뷰 — '폼팩터가 다양한 단일 벤더 생태계에서 적응형 레이아웃 검증을 1회 편집으로 끝내는 장치'; SwiftUI Variants 버튼(코드 수정 없이 변형 그리드)."
+    },
+    {
+     "need": "GBS/타깃 플랫폼 정합 — 제품 타깃의 Tizen 플랫폼 DALi 버전·툴체인과 일치하는 런타임으로 렌더하고, '프리뷰에선 되는데 GBS에선 깨짐'을 막는 프로파일 단위 버전 매핑·컴파일 게이트",
+     "why": "프리뷰 런타임(upstream 최신 이미지)과 제품의 GBS 타깃 DALi가 다르면 같은 코드가 다르게 그려지거나 프리뷰 통과 코드가 GBS에서 실패한다 — 픽셀과 코드 양쪽 신뢰가 동시에 무너진다. 프리뷰 전용 빌드 규칙을 따로 외워야 하는 순간 기존 툴체인을 인질 잡는 도구로 취급되어 폐기된다. 현재 버전 스위처는 upstream dali2 태그 기준이라 Tizen 제품 프로파일과의 매핑 수단이 없다.",
+     "evidence": "table stakes '기존 툴체인과의 통합 — 자체 파이프라인 강요·의존성 인질은 폐기 사유': \"Don't forget when you wanna upgrade Webpack but you can't because Storybook still only works with the old version months in\"(HN felixfbecker); Storybook '격리의 역설'(자체 webpack 환경이 prod와 다른 렌더 유발); ArkUI painPoint '실제 빌드와 다른 규칙을 따로 외워야 한다'(HSP·리소스 샌드박스 제약)."
+    },
+    {
+     "need": "렌더 결과의 자산화 — 스냅샷 저장·리팩토링 전후/이전 렌더 비교·UI 트리 구조 기반 시각 회귀 테스트(CI 연동)·팀 공유용 내보내기",
+     "why": "수년 유지보수하는 제품 UI는 플랫폼 업그레이드·리팩토링 때 '안 깨졌음'을 화면 단위로 증명해야 하는데, 현재 산출물은 /tmp 임시 PNG 1장뿐으로 보관·비교·공유 수단이 전무하고 dispose 시 삭제된다. 단 Xvfb+FreeType 렌더 특성상 픽셀 diff는 부적합하므로 UI 트리 구조 비교 기반이어야 하며(프로젝트 방향의 평가 설계와 동일 원칙), 이 경우 프리뷰 작성 노력이 테스트 자산으로 역전되어 유지 비용이 정당화된다.",
+     "evidence": "Compose 생태계의 '@Preview 함수가 그대로 스크린샷 테스트 자산'(공식 Compose Preview Screenshot Testing, Paparazzi/Roborazzi + ComposablePreviewScanner); Storybook→Chromatic 'automatically turns existing stories into test cases'; 여론 delighter — Material UI가 스토리를 Argos 시각 회귀에 5년째 재사용하며 \"it's a must have\"(HN olivtassinari, item 34336758)."
+    }
+   ],
+   "dealBreakers": [
+    "프리뷰 렌더가 실기기와 다르게 나오는 순간 — 픽셀 검수 기준으로 일하는 페르소나에게 불일치 1회는 도구 전체 불신으로 직결되어 GBS+플래싱 루프로 회귀한다 (table stakes '실물 충실도'; \"my components were rendering differently in prod to storybook\" — HN JusticeJuice)",
+    "제품 코드를 프리뷰용으로 재작성하거나 mock/프리뷰 전용 코드 경로를 병행 유지하라는 요구 — 유지보수 부채가 보는 가치를 역전하는 순간 개인이 아닌 팀 단위로 도구를 뜯어낸다 (\"I simply gave up on previews entirely\" — kubamilcarz; Storybook 제거 사례 Atomic Object 블로그; Qt의 mock QML 상시 유지 불만)",
+    "됐다 안 됐다 간헐 실패와 조용한 stale — 코드와 다른 낡은 화면을 표시해 아낀 시간을 디버깅 혼란으로 반납시키면 원인을 고치는 대신 기능을 꺼버린다 (\"hot reload saves you a bunch of time when it's working, and then costs you the same amount of time when it randomly breaks\" — HN IshKebab; \"I still always end up deleting the preview struct and disabling the canvas\" — r/iOSProgramming aleradders)",
+    "실제 코드에서 갱신이 분 단위로 늘어지거나 수동 리프레시 의식(resume 반복·캐시 삭제·재시작)을 요구해 본체 루프 대비 이득이 소멸하는 역전 (\"Stop gaslighting people into thinking that Compose previews don't take 3 minutes to build\" — r/androiddev Zhuinden; SwiftUI 'Automatic preview updating paused' 반복 resume에 대한 \"extremely frustrating\" 여론)",
+    "샘플(hello-dali 수준)에선 돌지만 대형 제품 코드베이스에서 무너지는 스케일 한계 — '장난감 도구' 낙인과 함께 팀 단위 이탈 (\"SwiftUI previews which dont work at all in large projects\" — Common-Inspector-358; \"SwiftUI previews are fucking trash. If your app gets big enough...\" — Hedylove)"
+   ],
+   "delighters": [
+    "GBS 빌드·플래싱 없이 손에 든 워치/가전 실기기가 저장 즉시 갱신되는 경험 — 임베디드에서 가장 비싼 사이클의 소멸은 자발적 전파(동료 영업) 사유가 된다 (Qt Boot2Qt 디바이스 푸시의 핵심 가치 명제; \"incredible DX improvement to be able to just save a file and instantly see the behavior... without rebuilding\" — HN tcoff91)",
+    "토이 스니펫이 아닌 실제 제품 코드에서도 타이핑 속도를 따라오는 갱신 — 지연이 지각 임계 아래로 내려가면 '빠르다'를 넘어 자랑거리가 된다 (\"Compose previews render about as fast as I can type\" — r/androiddev bah_si_en_fait; M1에서 프리뷰가 'almost instantly' 떠서 다시 쓰기 시작했다는 간증이 구매 근거로 공유된 사례)",
+    "상태 유지 핫리로드 — 설정 3뎁스 화면·진행 중 애니메이션·포커스 위치를 잃지 않고 수정분만 반영되어 '그 상태까지 되돌아가는 재현 비용'이 사라지는 경험 (\"the real killer feature is Flutters hot reload experience... it really is like night and day\" — HN tmpfs; Felgo가 'without losing the current application state'를 임베디드 대상 핵심 세일즈 포인트로 삼을 만큼 수요가 검증된 영역)",
+    "프리뷰에서 margin/padding·색을 라이브로 조정하면 코드로 역동기화 — 픽셀 튜닝에서 '수정→리로드' 사이클 자체를 생략 (ArkUI Previewer의 속성 수정→코드 역동기화; .NET MAUI Live Property Explorer의 런타임 속성 편집; Flutter Layout Explorer의 정렬 값 라이브 실험)",
+    "AI 코딩 에이전트가 프리뷰(PNG+UI 트리)를 눈으로 삼아 초안을 그려오고 사람은 프리뷰에서 마무리만 하는 핸드오프 — 2025년 이후 부상한 신규 감동 축이자 본 프로젝트의 draft-and-refine 방향과 합치 (\"It can render and view SwiftUI previews... This closes the feedback loop on the visual side\" — HN turnsout, item 47074697)"
+   ]
+  }
+ }
+}
