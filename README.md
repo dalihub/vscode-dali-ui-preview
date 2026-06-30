@@ -313,25 +313,21 @@ View MakeHomePreview() { return HomeScreen(SampleVM()).Build(); }
 
 ## Using with an AI coding agent
 
-An AI agent in VS Code (GitHub Copilot, Cursor, Claude, …) can write DALi UI for you, and
-this extension gives **the human** instant visual feedback while it does. To make the agent
-write code that actually previews, drop a short guide into your project:
+An AI agent in VS Code (GitHub Copilot, Cursor, Claude, …) can write DALi UI for you. But the
+extension's preview panel is a **webview only a human can see** — an agent can't read it. So an
+agent should **verify its own work with the companion [`dali-ui-preview-cli`](https://github.com/dalihub/dali-ui-preview-cli)**,
+which renders the same scene headlessly to a **PNG + a JSON scene tree it *can* read**, and
+loops: write → render → read → fix.
 
-- Run **DALi Preview: Add AI Agent Guide** (`Ctrl+Shift+P`). It writes — or refreshes — an
-  **`AGENTS.md`** in your workspace root, the cross-tool file Copilot/Cursor/Claude read for
-  project instructions. The guide teaches the previewable-file conventions
-  (`*.preview.dali.cpp`, the `@dali-preview` markers), the **non-fluent dali-ui API**, and the
-  exact types that are easy to guess wrong. Only the DALi block is managed — your own
-  `AGENTS.md` content is preserved.
+Run **DALi Preview: Add AI Agent Guide** (`Ctrl+Shift+P`) to set this up. It writes — or
+refreshes — an **`AGENTS.md`** in your workspace root (the cross-tool file Copilot/Cursor/Claude
+read for project instructions) that teaches exactly that: **verify with the CLI**, the
+previewable-file conventions (`*.preview.dali.cpp`, the `@dali-preview` markers), the
+**non-fluent dali-ui API**, and the types that are easy to guess wrong. Only the DALi block is
+managed — your own `AGENTS.md` content is preserved.
 
-**Two ways an agent uses the preview:**
-
-1. **Pairing with you** — the agent writes a `.preview.dali.cpp`; you watch it render live in
-   the panel and steer. (The agent can't see the webview, so a human closes the loop.)
-2. **Headless self-verification** — to let the agent *see* its own render and fix it in a loop
-   without you, use the companion **[dali-ui-preview-cli](https://github.com/dalihub/dali-ui-preview-cli)**:
-   it prints the scene tree to stdout and writes a PNG the agent can read, using the same
-   runtime and conventions as this extension.
+Meanwhile **you** get the live panel for free as the agent edits — handy when you're pairing and
+want to steer.
 
 ## Commands
 

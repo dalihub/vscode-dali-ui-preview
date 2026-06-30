@@ -26,7 +26,7 @@ describe('reportIssue: buildIssueUrl', () => {
     it('builds a GitHub new-issue URL with encoded title/body + the bug label', () => {
         const url = buildIssueUrl('[bug] x', buildIssueBody(ENV));
         expect(url).to.match(/^https:\/\/github\.com\/dalihub\/vscode-dali-ui-preview\/issues\/new\?/);
-        expect(url).to.contain('labels=bug');
+        expect(url).to.contain('labels=bug,ai-task');
         expect(url).to.contain('title=' + encodeURIComponent('[bug] x'));
         expect(decodeURIComponent(url)).to.contain('dali-preview v0.49.0');
     });

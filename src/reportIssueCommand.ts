@@ -49,8 +49,10 @@ export function buildIssueBody(env: IssueEnv, errorContext?: string): string {
 /** Build the GitHub new-issue URL; if a long error makes it oversized, keep just the env footer. Pure. */
 export function buildIssueUrl(title: string, body: string): string {
     const base = `${REPO}/issues/new`;
+    // Match the repo's bug.yml issue form, which labels reports `bug,ai-task` (the
+    // `ai-task` label is what routes an issue into the project's autodev pipeline).
     const q = (t: string, b: string): string =>
-        `${base}?labels=bug&title=${encodeURIComponent(t)}&body=${encodeURIComponent(b)}`;
+        `${base}?labels=bug,ai-task&title=${encodeURIComponent(t)}&body=${encodeURIComponent(b)}`;
     const full = q(title, body);
     if (full.length <= MAX_URL) {
         return full;
