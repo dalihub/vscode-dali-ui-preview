@@ -50,8 +50,10 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
   `/work` mount) + the `image-loads` server golden; verified end-to-end in docker mode (the
   banner sample renders the gradient, not a blank box).
   *(Docker mode also needs the runtime image to carry bug #2's server fix — pull the refreshed
-  `:latest` / `:dali_2.5.26`. Local mode recompiles the resident server on **Restart DALi
-  Runtime**. Bugs #1 and #3 are pure extension fixes.)*
+  `:latest` / `:dali_2.5.26`. That refreshed image also **restores the CJK fonts** a prior
+  `dali_2.5.26` rebuild had dropped, so Korean/CJK renders again instead of tofu (□). Local
+  mode recompiles the resident server on **Restart DALi Runtime**. Bugs #1 and #3 are pure
+  extension fixes.)*
 - **Samples: the animation sample is now discoverable** — example `04` is renamed
   **`04-focus-and-animation`** (it carries `pulse.preview.dali.cpp`, a real `Animation` + `.Play()`
   with the live scrubber), so it's visible in the folder list rather than hidden under "state".
