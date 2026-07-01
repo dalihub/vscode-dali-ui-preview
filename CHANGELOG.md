@@ -34,12 +34,17 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
 ### Fixed
 
 - **Images now render on the fast (parser/server) path.** A flat, static preview with an
-  `ImageView` takes the warm-server `RENDER_JSON` path, whose capture **fast path** grabbed the
-  frame before the async image even queued — so the image came up **blank**. The server now
-  detects an `ImageView` in the scene and always polls for the resource to finish loading first
-  (image-less previews keep the immediate fast path). Verified end-to-end via the server golden
-  runner. *(Docker mode needs the runtime image rebuilt to pick this up; local mode recompiles
-  the resident server on **Restart DALi Runtime**.)*
+  `ImageView` takes the warm-server `RENDER_JSON` path and came up **blank** — two bugs:
+  1. **The parser fed the server the raw URL.** `stageImageAssets` rewrites a relative
+     `ImageView("assets/x.jpg")` to a resolvable path, but the parser strategy parsed the
+     un-staged `extraction.code`, so the scene carried the relative URL the server (a separate
+     process) can't find. The parser now parses the **staged** code.
+  2. **The capture didn't wait for the image.** The server's capture fast path grabbed the
+     frame before the async image queued; it now polls for the resource when the scene has an
+     `ImageView` (image-less previews keep the immediate fast path).
+  Guarded by a unit test (parser gets the staged URL) + the `image-loads` server golden.
+  *(Docker mode needs the runtime image rebuilt to pick up bug #2; local mode recompiles the
+  resident server on **Restart DALi Runtime**. Bug #1 is a pure extension fix.)*
 - **Samples: the animation sample is now discoverable** — example `04` is renamed
   **`04-focus-and-animation`** (it carries `pulse.preview.dali.cpp`, a real `Animation` + `.Play()`
   with the live scrubber), so it's visible in the folder list rather than hidden under "state".

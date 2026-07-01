@@ -661,7 +661,7 @@ export class PreviewOrchestrator {
     private prepareSlice(
         doc: vscode.TextDocument,
         extraction: ExtractionResult,
-    ): { slice: SliceResult; instrumented: string } {
+    ): { slice: SliceResult; instrumented: string; stagedCode: string } {
         // Strip emoji/pictographs the preview font lacks (they abort DALi when
         // spread across separate Labels); warn so the user knows □ is a stand-in.
         const sanitized = sanitizeUnsupportedGlyphs(extraction.code);
@@ -685,7 +685,7 @@ export class PreviewOrchestrator {
         const slice = buildSlice(doc.getText(), doc.fileName, stagedCode, extraSources, extraction.params);
         const instrumented = instrumentCode(stagedCode, extraction.startLine, new Set(slice.helpers));
         slice.body = instrumented;
-        return { slice, instrumented };
+        return { slice, instrumented, stagedCode };
     }
 
     /**
@@ -879,6 +879,7 @@ export class PreviewOrchestrator {
         doc: vscode.TextDocument;
         extraction: ExtractionResult;
         instrumented: string;
+        stagedCode: string;
         slice: SliceResult;
         myGeneration: number;
         startTime: number;
@@ -888,7 +889,7 @@ export class PreviewOrchestrator {
         | { kind: 'pluginFailed' }
         | { kind: 'built'; result: BuildResult; usedServerMode: boolean; usedParserMode: boolean; parserScene: SceneNode | null }
     > {
-        const { doc, extraction, instrumented, slice, myGeneration, startTime, opId } = args;
+        const { doc, extraction, instrumented, stagedCode, slice, myGeneration, startTime, opId } = args;
         const log = getLogger();
         const buildRunner = this.deps.buildRunner;
 
@@ -929,8 +930,13 @@ export class PreviewOrchestrator {
         const hasFocus = !!extraction.state?.focus && !hasProgress;
         if (!hasFocus && slice.rung === 'single-fn' && !hasAnimation && this.parserStrategy.canHandle(this.deps.previewServer)) {
             log.debug('Build', 'trying parser path', { opId });
+            // The parser parses extraction.code — feed it the STAGED code so
+            // ImageView/SetResourceUrl URLs are the rewritten (resolvable) paths.
+            // (extraction.code is raw with relative asset URLs the server can't
+            // find → a blank image; stageImageAssets rewrote them in stagedCode.
+            // instrumented can't be parsed — it wraps New() in __tag(...).)
             const stratResult = await this.parserStrategy.execute(
-                instrumented, extraction, this.currentWidth_, this.currentHeight_,
+                instrumented, { ...extraction, code: stagedCode }, this.currentWidth_, this.currentHeight_,
                 this.currentTheme_, this.currentBgColor_,
             );
 
@@ -1144,7 +1150,7 @@ export class PreviewOrchestrator {
         // Slice the RAW body first to learn which collected helpers return a View,
         // then instrument so those helper CALLS get tagged too (a cross-file
         // MakeSectionHeader(...) → click-to-code), and re-point the slice body at it.
-        const { slice, instrumented } = this.prepareSlice(doc, extraction);
+        const { slice, instrumented, stagedCode } = this.prepareSlice(doc, extraction);
         this.deps.outputChannel.appendLine(`[Perf]    extract+instrument: ${Date.now() - startTime}ms`);
 
         try {
@@ -1185,7 +1191,7 @@ export class PreviewOrchestrator {
             this.lastSliceSources_ = new Set(slice.sourcePaths.slice(1));
 
             const outcome = await this.runBuildStrategies({
-                doc, extraction, instrumented, slice, myGeneration, startTime, opId,
+                doc, extraction, instrumented, stagedCode, slice, myGeneration, startTime, opId,
             });
             if (outcome.kind === 'stale' || outcome.kind === 'pluginFailed') {
                 return;
