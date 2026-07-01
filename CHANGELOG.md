@@ -5,7 +5,7 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.49.0] - 2026-06-30
+## [0.49.0] - 2026-07-01
 
 Release-prep ahead of the Marketplace launch (planned for October): two AI-agent helpers,
 legal/manifest hygiene, and activation hardening. **No change to the preview/render output.**
