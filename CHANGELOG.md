@@ -42,9 +42,16 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
   2. **The capture didn't wait for the image.** The server's capture fast path grabbed the
      frame before the async image queued; it now polls for the resource when the scene has an
      `ImageView` (image-less previews keep the immediate fast path).
-  Guarded by a unit test (parser gets the staged URL) + the `image-loads` server golden.
-  *(Docker mode needs the runtime image rebuilt to pick up bug #2; local mode recompiles the
-  resident server on **Restart DALi Runtime**. Bug #1 is a pure extension fix.)*
+  3. **The docker server never mounted `/work`.** In docker mode `stageImageAssets` rewrites a
+     staged image URL to `/work/<name>`, but the resident preview server only mounted
+     `tmpDir:tmpDir`, so the container had no `/work` and the image fell back to the
+     broken-image placeholder. The server container now also mounts `tmpDir:/work`.
+  Guarded by unit tests (parser gets the staged URL; the docker spawn command includes the
+  `/work` mount) + the `image-loads` server golden; verified end-to-end in docker mode (the
+  banner sample renders the gradient, not a blank box).
+  *(Docker mode also needs the runtime image to carry bug #2's server fix — pull the refreshed
+  `:latest` / `:dali_2.5.26`. Local mode recompiles the resident server on **Restart DALi
+  Runtime**. Bugs #1 and #3 are pure extension fixes.)*
 - **Samples: the animation sample is now discoverable** — example `04` is renamed
   **`04-focus-and-animation`** (it carries `pulse.preview.dali.cpp`, a real `Animation` + `.Play()`
   with the live scrubber), so it's visible in the folder list rather than hidden under "state".
@@ -67,7 +74,7 @@ legal/manifest hygiene, and activation hardening. **No change to the preview/ren
 ### Tests / chore
 
 - Added a unit suite for `localRuntimeCommand` (the docker↔local runtime switch wired into
-  activation — previously untested). **708 unit tests pass; e2e server-golden 8/8.**
+  activation — previously untested). **720 unit tests pass; e2e server-golden 8/8.**
 - `.gitignore` now covers the runtime-generated golden diff dirs (`test/e2e/server-diff/`,
   `test/e2e/diff-multifile/`), the nested `dali-ui-preview-cli/`, and dev-time scratch.
 

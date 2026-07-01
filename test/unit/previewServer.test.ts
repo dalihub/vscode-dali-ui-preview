@@ -262,6 +262,27 @@ async function startedServer(proc?: any) {
     return { server, proc: fakeProc };
 }
 
+describe('PreviewServer — docker spawn command', () => {
+    it('mounts tmpDir at BOTH its own path and /work (staged image assets)', () => {
+        // Regression guard: stageImageAssets rewrites local ImageView URLs to
+        // `/work/<name>` in docker mode. If the container has no /work mount, a
+        // staged image renders as the broken-image placeholder. Both mounts
+        // must be present: tmpDir:tmpDir (scene JSON / png paths) and
+        // tmpDir:/work (the rewritten image URLs).
+        const { server } = makeServer();
+        const [cmd, args] = (server as any).buildSpawnCommand();
+        expect(cmd).to.equal('docker');
+        // Reconstruct the `-v A:B` pairs so we assert on whole mounts, not
+        // substrings (which could match a longer path by accident).
+        const mounts: string[] = [];
+        for (let i = 0; i < args.length - 1; i++) {
+            if (args[i] === '-v') { mounts.push(args[i + 1]); }
+        }
+        expect(mounts).to.include('/tmp/dali_preview:/tmp/dali_preview');
+        expect(mounts).to.include('/tmp/dali_preview:/work');
+    });
+});
+
 describe('PreviewServer — IPC behavior', () => {
     afterEach(() => {
         sinon.restore();

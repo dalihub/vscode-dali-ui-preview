@@ -333,6 +333,12 @@ export class PreviewServer {
             '--init',
             '--name', containerName,
             '-v', `${this.tmpDir}:${this.tmpDir}`,
+            // Also mount tmpDir at /work: stageImageAssets rewrites image URLs to
+            // `/work/<name>` in docker mode (the harness build mounts /work), and the
+            // parser/RENDER_JSON scene carries those — without this the container has
+            // no /work, so a staged ImageView asset renders as the broken-image
+            // placeholder. (scene JSON / png paths use the tmpDir:tmpDir mount above.)
+            '-v', `${this.tmpDir}:/work`,
             '-v', 'dali-preview-shader-cache:/root/.cache/dali_common_caches',
             '-v', 'dali-preview-ccache:/cache',
             ...extraMountFlags,
