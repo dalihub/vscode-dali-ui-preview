@@ -264,11 +264,26 @@ export async function ensureRuntimeImage(
     outputChannel: vscode.OutputChannel,
 ): Promise<boolean> {
     const tag = ConfigurationService.getInstance().daliVersionTag;
+    return ensureRuntimeImageForTag(runtime, tag, outputChannel);
+}
 
+/**
+ * Like `ensureRuntimeImage`, but for an EXPLICIT tag rather than the configured
+ * one — used by the local→docker bootstrap to download the tag the user just
+ * picked while `daliVersionTag` is still unchanged. Never throws.
+ *
+ * Concurrent calls for the same tag are coalesced into a single pull (see
+ * `inFlightPulls`).
+ */
+export async function ensureRuntimeImageForTag(
+    runtime: DockerRuntime,
+    tag: string,
+    outputChannel: vscode.OutputChannel,
+): Promise<boolean> {
     const access = await checkDockerAccess();
     if (access.state !== 'ok') {
         outputChannel.appendLine(
-            `[Runtime] ensureRuntimeImage skipped — docker state ${access.state}`,
+            `[Runtime] ensureRuntimeImageForTag skipped — docker state ${access.state}`,
         );
         return false;
     }

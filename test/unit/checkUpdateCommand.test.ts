@@ -8,6 +8,7 @@ import {
     checkRuntimeUpdateCommand,
     maybeAutoCheckRuntimeUpdate,
     selectRuntimeVersionCommand,
+    buildVersionQuickPickItems,
 } from '../../src/checkUpdateCommand';
 
 const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
@@ -217,5 +218,30 @@ describe('selectRuntimeVersionCommand', () => {
         const find = (l: string) => items.find((i) => i.label === l);
         expect(find('latest').detail).to.equal('DALi 2.5.24');   // rolling tag → version on its own line
         expect(find('dali_2.5.24').detail).to.equal(undefined);  // version-named tag already says it
+    });
+});
+
+describe('buildVersionQuickPickItems', () => {
+    it('labels current, downloaded, and will-download; adds DALi detail for rolling tags', () => {
+        const items = buildVersionQuickPickItems(['latest', 'dali_2.5.26', 'dali_2.5.18'], {
+            current: 'latest',
+            localSet: new Set(['latest', 'dali_2.5.26']),
+            versionByTag: new Map([['latest', '2.5.26']]),
+        });
+        expect(items.map((i) => i.label)).to.deep.equal(['latest', 'dali_2.5.26', 'dali_2.5.18']);
+        expect(items[0].description).to.contain('current');
+        expect(items[0].description).to.contain('downloaded');
+        expect(items[0].detail).to.equal('DALi 2.5.26');       // rolling tag → concrete version line
+        expect(items[1].detail).to.equal(undefined);           // version-named tag needs no detail
+        expect(items[2].description).to.contain('will download');
+    });
+
+    it('marks everything will-download when nothing is cached (docker unusable)', () => {
+        const items = buildVersionQuickPickItems(['latest', 'dali_2.5.26'], {
+            current: 'dali_2.5.26',
+            localSet: new Set<string>(),
+            versionByTag: new Map(),
+        });
+        expect(items.every((i) => (i.description ?? '').includes('will download'))).to.equal(true);
     });
 });

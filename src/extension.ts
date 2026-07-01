@@ -14,13 +14,13 @@ import { checkDockerAccess, showDockerSetupGuidance, verifyDockerCommand, decide
 import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMaintenance';
 import { installDockerCommand } from './installDocker';
 import { installXvfbCommand, promptInstallXvfb } from './installXvfb';
-import { pullRuntimeImageCommand, ensureRuntimeImage } from './pullImageCommand';
+import { pullRuntimeImageCommand, ensureRuntimeImage, ensureRuntimeImageForTag } from './pullImageCommand';
 import { openExamplesCommand, showReadmeCommand, maybeShowExamplesReadme } from './sampleCommand';
 import { openWalkthrough } from './walkthroughController';
 import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
-import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand } from './checkUpdateCommand';
+import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand, buildVersionQuickPickItems } from './checkUpdateCommand';
 import * as path from 'path';
 import { BuildBackend } from './buildBackend';
 import { DockerBackend } from './backends/dockerBackend';
@@ -29,6 +29,8 @@ import { useLocalRuntimeCommand, presentLocalRuntimeIssues } from './localRuntim
 import { addAgentGuideCommand } from './agentGuideCommand';
 import { reportIssueCommand } from './reportIssueCommand';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
+import { listRemoteTags } from './registryClient';
+import { decideLocalVersionAction, decideInstallAction, runLocalDockerBootstrap } from './localDockerBootstrap';
 
 let previewManager: PreviewManager | undefined;
 let buildRunner: BuildRunner | undefined;
@@ -67,6 +69,33 @@ let daliLibWatchPrefix: string | undefined;
 // onOpen listener can be extracted; reset at the top of activate() so a fresh
 // activation behaves like a fresh session.
 let serverInitTriggered = false;
+
+/**
+ * Wait for Docker to become reachable in this session, showing a cancellable
+ * progress notification. Resolves 'ok' the moment access is granted (setfacl,
+ * no reload) or 'gaveup' on timeout/cancel. Used by the local→docker bootstrap.
+ */
+function waitForDockerReadyWithProgress(): Promise<'ok' | 'gaveup'> {
+    return new Promise((resolve) => {
+        void vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: 'DALi Preview · Docker setup',
+                cancellable: true,
+            },
+            (progress, token) => new Promise<void>((done) => {
+                progress.report({ message: 'Waiting for Docker to become available…' });
+                const poller = new DockerAccessPoller({
+                    onTick: (a, max) => progress.report({ message: `Waiting for Docker… (${a}/${max})` }),
+                    onOk: () => { resolve('ok'); done(); },
+                    onGiveUp: () => { resolve('gaveup'); done(); },
+                });
+                token.onCancellationRequested(() => { poller.stop(); resolve('gaveup'); done(); });
+                poller.start();
+            }),
+        );
+    });
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     // Set up the output channel + logger FIRST, so the wrapper below can leave an
@@ -561,19 +590,85 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
                 await selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); });
                 return;
             }
-            const runtime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
-            const picked = await selectRuntimeVersionCommand(runtime, outputChannel, async () => {});
-            if (!picked) {
-                return; // cancelled / docker unavailable — stay in local mode
+            // Local mode. If docker is reachable we can list versions and switch
+            // (existing path). If not, bootstrap docker: pick from the registry,
+            // install/fix, pull the chosen image, then switch to docker + reload.
+            const cfg = ConfigurationService.getInstance();
+            const runtime = new DockerRuntime(cfg.dockerImage);
+            const access = await checkDockerAccess();
+
+            if (decideLocalVersionAction({ accessState: access.state }) === 'list-and-switch') {
+                const picked = await selectRuntimeVersionCommand(runtime, outputChannel, async () => {});
+                if (!picked) {
+                    return; // cancelled — stay in local mode
+                }
+                await cfg.update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
+                const choice = await vscode.window.showInformationMessage(
+                    `DALi Preview: switching to the Docker runtime (${picked}). Reload the window to apply.`,
+                    'Reload Window',
+                );
+                if (choice === 'Reload Window') {
+                    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+                return;
             }
-            await ConfigurationService.getInstance().update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
-            const choice = await vscode.window.showInformationMessage(
-                `DALi Preview: switching to the Docker runtime (${picked}). Reload the window to apply.`,
-                'Reload Window',
-            );
-            if (choice === 'Reload Window') {
-                await vscode.commands.executeCommand('workbench.action.reloadWindow');
-            }
+
+            // Docker not usable yet — run the bootstrap flow.
+            await runLocalDockerBootstrap({
+                accessState: access.state,
+                currentTag: cfg.daliVersionTag,
+                listRemoteVersions: async () => {
+                    try { return await listRemoteTags(runtime.getImageName()); }
+                    catch { return []; }
+                },
+                pickVersion: async (tags, current) => {
+                    // Docker is unusable, so nothing is cached locally → all "will download".
+                    const items = buildVersionQuickPickItems(tags, {
+                        current,
+                        localSet: new Set<string>(),
+                        versionByTag: new Map<string, string | undefined>(),
+                    });
+                    const pick = await vscode.window.showQuickPick(items, {
+                        placeHolder: 'Select a DALi runtime version to install and preview with',
+                        ignoreFocusOut: true,
+                    });
+                    return pick?.label;
+                },
+                confirmSetup: async (version) => {
+                    const choice = await vscode.window.showInformationMessage(
+                        `DALi Preview will install Docker, download the ${version} runtime image (~290 MB), ` +
+                        'and switch to the Docker runtime. Enter your password once — the rest is automatic.',
+                        { modal: true },
+                        'Set Up Docker',
+                    );
+                    return choice === 'Set Up Docker';
+                },
+                confirmOfflineFallback: async (tag) => {
+                    const choice = await vscode.window.showWarningMessage(
+                        'Could not reach the registry to list versions. Install Docker and download the ' +
+                        `current runtime image (${tag}) instead?`,
+                        { modal: true },
+                        'Set Up Docker',
+                    );
+                    return choice === 'Set Up Docker';
+                },
+                beginInstall: async (state) => {
+                    if (decideInstallAction(state) === 'install') {
+                        await installDockerCommand();
+                    } else {
+                        await showDockerSetupGuidance(access, outputChannel);
+                    }
+                },
+                waitForDockerReady: () => waitForDockerReadyWithProgress(),
+                pullImage: (tag) => ensureRuntimeImageForTag(runtime, tag, outputChannel),
+                persistDockerMode: async (tag) => {
+                    await cfg.update('daliVersionTag', tag, vscode.ConfigurationTarget.Global);
+                    await cfg.update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
+                },
+                reload: async () => { await vscode.commands.executeCommand('workbench.action.reloadWindow'); },
+                warn: async (msg) => { await vscode.window.showWarningMessage(msg); },
+                log: (msg) => outputChannel.appendLine(msg),
+            });
         }),
         vscode.commands.registerCommand('dali.openExamples', () =>
             openExamplesCommand(context),

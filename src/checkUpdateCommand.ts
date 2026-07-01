@@ -122,6 +122,33 @@ export async function maybeAutoCheckRuntimeUpdate(
 }
 
 /**
+ * Map ordered runtime tags to QuickPick items with the shared label/description/
+ * detail rules. Pure (the `vscode.QuickPickItem` annotation is erased at runtime)
+ * so it is unit-testable and reused by the local→docker bootstrap picker.
+ *
+ * Each item is marked `current` / `downloaded` / `will download`, and rolling
+ * tags whose name lacks a concrete version get a `DALi <version>` detail line.
+ */
+export function buildVersionQuickPickItems(
+    orderedTags: string[],
+    ctx: { current: string; localSet: Set<string>; versionByTag: Map<string, string | undefined> },
+): vscode.QuickPickItem[] {
+    return orderedTags.map((t) => {
+        const cached = ctx.localSet.has(t);
+        const parts = [
+            t === ctx.current ? 'current' : '',
+            cached ? 'downloaded' : 'will download (~290 MB)',
+        ].filter(Boolean);
+        const item: vscode.QuickPickItem = { label: t, description: parts.join(' · ') };
+        const version = ctx.versionByTag.get(t);
+        if (version && !/\d+\.\d+\.\d+/.test(t)) {
+            item.detail = `DALi ${version}`;
+        }
+        return item;
+    });
+}
+
+/**
  * Command: `dali.selectRuntimeVersion`
  *
  * Lets the user switch between DALi runtime versions and flip back and forth
@@ -182,21 +209,7 @@ export async function selectRuntimeVersionCommand(
     // already-downloaded tags, then not-yet-downloaded ones.
     const rank = (t: string): number => (t === current ? 0 : localSet.has(t) ? 1 : 2);
     const orderedTags = [...allTags].sort((a, b) => rank(a) - rank(b));
-    const items: vscode.QuickPickItem[] = orderedTags.map((t) => {
-        const cached = localSet.has(t);
-        const parts = [
-            t === current ? 'current' : '',
-            cached ? 'downloaded' : 'will download (~290 MB)',
-        ].filter(Boolean);
-        const item: vscode.QuickPickItem = { label: t, description: parts.join(' · ') };
-        // Show the concrete version on a second line (detail) for rolling tags
-        // whose name doesn't already contain it — clearly visible, not truncated.
-        const version = versionByTag.get(t);
-        if (version && !/\d+\.\d+\.\d+/.test(t)) {
-            item.detail = `DALi ${version}`;
-        }
-        return item;
-    });
+    const items = buildVersionQuickPickItems(orderedTags, { current, localSet, versionByTag });
     const pick = await vscode.window.showQuickPick(items, {
         placeHolder: `Select a DALi runtime version to preview with (current: ${current})`,
         ignoreFocusOut: true,

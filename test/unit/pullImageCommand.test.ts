@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as dockerAccessCheck from '../../src/dockerAccessCheck';
-import { ensureRuntimeImage, pullRuntimeImageCommand, formatPullMessage, analyzePullError } from '../../src/pullImageCommand';
+import { ensureRuntimeImage, ensureRuntimeImageForTag, pullRuntimeImageCommand, formatPullMessage, analyzePullError } from '../../src/pullImageCommand';
 
 const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
 
@@ -198,5 +198,31 @@ describe('pullRuntimeImageCommand — auto-retry on transient failure', () => {
 
         expect(ok).to.equal(true);
         expect(pullStub.callCount).to.equal(2);
+    });
+});
+
+describe('ensureRuntimeImageForTag', () => {
+    afterEach(() => sinon.restore());
+
+    it('returns false without pulling when docker is not accessible', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'permission-denied' } as any);
+        const rt = makeRuntime();
+        expect(await ensureRuntimeImageForTag(rt, 'dali_2.5.26', fakeOut)).to.equal(false);
+        expect(rt.pullImage.called).to.equal(false);
+    });
+
+    it('returns true without pulling when the tag is already cached', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const rt = makeRuntime({ hasImage: sinon.stub().resolves(true) });
+        expect(await ensureRuntimeImageForTag(rt, 'dali_2.5.26', fakeOut)).to.equal(true);
+        expect(rt.pullImage.called).to.equal(false);
+    });
+
+    it('pulls the SPECIFIED tag when missing', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const rt = makeRuntime();
+        expect(await ensureRuntimeImageForTag(rt, 'dali_2.5.26', fakeOut)).to.equal(true);
+        expect(rt.pullImage.calledOnce).to.equal(true);
+        expect(rt.pullImage.firstCall.args[0]).to.equal('dali_2.5.26');
     });
 });
