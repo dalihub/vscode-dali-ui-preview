@@ -14,6 +14,14 @@ panel. After the first render, text edits update in **~100 ms**.
 
 ---
 
+## Contents
+
+**Get started** · [Features](#features) · [Requirements](#requirements) · [Quick start](#quick-start) · [Installation](#installation) · [Setting up your runtime](#setting-up-your-runtime)
+
+**Write previews** · [Writing previews](#writing-previews) · [Directives & multi-preview](#preview-directives--multi-preview) · [AI coding agent](#using-with-an-ai-coding-agent)
+
+**Reference** · [Commands](#commands) · [Settings](#settings) · [Troubleshooting](#troubleshooting) · [Reporting an issue](#reporting-an-issue) · [Notes & limitations](#notes--limitations) · [Development](#development)
+
 ## Features
 
 **The preview loop**
@@ -30,7 +38,7 @@ panel. After the first render, text edits update in **~100 ms**.
 - 🖼️ **Multi-preview** — render several sizes / themes / locales side by side from one file.
 - 🌗 **Theme toggle** — flip between dark and light, or set a custom background colour.
 
-**Real-world code** *(new in 0.44)*
+**Real-world code**
 
 - 📂 **Preview real multi-file app code** — a member-function screen
   (`Screen::Build()`) that calls helpers/factories defined in *other* `.cpp` files
@@ -62,7 +70,7 @@ panel. After the first render, text edits update in **~100 ms**.
 
 ## Requirements
 
-| | |
+| Requirement | Details |
 |---|---|
 | **OS** | Linux (x86_64). Ubuntu 22.04+ recommended. *Windows / macOS are not supported.* |
 | **VS Code** | 1.85.0 or newer |

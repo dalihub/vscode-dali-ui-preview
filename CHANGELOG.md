@@ -5,7 +5,7 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.50.0] - 2026-07-01
 
 ### Added
 
@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dead-ends with a "docker is not accessible" warning — it lets you pick a version from
   the registry, installs/fixes Docker, downloads that image, and switches to the Docker
   runtime (persisting the switch only on success; a cancel/failure leaves you on local).
+
+### Changed
+
+- **README (EN/KO) refresh.** Added a Contents / 목차 navigation block, synced the Korean
+  README's "real-world code" feature section with the English one, and removed stale
+  "new in 0.44" version markers.
 
 ## [0.49.0] - 2026-07-01
 
