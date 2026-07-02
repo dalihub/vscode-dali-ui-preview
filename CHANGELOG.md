@@ -5,6 +5,24 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Docker install/repair no longer aborts with `setfacl: Option -m: Invalid argument
+  near character 3` for domain/LDAP logins.** The no-reboot flow grants the running VS Code
+  session docker-socket access with `setfacl`, and it resolved the username through the local
+  passwd database (`u:$USER:rw`). On machines where the login is a networked (LDAP/AD) account
+  absent from `/etc/passwd` — common on corporate setups — `getpwnam()` fails, so `setfacl`
+  errors out and (via the `&&` chain) takes the rest of the install with it. The ACL is now
+  granted by **numeric UID** (`u:$(id -u):rw`), which needs no name lookup and works for every
+  account type; `usermod` uses the resolved login name (`$(id -un)`); and both the `setfacl`
+  and `usermod` steps are now **non-fatal**, so a non-local account still reaches the ACL grant
+  that unblocks the current session. Applies to the install flow, the "Fix for this session"
+  repair, the printed manual instructions, and the walkthrough. Guarded by new assertions in
+  `installDocker.test.ts` and `dockerAccessCheck.test.ts`. (`installDocker.ts`,
+  `dockerAccessCheck.ts`, `media/walkthrough/03-install-docker.md`)
+
 ## [0.52.0] - 2026-07-02
 
 ### Added

@@ -179,9 +179,9 @@ function showInstallDocs(outputChannel: vscode.OutputChannel): void {
     outputChannel.appendLine('');
     outputChannel.appendLine('  # if curl is missing:  sudo apt-get update && sudo apt-get install -y curl');
     outputChannel.appendLine('  curl -fsSL https://get.docker.com | sudo sh    # or: wget -qO- https://get.docker.com | sudo sh');
-    outputChannel.appendLine('  sudo usermod -aG docker "$USER"');
+    outputChannel.appendLine('  sudo usermod -aG docker "$(id -un)"');
     outputChannel.appendLine('  sudo systemctl enable --now docker');
-    outputChannel.appendLine('  sudo setfacl -m "u:$USER:rw" /var/run/docker.sock');
+    outputChannel.appendLine('  sudo setfacl -m "u:$(id -u):rw" /var/run/docker.sock');
     outputChannel.appendLine('');
     outputChannel.appendLine('The setfacl line grants THIS session access immediately —');
     outputChannel.appendLine('no logout or reboot. Then run "DALi: Verify Docker" to confirm.');
@@ -199,8 +199,12 @@ function applySocketAclFix(outputChannel: vscode.OutputChannel): void {
     const cmd =
         'sudo systemctl enable --now docker' +
         ' && ( command -v setfacl >/dev/null 2>&1 || sudo apt-get install -y acl || true )' +
-        ' && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock' +
-        ' && sudo usermod -aG docker "$USER"' +
+        // Grant by NUMERIC UID (id -u), not by name: setfacl's getpwnam() fails
+        // for domain/LDAP accounts absent from local /etc/passwd ("Invalid
+        // argument near character 3"). Non-fatal so a hiccup still lets usermod
+        // persist group membership below.
+        ' && ( sudo setfacl -m "u:$(id -u):rw" /var/run/docker.sock || true )' +
+        ' && ( sudo usermod -aG docker "$(id -un)" || true )' +
         ' && echo "" && echo "Docker access granted for this session — VS Code will continue automatically."';
     const terminal = vscode.window.createTerminal({ name: 'DALi Preview · Fix Docker Access' });
     terminal.show(false);

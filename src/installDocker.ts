@@ -4,16 +4,23 @@ import * as vscode from 'vscode';
  * Install Docker via an integrated terminal, then grant the CURRENT VS Code
  * session socket access immediately — no reboot, no reload.
  *
- * The chain (any step's failure aborts the rest via `&&`):
+ * The chain (steps that MUST hold use `&&`; the identity steps are non-fatal):
  *   1. install docker (get.docker.com)
- *   2. usermod -aG docker  — permanent group membership (future sessions)
+ *   2. usermod -aG docker "$(id -un)"  — permanent group membership (future
+ *      sessions). Non-fatal (`|| true`): a networked (LDAP/AD) login may not be
+ *      a local user usermod can add, and that must NOT stop the socket ACL
+ *      below, which is what actually unblocks THIS session.
  *   3. systemctl enable --now docker  — start the daemon, which CREATES the
  *      socket (must run before setfacl)
  *   4. ensure the `acl` package is present (no-op if already there)
- *   5. setfacl -m u:$USER:rw on the socket  — immediate access for THIS session.
- *      File ACLs are evaluated at connect() time, unlike group membership which
- *      is baked into a process when it starts, so the already-running VS Code
- *      can connect right away — no logout/reboot.
+ *   5. setfacl -m u:$(id -u):rw on the socket  — immediate access for THIS
+ *      session. File ACLs are evaluated at connect() time, unlike group
+ *      membership which is baked into a process when it starts, so the
+ *      already-running VS Code can connect right away — no logout/reboot.
+ *      We grant by NUMERIC UID (`id -u`), not by name: setfacl resolves a name
+ *      via getpwnam(), which fails for domain/LDAP accounts absent from local
+ *      /etc/passwd and aborts with "Invalid argument near character 3". A
+ *      numeric UID needs no lookup, so it works for every account type.
  *
  * `onStarted` is invoked after the terminal opens so the caller can begin
  * polling docker access and auto-continue once it becomes reachable.
@@ -47,11 +54,13 @@ export function buildDockerInstallCommand(): string {
         '|| wget -qO- https://get.docker.com | sudo sh )';
     return ensureDownloader +
         ' && ' + downloadAndRun +
-        ' && sudo usermod -aG docker "$USER"' +
+        ' && ( sudo usermod -aG docker "$(id -un)" || true )' +
         ' && sudo systemctl enable --now docker' +
         ' && ( command -v setfacl >/dev/null 2>&1 || sudo apt-get install -y acl || true )' +
-        ' && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock' +
-        ' && echo "" && echo "Docker is ready for this session — VS Code will continue automatically."';
+        ' && echo ""' +
+        ' && ( sudo setfacl -m "u:$(id -u):rw" /var/run/docker.sock' +
+        ' && echo "Docker is ready for this session — VS Code will continue automatically."' +
+        ' || echo "Docker installed. Log out and back in to finalize docker access." )';
 }
 
 export async function installDockerCommand(onStarted?: () => void): Promise<void> {

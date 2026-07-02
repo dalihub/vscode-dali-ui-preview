@@ -69,4 +69,16 @@ describe('buildDockerInstallCommand', () => {
         expect(buildDockerInstallCommand())
             .to.contain('sudo apt-get update && sudo apt-get install -y curl');
     });
+
+    it('grants the socket ACL by numeric UID — resolves for LDAP/domain logins', () => {
+        const cmd = buildDockerInstallCommand();
+        // Numeric UID needs no getpwnam() lookup, so it never hits setfacl's
+        // "Invalid argument near character 3" on domain/LDAP accounts.
+        expect(cmd).to.contain('setfacl -m "u:$(id -u):rw" /var/run/docker.sock');
+        // The fragile username form must be gone entirely.
+        expect(cmd).to.not.contain('u:$USER');
+        // usermod uses the resolved login name and is non-fatal, so a non-local
+        // (domain) account still reaches the ACL grant that unblocks this session.
+        expect(cmd).to.contain('usermod -aG docker "$(id -un)" || true');
+    });
 });

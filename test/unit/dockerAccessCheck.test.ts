@@ -18,6 +18,9 @@ describe('showDockerSetupGuidance — permission-denied', () => {
         await showDockerSetupGuidance({ state: 'permission-denied' } as any, fakeOut, onChanged);
 
         expect(sentText).to.contain('setfacl');
+        // Grant by numeric UID — resolves for LDAP/domain logins (not "u:$USER").
+        expect(sentText).to.contain('u:$(id -u):rw');
+        expect(sentText).to.not.contain('u:$USER');
         // The fix-only chain must NOT reinstall docker or tell the user to reboot.
         expect(sentText).to.not.contain('get.docker.com');
         expect(sentText.toLowerCase()).to.not.contain('reboot');

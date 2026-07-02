@@ -15,9 +15,9 @@ permissions, and the runtime download proceed automatically.
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh \
-  && sudo usermod -aG docker "$USER" \
+  && sudo usermod -aG docker "$(id -un)" \
   && sudo systemctl enable --now docker \
-  && sudo setfacl -m "u:$USER:rw" /var/run/docker.sock
+  && sudo setfacl -m "u:$(id -u):rw" /var/run/docker.sock
 ```
 
 ## No reboot needed
@@ -37,3 +37,8 @@ to confirm; you should see a green confirmation message.
 > future sessions, so the ACL only has to bridge the current one. If the
 > docker daemon is later restarted and access drops, re-run
 > **"Verify Docker Access"** → **"Fix for this session"**.
+>
+> The ACL is granted by **numeric UID** (`u:$(id -u)`), not by username:
+> `setfacl` resolves a name through the local passwd database, which fails
+> for networked (LDAP/AD) logins with `Invalid argument near character 3`.
+> A numeric UID needs no lookup, so it works for every account type.
