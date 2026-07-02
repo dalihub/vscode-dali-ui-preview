@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Extension self-update notifications.** Because DALi Preview ships as a `.vsix` (not the
+  Marketplace), VS Code never auto-updates it — so colleagues who installed via the one-line
+  `install.sh` had no signal when a new release landed. The extension now checks GitHub for a
+  newer release **once a day** and, when one exists, offers **Update now** — which re-runs the
+  installer in an integrated terminal (you press Enter; nothing installs silently). A manual
+  **DALi Preview: Check for Extension Updates** command always reports (including "up to date"),
+  and `daliPreview.extensionUpdatePolicy` (`notify` default / `off`) governs the auto-check.
+  The version probe goes through `github.com` (not the rate-limited API), so it needs no token
+  and works behind a shared proxy. The check runs outside the activation spine and is fully
+  fail-silent — a network hiccup can never affect activation or previews. Guarded by
+  `extensionUpdateChecker.test.ts` (20 unit tests).
+
 ### Fixed
 
 - **The one-line installer (`install.sh`) no longer fails with `HTTP 403` behind a

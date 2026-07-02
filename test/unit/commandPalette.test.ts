@@ -20,6 +20,7 @@ const PALETTE_VISIBLE = [
     'dali.useLocalRuntime',
     'dali.restartDaliRuntime',
     'dali.selectRuntimeVersion',
+    'dali.checkExtensionUpdate',
 ];
 
 // Hidden from the palette: CodeLens-only (previewFunction needs args), the

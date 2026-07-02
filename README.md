@@ -16,7 +16,7 @@ panel. After the first render, text edits update in **~100 ms**.
 
 ## Contents
 
-**Get started** · [Features](#features) · [Requirements](#requirements) · [Quick start](#quick-start) · [Installation](#installation) · [Setting up your runtime](#setting-up-your-runtime)
+**Get started** · [Features](#features) · [Requirements](#requirements) · [Quick start](#quick-start) · [Installation](#installation) · [Updating](#updating) · [Setting up your runtime](#setting-up-your-runtime)
 
 **Write previews** · [Writing previews](#writing-previews) · [Directives & multi-preview](#preview-directives--multi-preview) · [AI coding agent](#using-with-an-ai-coding-agent)
 
@@ -135,6 +135,25 @@ npm run compile
 npx vsce package
 code --install-extension dali-preview-*.vsix
 ```
+
+## Updating
+
+Because DALi Preview is installed from a `.vsix` (not the VS Code Marketplace), VS Code
+does **not** auto-update it. Instead the extension checks GitHub for a newer release **once
+a day** and shows a notification when one is available — click **Update now** and it re-runs
+the installer in a terminal (you press Enter; nothing installs silently).
+
+- **Check right now:** Command Palette → **DALi Preview: Check for Extension Updates**.
+- **Update manually any time** (same command the button runs):
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
+  ```
+  It always installs the latest release (`--force`-overwrites the current one). Reload VS
+  Code afterwards.
+- **Turn the notification off:** set `daliPreview.extensionUpdatePolicy` to `off`.
+
+The check goes through `github.com` (not the rate-limited GitHub API), so it needs no token
+and works behind a shared corporate proxy or VPN.
 
 ## Setting up your runtime
 
@@ -364,6 +383,7 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | **Verify Docker Access** | Confirm Docker is reachable; fix a "permission denied" session |
 | **Toggle Theme** | Switch the preview between dark and light |
 | **Check for Runtime Image Update** | Compare your image against the registry |
+| **Check for Extension Updates** | Compare your installed extension against the latest GitHub release |
 | **Clean Runtime Images** | Remove cached runtime images to free disk |
 | **Reset Extension** | Remove containers, images, and caches and start fresh |
 | **Open Settings** | Jump to the extension's settings |
@@ -379,6 +399,7 @@ Open the Command Palette (`Ctrl+Shift+P`) and type **DALi**.
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | Runtime image used in Docker mode. |
 | `daliPreview.daliVersionTag` | string | `latest` | Runtime image tag (DALi version). `latest` follows the rolling tag. |
 | `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | How to handle a newer runtime image (checked once/day, Docker mode). |
+| `daliPreview.extensionUpdatePolicy` | `off` \| `notify` | `notify` | How to handle a newer **extension** release on GitHub (checked once/day; `notify` shows a one-click update prompt). |
 | `daliPreview.previewWidth` | number | `1920` | Default canvas width (px). |
 | `daliPreview.previewHeight` | number | `1080` | Default canvas height (px). |
 | `daliPreview.background` | `dark` \| `light` \| `checker` | `dark` | Background style behind the rendered preview. |

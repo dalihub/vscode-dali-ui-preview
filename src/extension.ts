@@ -21,6 +21,7 @@ import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnbo
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
 import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand, buildVersionQuickPickItems } from './checkUpdateCommand';
+import { checkExtensionUpdateCommand, maybeAutoCheckExtensionUpdate } from './extensionUpdateChecker';
 import * as path from 'path';
 import { BuildBackend } from './buildBackend';
 import { DockerBackend } from './backends/dockerBackend';
@@ -512,6 +513,16 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
         });
     }
 
+    // Once-a-day background check for a newer *extension* release on GitHub.
+    // The extension ships as a .vsix (not the Marketplace) so VS Code never
+    // auto-updates it — this fills that gap. Fire-and-forget and fully
+    // fail-silent: it lives OUTSIDE the activation spine so a network hiccup
+    // can never affect activation or the preview feature.
+    const currentExtVersion = context.extension?.packageJSON?.version;
+    if (currentExtVersion) {
+        void maybeAutoCheckExtensionUpdate(context, { currentVersion: currentExtVersion }, outputChannel);
+    }
+
     // Command: DALi Preview: Toggle Theme
     const toggleThemeCmd = vscode.commands.registerCommand('dali.toggleTheme', () => {
         if (!orchestrator) { return; }
@@ -699,6 +710,14 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             await initPreviewServer();
             void vscode.window.showInformationMessage('DALi runtime restarted — using your latest DALi build.');
         }),
+        // Manual "check for extension updates" (always reports, unlike the silent
+        // once-a-day activation check). Palette-visible.
+        vscode.commands.registerCommand('dali.checkExtensionUpdate', () =>
+            checkExtensionUpdateCommand(
+                { currentVersion: context.extension?.packageJSON?.version ?? '0.0.0' },
+                outputChannel,
+            ),
+        ),
     );
 
     // First-launch onboarding — shown once per machine via globalState flag.

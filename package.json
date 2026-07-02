@@ -139,6 +139,11 @@
         "command": "dali.restartDaliRuntime",
         "title": "Restart DALi Runtime",
         "category": "DALi Preview"
+      },
+      {
+        "command": "dali.checkExtensionUpdate",
+        "title": "Check for Extension Updates",
+        "category": "DALi Preview"
       }
     ],
     "menus": {
@@ -232,6 +237,15 @@
           ],
           "default": "notify",
           "description": "How to handle a newer DALi runtime image in the registry (checked once per day in docker mode, via digest comparison). 'off': never check. 'notify' (default): show a notification + status-bar badge when an update is available — you click to apply it. 'auto': download and apply the update automatically in the background."
+        },
+        "daliPreview.extensionUpdatePolicy": {
+          "type": "string",
+          "enum": [
+            "off",
+            "notify"
+          ],
+          "default": "notify",
+          "description": "How to handle a newer *extension* release on GitHub. Because DALi Preview is installed from a .vsix (not the Marketplace), VS Code never auto-updates it — this check fills that gap (once per day, via github.com so no API rate-limit). 'off': never check. 'notify' (default): show a notification when a newer release is available; clicking 'Update now' re-runs the installer in a terminal. (No 'auto' — a running extension can't hot-swap itself.)"
         },
         "daliPreview.previewWidth": {
           "type": "number",

@@ -16,7 +16,7 @@
 
 ## 목차
 
-**시작하기** · [기능](#기능) · [요구 사항](#요구-사항) · [빠른 시작](#빠른-시작) · [설치](#설치) · [런타임 설정하기](#런타임-설정하기)
+**시작하기** · [기능](#기능) · [요구 사항](#요구-사항) · [빠른 시작](#빠른-시작) · [설치](#설치) · [업데이트](#업데이트) · [런타임 설정하기](#런타임-설정하기)
 
 **프리뷰 작성** · [프리뷰 작성하기](#프리뷰-작성하기) · [지시자 & 멀티 프리뷰](#프리뷰-지시자--멀티-프리뷰) · [AI 코딩 에이전트](#ai-코딩-에이전트와-함께-쓰기)
 
@@ -128,6 +128,24 @@ npm run compile
 npx vsce package
 code --install-extension dali-preview-*.vsix
 ```
+
+## 업데이트
+
+DALi Preview는 VS Code 마켓플레이스가 아니라 `.vsix` 로 설치되므로 VS Code가 **자동으로
+업데이트해 주지 않습니다.** 대신 확장이 **하루 한 번** GitHub에서 새 릴리즈를 확인하고, 있으면
+알림을 띄웁니다 — **Update now** 를 누르면 터미널에서 설치 스크립트를 다시 실행합니다(엔터는
+직접 누르며, 조용히 설치되는 일은 없습니다).
+
+- **지금 바로 확인:** 명령 팔레트 → **DALi Preview: Check for Extension Updates**.
+- **수동 업데이트** (버튼이 실행하는 것과 동일한 명령):
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
+  ```
+  항상 최신 릴리즈를 설치합니다(`--force` 로 기존 버전 덮어쓰기). 이후 VS Code를 새로고침하세요.
+- **알림 끄기:** `daliPreview.extensionUpdatePolicy` 를 `off` 로 설정.
+
+확인은 (레이트 제한이 있는 GitHub API가 아니라) `github.com` 을 거치므로 토큰이 필요 없고
+공유 사내 프록시·VPN 뒤에서도 동작합니다.
 
 ## 런타임 설정하기
 
@@ -336,6 +354,7 @@ VS Code의 AI 에이전트(GitHub Copilot, Cursor, Claude 등)가 DALi UI를 대
 | **Verify Docker Access** | Docker 접근 확인; "permission denied" 세션 복구 |
 | **Toggle Theme** | 프리뷰 다크/라이트 전환 |
 | **Check for Runtime Image Update** | 레지스트리와 이미지 비교 |
+| **Check for Extension Updates** | 설치된 확장을 최신 GitHub 릴리즈와 비교 |
 | **Clean Runtime Images** | 캐시된 런타임 이미지 삭제로 디스크 정리 |
 | **Reset Extension** | 컨테이너 · 이미지 · 캐시 제거 후 초기화 |
 | **Open Settings** | 확장 설정으로 이동 |
@@ -351,6 +370,7 @@ VS Code의 AI 에이전트(GitHub Copilot, Cursor, Claude 등)가 DALi UI를 대
 | `daliPreview.dockerImage` | string | `ghcr.io/lwc0917/dali-preview-runtime` | docker 모드에서 사용할 런타임 이미지. |
 | `daliPreview.daliVersionTag` | string | `latest` | 런타임 이미지 태그(DALi 버전). `latest` 는 롤링 태그를 따름. |
 | `daliPreview.runtimeUpdatePolicy` | `off` \| `notify` \| `auto` | `notify` | 새 런타임 이미지 처리 방식(하루 1회 확인, docker 모드). |
+| `daliPreview.extensionUpdatePolicy` | `off` \| `notify` | `notify` | GitHub의 새 **확장** 릴리즈 처리 방식(하루 1회 확인; `notify` 는 원클릭 업데이트 알림 표시). |
 | `daliPreview.previewWidth` | number | `1920` | 기본 캔버스 너비 (px). |
 | `daliPreview.previewHeight` | number | `1080` | 기본 캔버스 높이 (px). |
 | `daliPreview.background` | `dark` \| `light` \| `checker` | `dark` | 렌더된 프리뷰 뒤 배경 스타일. |

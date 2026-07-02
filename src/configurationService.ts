@@ -49,6 +49,15 @@ export class ConfigurationService {
         return v === 'off' || v === 'auto' ? v : 'notify';
     }
 
+    /**
+     * How to handle a newer *extension* release on GitHub (checked once per day).
+     * No 'auto': a running extension can't hot-swap itself and the installer runs
+     * in a terminal the user confirms. See extensionUpdateChecker.ts.
+     */
+    get extensionUpdatePolicy(): 'off' | 'notify' {
+        return this.getConfig().get<string>('extensionUpdatePolicy', 'notify') === 'off' ? 'off' : 'notify';
+    }
+
     get previewWidth(): number {
         // Default to the TV FHD profile (1920×1080) — DALi UI apps target the TV.
         return this.getConfig().get<number>('previewWidth', 1920);

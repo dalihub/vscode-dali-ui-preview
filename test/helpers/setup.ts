@@ -123,6 +123,10 @@ const vscodeMock = {
         registerCommand: () => ({ dispose: () => {} }),
         executeCommand: () => Promise.resolve(undefined),
     },
+    env: {
+        openExternal: (_uri: any) => Promise.resolve(true),
+        clipboard: { writeText: (_text: string) => Promise.resolve() },
+    },
     Disposable: class Disposable {
         constructor(private _fn: () => void) {}
         dispose() { this._fn(); }
