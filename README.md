@@ -6,7 +6,7 @@
 > No device, no emulator, no cross-compile. The same instant-preview workflow you get
 > from SwiftUI, Jetpack Compose, and Flutter, brought to the DALi ecosystem.
 
-![Demo](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
+<img width="800" height="551" alt="testVideo_0702" src="https://github.com/user-attachments/assets/60972466-8ac2-4e04-862e-92606a703856" />
 
 You write DALi UI code in a `.preview.dali.cpp` file (or mark a region in any `.cpp`).
 The extension renders one frame against a real DALi runtime and shows it in a side
