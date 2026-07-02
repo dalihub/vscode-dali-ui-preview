@@ -6,7 +6,7 @@
 > 기기도, 에뮬레이터도, 크로스 컴파일도 필요 없습니다. SwiftUI · Jetpack Compose ·
 > Flutter에서 익숙한 즉시 프리뷰 경험을 DALi 환경에 그대로 가져왔습니다.
 
-![데모](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
+<img width="800" height="551" alt="testVideo_0702" src="https://github.com/user-attachments/assets/d2359804-c38f-4ce7-b618-81229923ebe1" />
 
 `.preview.dali.cpp` 파일에 DALi UI 코드를 작성하면(또는 일반 `.cpp` 안의 영역을 마커로
 지정하면), 실제 DALi 런타임으로 한 프레임을 렌더링해 사이드 패널에 보여줍니다. 첫 렌더링
@@ -106,6 +106,8 @@ curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main
 ```
 
 GitHub Releases에서 최신 `.vsix` 를 받아 VS Code에 설치합니다.
+릴리스를 `github.com` 으로 직접 해석하므로 — GitHub API 토큰이 필요 없고, 공용 사내
+프록시/VPN 뒤에서도 속도 제한 `403` 오류가 나지 않습니다.
 
 ### 방법 2 — GitHub Releases에서 직접
 
@@ -359,6 +361,11 @@ VS Code의 AI 에이전트(GitHub Copilot, Cursor, Claude 등)가 DALi UI를 대
 
 ## 문제 해결
 
+- **한 줄 설치가 `HTTP 403` / "API rate limit exceeded" 로 실패** — 예전 `install.sh` 는
+  GitHub REST API를 호출했는데, 이 API는 **IP당 60회/시간** 으로 제한됩니다. 여러 사람이
+  하나의 사내 프록시/NAT IP를 공유하면 금방 소진됩니다. 위의 한 줄 설치를 다시 실행하세요 —
+  현재 스크립트는 최신 릴리스를 `github.com` 으로 직접 해석(API 미사용)하므로 이 제한과
+  무관하며 토큰도 필요 없습니다.
 - **설정 안내가 안 떴거나, 닫아버렸음** — Docker 모드는 Docker 설치**와** 런타임 이미지
   다운로드가 **모두** 끝나야 렌더링됩니다. `.preview.dali.cpp` 파일을 열면(예: **DALi
   Preview: Open Samples**) 안내가 다시 뜨고, **DALi Preview: Run Setup Walkthrough** 로도
