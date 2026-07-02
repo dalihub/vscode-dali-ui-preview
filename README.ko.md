@@ -6,7 +6,7 @@
 > 기기도, 에뮬레이터도, 크로스 컴파일도 필요 없습니다. SwiftUI · Jetpack Compose ·
 > Flutter에서 익숙한 즉시 프리뷰 경험을 DALi 환경에 그대로 가져왔습니다.
 
-![데모](https://github.com/user-attachments/assets/72877561-c999-4040-acae-05cf9fb2b16c)
+<img width="800" height="551" alt="testVideo_0702" src="https://github.com/user-attachments/assets/d2359804-c38f-4ce7-b618-81229923ebe1" />
 
 `.preview.dali.cpp` 파일에 DALi UI 코드를 작성하면(또는 일반 `.cpp` 안의 영역을 마커로
 지정하면), 실제 DALi 런타임으로 한 프레임을 렌더링해 사이드 패널에 보여줍니다. 첫 렌더링
