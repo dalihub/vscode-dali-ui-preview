@@ -15,6 +15,43 @@ import { BackendIssue } from './buildBackend';
  * `runtimeMode` to 'local', and offer a window reload so the local backend is
  * wired in at activation.
  */
+/** A higher-precedence `runtimeMode` setting that overrides a User (Global) write. */
+export interface RuntimeModeShadow {
+    scope: 'workspace' | 'workspaceFolder';
+    value: string;
+}
+
+/**
+ * Detect whether a Workspace- or Folder-scoped `daliPreview.runtimeMode` will
+ * shadow a User (Global)-scoped write to `desired`.
+ *
+ * VS Code config precedence is Folder > Workspace > User > Default, so writing
+ * runtimeMode to Global is silently ignored when a higher scope pins a different
+ * value (e.g. `test/samples/.vscode/settings.json` pins "docker" for the golden
+ * tests). Returns the shadowing scope+value, or null when the Global write will
+ * actually take effect. Folder scope outranks Workspace scope: a folder value
+ * alone decides the outcome regardless of any workspace value.
+ */
+export function detectRuntimeModeShadow(
+    inspected: { workspaceValue?: string; workspaceFolderValue?: string } | undefined,
+    desired: string,
+): RuntimeModeShadow | null {
+    if (!inspected) {
+        return null;
+    }
+    if (inspected.workspaceFolderValue !== undefined) {
+        return inspected.workspaceFolderValue !== desired
+            ? { scope: 'workspaceFolder', value: inspected.workspaceFolderValue }
+            : null;
+    }
+    if (inspected.workspaceValue !== undefined) {
+        return inspected.workspaceValue !== desired
+            ? { scope: 'workspace', value: inspected.workspaceValue }
+            : null;
+    }
+    return null;
+}
+
 export async function useLocalRuntimeCommand(activeModeIsLocal = false): Promise<void> {
     const detected = await findDaliPrefix();
     const detectedPrefix = detected ? resolveDaliPrefix(detected) : null;
@@ -53,6 +90,31 @@ export async function useLocalRuntimeCommand(activeModeIsLocal = false): Promise
 
     await cfg.update('daliPrefix', selected, vscode.ConfigurationTarget.Global);
     await cfg.update('runtimeMode', 'local', vscode.ConfigurationTarget.Global);
+
+    // A Workspace/Folder-scoped runtimeMode outranks the Global write we just made
+    // (e.g. opening a file under test/samples, whose .vscode/settings.json pins
+    // "docker"). Reloading wouldn't switch anything — surface the override instead
+    // of silently offering a useless reload.
+    const config = vscode.workspace.getConfiguration('daliPreview');
+    const inspected = config.inspect ? config.inspect<string>('runtimeMode') : undefined;
+    const shadow = detectRuntimeModeShadow(inspected, 'local');
+    if (shadow) {
+        const scopeLabel = shadow.scope === 'workspaceFolder' ? "this folder's" : "this workspace's";
+        const choice = await vscode.window.showWarningMessage(
+            `Local runtime saved to your User settings, but ${scopeLabel} settings pin ` +
+            `daliPreview.runtimeMode to "${shadow.value}", which takes precedence. The preview will ` +
+            `keep using the "${shadow.value}" runtime until you change it there.`,
+            'Open Settings',
+        );
+        if (choice === 'Open Settings') {
+            await vscode.commands.executeCommand(
+                shadow.scope === 'workspaceFolder'
+                    ? 'workbench.action.openFolderSettings'
+                    : 'workbench.action.openWorkspaceSettings',
+            );
+        }
+        return;
+    }
 
     const choice = await vscode.window.showInformationMessage(
         `DALi Preview: local runtime set to ${selected}. Reload the window to apply.`,
