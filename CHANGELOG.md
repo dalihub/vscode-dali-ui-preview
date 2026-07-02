@@ -5,6 +5,18 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.1] - 2026-07-02
+
+### Fixed
+
+- **"Use Local DALi Runtime" no longer silently fails when a Workspace/Folder setting
+  overrides it.** The command wrote `daliPreview.runtimeMode` to User (Global) scope, which
+  VS Code precedence lets a Workspace- or Folder-scoped setting shadow (e.g. previewing a
+  file under `test/samples/`, whose `.vscode/settings.json` pins `runtimeMode: "docker"`).
+  The switch appeared to do nothing and the panel title kept reading `Docker (…)`. The
+  command now detects the shadowing scope, warns which settings file is winning, and offers
+  to open it — instead of offering a reload that can't take effect.
+
 ## [0.51.0] - 2026-07-02
 
 ### Added
