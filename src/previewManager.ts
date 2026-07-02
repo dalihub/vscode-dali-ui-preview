@@ -3,6 +3,19 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { MultiPreviewResult } from './previewConfig';
 import { getLogger } from './logger';
+import { ConfigurationService } from './configurationService';
+
+/**
+ * The preview panel tab title, tagged with the live runtime so a developer who
+ * switched runtimes (e.g. via "Select Runtime Version") can tell at a glance
+ * whether the preview is rendering locally or in Docker. Docker also shows its
+ * image version tag; the tag is irrelevant in local mode and is omitted.
+ */
+export function runtimePanelTitle(mode: 'docker' | 'local', versionTag: string): string {
+    return mode === 'local'
+        ? 'DALi Preview — Local'
+        : `DALi Preview — Docker (${versionTag})`;
+}
 
 export class PreviewManager {
     private panel: vscode.WebviewPanel | undefined;
@@ -26,9 +39,10 @@ export class PreviewManager {
 
         const mediaPath = path.join(this.context.extensionPath, 'media');
 
+        const cfg = ConfigurationService.getInstance();
         this.panel = vscode.window.createWebviewPanel(
             'daliPreview',
-            'DALi Preview',
+            runtimePanelTitle(cfg.runtimeMode, cfg.daliVersionTag),
             { viewColumn: vscode.ViewColumn.Two, preserveFocus },
             {
                 enableScripts: true,

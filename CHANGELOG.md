@@ -5,6 +5,26 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.0] - 2026-07-02
+
+### Added
+
+- **Preview panel title now shows the active runtime.** The preview tab is labelled
+  `DALi Preview — Local` or `DALi Preview — Docker (<version>)` so you can tell at a glance
+  which runtime is rendering after switching via `DALi Preview: Select Runtime Version`
+  (previously the tab always read `DALi Preview`, indistinguishable between local and
+  Docker). Guarded by a unit test (`runtimePanelTitle.test.ts`).
+
+### Fixed
+
+- **Samples now render at the TV FHD size regardless of a global size override.** `Open
+  Examples` opens the tour in a *new window*, and the `examples/` folder shipped **no**
+  workspace `.vscode/settings.json` — so with a smaller global `daliPreview.previewWidth/Height`
+  set (e.g. a 600×400 fast-iteration override), every sample rendered at that smaller size
+  instead of the 1920×1080 the TV samples are laid out for. The tour now ships a workspace
+  `settings.json` pinning `1920`×`1080`, so it renders at TV FHD for everyone. Guarded by a
+  unit test (`exampleTourSettings.test.ts`) and confirmed to ship in the VSIX (`vsce ls`).
+
 ## [0.50.0] - 2026-07-01
 
 ### Added
