@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Runtime image registry now auto-detects: BART GHCR proxy inside Samsung, else GHCR.**
+  Inside the corporate network, direct GHCR pulls intermittently drop (shared egress IP
+  throttled by GitHub mid-transfer, fatal for the ~290 MB image). The extension now pulls the
+  runtime image from BART's anonymous GHCR caching proxy
+  (`ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime`) when the proxy host
+  is reachable, and falls back to `ghcr.io/lwc0917/dali-preview-runtime` otherwise — the repo
+  path is identical, so tags and digests match and update checks are unchanged. Detection runs
+  once at activation (cached in globalState with a 24h TTL; a probe of the proxy `/v2/`
+  endpoint). `daliPreview.dockerImage` now defaults to **empty = auto-detect**; set it to a
+  concrete image to pin a registry. The download progress notification and output channel now
+  show **which server** the image is being pulled from.
+
 ### Fixed
+
+- **`DEFAULT_DOCKER_IMAGE` fallback pointed at the never-published `ghcr.io/dalihub/...`;**
+  corrected to the live `ghcr.io/lwc0917/dali-preview-runtime`.
 
 - **Docker install/repair no longer aborts with `setfacl: Option -m: Invalid argument
   near character 3` for domain/LDAP logins.** The no-reboot flow grants the running VS Code

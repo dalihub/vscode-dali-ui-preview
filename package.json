@@ -220,8 +220,8 @@
         },
         "daliPreview.dockerImage": {
           "type": "string",
-          "default": "ghcr.io/lwc0917/dali-preview-runtime",
-          "description": "Container image used when runtimeMode is 'docker'. Tags are appended automatically (e.g. ':dali_2.5.18'). Default points to a developer-maintained image on GHCR; once dalihub org allows public packages, switch to ghcr.io/dalihub/dali-preview-runtime."
+          "default": "",
+          "description": "Container image used when runtimeMode is 'docker'. Tags are appended automatically (e.g. ':dali_2.5.18'). Leave empty to auto-detect: on the Samsung corporate network the BART GHCR proxy (ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime) is used to avoid intermittent GHCR pull drops; otherwise ghcr.io/lwc0917/dali-preview-runtime. Set explicitly to pin a registry."
         },
         "daliPreview.daliVersionTag": {
           "type": "string",

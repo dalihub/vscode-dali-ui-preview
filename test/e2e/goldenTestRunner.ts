@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
+import { detectDefaultImage } from '../../src/registry';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES_DIR = path.join(REPO_ROOT, 'test', 'samples');
@@ -389,7 +390,9 @@ async function main(): Promise<void> {
     // match real preview exactly (DALi 2.0.0 + DejaVu-only fonts → emoji = □).
     // GOLDEN_NATIVE=1 falls back to native g++/Xvfb (faster, but native fonts differ).
     const useDocker = process.env.GOLDEN_NATIVE !== '1';
-    const image = process.env.PREVIEW_IMAGE || 'ghcr.io/lwc0917/dali-preview-runtime:latest';
+    // Auto-detect the registry (BART proxy on the corp network, else GHCR) so goldens
+    // pull reliably from inside Samsung too; PREVIEW_IMAGE overrides (CI pins ghcr.io).
+    const image = process.env.PREVIEW_IMAGE || `${await detectDefaultImage()}:latest`;
 
     const daliPrefix = detectDaliPrefix();
     if (!useDocker && !daliPrefix) {

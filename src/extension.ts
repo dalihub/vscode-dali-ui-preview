@@ -120,6 +120,13 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
     const log = getLogger();
     log.info('Extension', 'DALi Preview extension activating...');
 
+    // Resolve which registry the runtime image is pulled from BEFORE anything
+    // constructs a DockerRuntime: the BART GHCR caching proxy on the Samsung network
+    // (reliable, avoids the intermittent GHCR blob-pull drops), else GHCR directly.
+    // Cached in globalState (24h TTL), so this is instant on a warm cache.
+    await ConfigurationService.ensureAutoImage(context);
+    log.info('Extension', 'Runtime image resolved', { image: ConfigurationService.getInstance().dockerImage });
+
     // Load initial size from settings
     const initialCfg = ConfigurationService.getInstance();
     const initialWidth = initialCfg.previewWidth;

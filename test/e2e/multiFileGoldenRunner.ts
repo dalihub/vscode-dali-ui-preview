@@ -33,6 +33,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix, StandaloneBuildOptions } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
+import { detectDefaultImage } from '../../src/registry';
 import { buildSlice, findPreviewFunction, SourceFile } from '../../src/sliceBuilder';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -267,7 +268,9 @@ async function main(): Promise<void> {
     // Default: render in the SAME docker image the live preview uses (font parity).
     // GOLDEN_NATIVE=1 → native g++/Xvfb (faster; native fonts differ).
     const useDocker = process.env.GOLDEN_NATIVE !== '1';
-    const image = process.env.PREVIEW_IMAGE || 'ghcr.io/lwc0917/dali-preview-runtime:latest';
+    // Auto-detect the registry (BART proxy on the corp network, else GHCR) so goldens
+    // pull reliably from inside Samsung too; PREVIEW_IMAGE overrides (CI pins ghcr.io).
+    const image = process.env.PREVIEW_IMAGE || `${await detectDefaultImage()}:latest`;
 
     const daliPrefix = detectDaliPrefix();
     if (!useDocker && !daliPrefix) {

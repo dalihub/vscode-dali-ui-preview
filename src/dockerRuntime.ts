@@ -3,10 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { getLogger } from './logger';
+import { GHCR_IMAGE } from './registry';
 
 const execFileAsync = promisify(execFile);
 
-export const DEFAULT_DOCKER_IMAGE = 'ghcr.io/dalihub/dali-preview-runtime';
+/** Fallback image before auto-detection resolves; the live default is GHCR (see registry.ts). */
+export const DEFAULT_DOCKER_IMAGE = GHCR_IMAGE;
 export const DEFAULT_IMAGE_TAG = 'latest';
 
 /** Extract the `sha256:...` from a `repo@sha256:...` RepoDigest string. */

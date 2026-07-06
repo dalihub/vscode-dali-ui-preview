@@ -71,8 +71,12 @@ npm run package       # Package as .vsix with vsce
 > 'Children'?` does **not** mean the code is wrong — it means the **runtime is older
 > than the code** (predates the `Children → AddChildren` rename). The fix depends on
 > `daliPreview.runtimeMode`, and BOTH must be checked — they fail identically:
-> - **docker** → refresh the image: `docker pull ghcr.io/lwc0917/dali-preview-runtime:latest`
->   (or `:dali_2.5.26`). NOT by reverting samples.
+> - **docker** → refresh the image: re-pull the CONFIGURED image:tag (the "Update DALi
+>   Runtime" command does this). The image name auto-detects — inside Samsung it is the
+>   BART GHCR proxy `ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime`,
+>   externally `ghcr.io/lwc0917/dali-preview-runtime` (same repo path, `src/registry.ts`).
+>   e.g. `docker pull ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime:latest`
+>   (or `ghcr.io/...` off-network; or `:dali_2.5.26`). NOT by reverting samples.
 > - **local** → the **native DALi prefix** (`daliPreview.daliPrefix`) predates the code;
 >   rebuild that prefix, or switch `runtimeMode` to `docker`.
 >

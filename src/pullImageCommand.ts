@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConfigurationService } from './configurationService';
 import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess } from './dockerAccessCheck';
+import { describeRegistry } from './registry';
 
 /**
  * Build the download-notification sub-message. Deliberately percentage-free.
@@ -98,7 +99,9 @@ async function pullWithProgress(
     outputChannel: vscode.OutputChannel,
 ): Promise<boolean> {
     const ref = runtime.imageRef(tag);
-    outputChannel.appendLine(`[Runtime] Pulling ${ref} ...`);
+    // describeRegistry only reads the host (first path segment), so the tagged ref works.
+    const src = describeRegistry(ref);
+    outputChannel.appendLine(`[Runtime] Pulling ${ref} from ${src.label} — ${src.host}`);
 
     const maxRetries = 3;
     let attempt = 0;
@@ -110,7 +113,7 @@ async function pullWithProgress(
         const result = await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: `Downloading DALi runtime image (~290 MB)${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}`,
+                title: `Downloading DALi runtime image (~290 MB) from ${src.label}${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}`,
                 cancellable: false,
             },
             async (progress) => {

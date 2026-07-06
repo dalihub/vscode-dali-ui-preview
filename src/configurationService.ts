@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import { DEFAULT_DOCKER_IMAGE, DEFAULT_IMAGE_TAG } from './dockerRuntime';
+import { DEFAULT_IMAGE_TAG } from './dockerRuntime';
+import { GHCR_IMAGE, detectDefaultImage } from './registry';
+
+/** globalState key + TTL for the cached auto-detected runtime image. */
+const AUTO_IMAGE_KEY = 'daliPreview.autoImage';
+const AUTO_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Centralized access to `daliPreview.*` workspace configuration values.
@@ -10,6 +15,8 @@ import { DEFAULT_DOCKER_IMAGE, DEFAULT_IMAGE_TAG } from './dockerRuntime';
  */
 export class ConfigurationService {
     private static _instance: ConfigurationService | undefined;
+    /** Auto-detected runtime image (BART proxy on the corp network, else GHCR). */
+    private static _autoImage: string | undefined;
 
     static getInstance(): ConfigurationService {
         if (!ConfigurationService._instance) {
@@ -20,6 +27,34 @@ export class ConfigurationService {
 
     private getConfig(): vscode.WorkspaceConfiguration {
         return vscode.workspace.getConfiguration('daliPreview');
+    }
+
+    /** The value the user explicitly set for `daliPreview.dockerImage`, or undefined. */
+    private explicitDockerImage(): string | undefined {
+        const i = this.getConfig().inspect<string>('dockerImage');
+        const v = i?.workspaceFolderValue ?? i?.workspaceValue ?? i?.globalValue;
+        return typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
+    }
+
+    /**
+     * Resolve the auto-detected runtime image ONCE and cache it in globalState with a
+     * 24h TTL, so activation stays instant and only a cold/stale cache pays the ~<2s
+     * reachability probe. No-op when the user pinned `daliPreview.dockerImage`. Call
+     * early in activate(), before constructing DockerRuntime.
+     */
+    static async ensureAutoImage(context: vscode.ExtensionContext): Promise<void> {
+        const svc = ConfigurationService.getInstance();
+        if (svc.explicitDockerImage()) {
+            return; // user chose a registry — nothing to detect
+        }
+        const cached = context.globalState.get<{ image: string; ts: number }>(AUTO_IMAGE_KEY);
+        if (cached && typeof cached.image === 'string' && Date.now() - cached.ts < AUTO_IMAGE_TTL_MS) {
+            ConfigurationService._autoImage = cached.image;
+            return;
+        }
+        const image = await detectDefaultImage();
+        ConfigurationService._autoImage = image;
+        await context.globalState.update(AUTO_IMAGE_KEY, { image, ts: Date.now() });
     }
 
     /**
@@ -36,8 +71,14 @@ export class ConfigurationService {
         return this.getConfig().get<string>('daliPrefix', '');
     }
 
+    /**
+     * The runtime image to pull. An explicit `daliPreview.dockerImage` wins; otherwise
+     * the auto-detected image ({@link ConfigurationService.ensureAutoImage}) — the BART
+     * GHCR proxy on the corporate network, else GHCR. Falls back to GHCR before
+     * detection has run.
+     */
     get dockerImage(): string {
-        return this.getConfig().get<string>('dockerImage', DEFAULT_DOCKER_IMAGE);
+        return this.explicitDockerImage() ?? ConfigurationService._autoImage ?? GHCR_IMAGE;
     }
 
     get daliVersionTag(): string {
