@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-07-06
+
+### Changed
+
+- **Runtime version switching now gives clear feedback (it was silent in Docker mode).**
+  "Select Runtime Version" previously updated the config and restarted the preview server
+  with no confirmation — no reload prompt, and the panel title only refreshed on the next
+  render — so a switch looked like it did nothing. Now:
+  - On success it confirms **`✓ DALi runtime switched to '<tag>' (DALi <version>). Open or
+    save a preview file to render with it.`** and updates the preview **tab title immediately**.
+  - If the preview server doesn't come up, it warns and offers **Reload Window**.
+  - If the image **download fails, the version is reverted** to the previous one (so the
+    extension is never left pointed at a runtime it doesn't have) with a clear error.
+  - The picker now shows the **current runtime with its concrete DALi version** ("Current
+    runtime: `latest` (DALi 2.5.28) — pick a version to switch to"), and re-selecting the
+    active version says "already … — no change."
+
 ## [0.53.0] - 2026-07-06
 
 ### Changed

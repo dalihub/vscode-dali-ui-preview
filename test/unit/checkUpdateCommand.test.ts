@@ -135,13 +135,45 @@ describe('selectRuntimeVersionCommand', () => {
         sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
         sinon.stub(registryClient, 'listRemoteTags').resolves(['latest', 'dali_2.5.18']);
         sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'dali_2.5.18' } as any);
+        sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
         const updateCfg = sinon.stub(ConfigurationService.prototype, 'update').resolves();
-        const onSelected = sinon.stub().resolves();
+        const onSelected = sinon.stub().resolves(true); // server came up
         const rt = makeRuntime({ hasImage: sinon.stub().resolves(false) });
         await selectRuntimeVersionCommand(rt, fakeOut, onSelected);
         expect(updateCfg.calledWith('daliVersionTag', 'dali_2.5.18')).to.equal(true);
         expect(rt.pullImage.calledOnce).to.equal(true);
         expect(onSelected.calledOnce).to.equal(true);
+    });
+
+    it('confirms the switch with a success message when the server comes up', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['latest', 'dali_2.5.18']);
+        sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'dali_2.5.18' } as any);
+        const info = sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
+        sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        const rt = makeRuntime({ hasImage: sinon.stub().resolves(false) });
+        await selectRuntimeVersionCommand(rt, fakeOut, sinon.stub().resolves(true));
+        // (a successful pull also emits its own "downloaded" toast, so assert the
+        // switch-confirmation is among the info messages rather than the only one)
+        expect(info.getCalls().some((c) => String(c.args[0]).includes("switched to 'dali_2.5.18'"))).to.equal(true);
+    });
+
+    it('reverts daliVersionTag and does NOT restart when the pull fails', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['latest', 'dali_2.5.18']);
+        sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'dali_2.5.18' } as any);
+        sinon.stub(vscode.window, 'showErrorMessage').resolves(undefined as any);
+        const updateCfg = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        const onSelected = sinon.stub().resolves(true);
+        // pull fails: not cached AND every pull attempt rejects → pullRuntimeImageCommand returns false
+        const rt = makeRuntime({
+            hasImage: sinon.stub().resolves(false),
+            pullImage: sinon.stub().rejects(new Error('net drop')),
+        });
+        await selectRuntimeVersionCommand(rt, fakeOut, onSelected);
+        expect(updateCfg.calledWith('daliVersionTag', 'dali_2.5.18')).to.equal(true); // set to pick…
+        expect(updateCfg.calledWith('daliVersionTag', 'latest')).to.equal(true);       // …then reverted
+        expect(onSelected.called).to.equal(false); // never restarts on a failed pull
     });
 
     it('does nothing when the registry returns no tags', async () => {

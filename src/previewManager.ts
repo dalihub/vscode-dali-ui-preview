@@ -74,6 +74,20 @@ export class PreviewManager {
         return this.panel !== undefined;
     }
 
+    /**
+     * Update the panel tab title to the CURRENT runtime mode + version tag. Called
+     * right after a runtime switch so the tab reflects the new version immediately
+     * (otherwise the title only refreshes on the next render). No-op if no panel is
+     * open — the title is set correctly at creation time then.
+     */
+    refreshRuntimeTitle(): void {
+        if (!this.panel) {
+            return;
+        }
+        const cfg = ConfigurationService.getInstance();
+        this.panel.title = runtimePanelTitle(cfg.runtimeMode, cfg.daliVersionTag);
+    }
+
     updateImage(pngPath: string, buildTimeMs: number, metadata?: object | null, isScrub = false, epoch = 0): void {
         if (!this.panel) {
             return;

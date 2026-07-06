@@ -59,7 +59,10 @@ let dockerRuntime: DockerRuntime | undefined;
 let dockerAccessPoller: DockerAccessPoller | undefined;
 // Reassigned in activate(); the no-op default lets callers invoke it
 // unconditionally (e.g. from the access poller before the first real init).
-let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<void> = async () => {};
+// Returns true if the resident preview server came up (docker or native), false
+// otherwise (fell back to the one-shot harness path). Used by the runtime-switch
+// flow to tell the user whether the switch is live or needs a window reload.
+let initPreviewServer: (opts?: { promptOnDockerIssue?: boolean }) => Promise<boolean> = async () => false;
 // Local runtime: watcher on the DALi prefix's lib dir, so a `make install`
 // rebuild auto-restarts the resident native server (which holds the old libs).
 let daliLibWatcher: vscode.FileSystemWatcher | undefined;
@@ -302,7 +305,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
         if (ConfigurationService.getInstance().disablePreviewServer) {
             outputChannel.appendLine('[PreviewServer] Skipped (daliPreview.disablePreviewServer is true) — using full harness path');
             statusBar?.showMode('compile');
-            return;
+            return false;
         }
 
         // Local runtime: compile + spawn the native resident server (dlopen fast
@@ -313,7 +316,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             if (!prefix || !validateDaliPrefix(prefix)) {
                 outputChannel.appendLine('[PreviewServer] Local: no valid DALi prefix — one-shot harness path. Set it via "DALi Preview: Use Local DALi Runtime".');
                 statusBar?.showMode('compile');
-                return;
+                return false;
             }
             const localTmpDir = BuildRunner.getWorkspaceTmpDir();
             // The resident server renders into this display. Without a managed
@@ -324,7 +327,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             if (!serverDisplay) {
                 outputChannel.appendLine('[PreviewServer] Local: no virtual display (Xvfb) — resident server not started (it would draw on your real screen). Install or free Xvfb to enable the fast path.');
                 statusBar?.showMode('compile');
-                return;
+                return false;
             }
             previewServer = new PreviewServer(
                 context.extensionPath, outputChannel, localTmpDir,
@@ -347,7 +350,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
                 previewServer = undefined;
                 statusBar?.showMode('compile');
             }
-            return;
+            return started;
         }
 
         const cfg = ConfigurationService.getInstance();
@@ -365,7 +368,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             if (promptOnDockerIssue) {
                 await maybeShowDockerGuidance(access);
             }
-            return;
+            return false;
         }
         // Ensure the runtime image is present BEFORE launching the
         // container. Otherwise `docker run` cold-pulls ~290 MB, blows past
@@ -375,7 +378,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             if (!imageReady) {
                 outputChannel.appendLine('[PreviewServer] Skipped — runtime image unavailable.');
                 statusBar?.showMode('compile');
-                return;
+                return false;
             }
         }
         // Bind-mount workspace folders (read-only) into the container so
@@ -405,6 +408,7 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             outputChannel.appendLine('[PreviewServer] Server unavailable, using Phase 1 fallback');
             previewServer = undefined;
         }
+        return started;
     };
     // Reset per-activation (declared at module scope above) so re-activation
     // behaves like a fresh session.
@@ -605,7 +609,11 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
         // mode it picks a version and switches INTO docker (then reloads).
         vscode.commands.registerCommand('dali.selectRuntimeVersion', async () => {
             if (!isLocalRuntime && dockerRuntime) {
-                await selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => { await initPreviewServer(); });
+                await selectRuntimeVersionCommand(dockerRuntime, outputChannel, async () => {
+                    const started = await initPreviewServer();
+                    previewManager?.refreshRuntimeTitle(); // tab name → new version immediately
+                    return started;
+                });
                 return;
             }
             // Local mode. If docker is reachable we can list versions and switch
@@ -616,7 +624,9 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             const access = await checkDockerAccess();
 
             if (decideLocalVersionAction({ accessState: access.state }) === 'list-and-switch') {
-                const picked = await selectRuntimeVersionCommand(runtime, outputChannel, async () => {});
+                // Local→docker path: no resident server to (re)start here; the caller
+                // switches runtimeMode + reloads below, so suppress the switch announce.
+                const picked = await selectRuntimeVersionCommand(runtime, outputChannel, async () => false, { announce: false });
                 if (!picked) {
                     return; // cancelled — stay in local mode
                 }

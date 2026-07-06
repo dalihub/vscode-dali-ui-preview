@@ -163,7 +163,8 @@ export function buildVersionQuickPickItems(
 export async function selectRuntimeVersionCommand(
     runtime: DockerRuntime,
     outputChannel: vscode.OutputChannel,
-    onSelected: () => Promise<void>,
+    onSelected: () => Promise<boolean>,
+    opts: { announce?: boolean } = {},
 ): Promise<string | undefined> {
     const access = await checkDockerAccess();
     if (access.state !== 'ok') {
@@ -204,30 +205,66 @@ export async function selectRuntimeVersionCommand(
         versionByTag.set(t, await runtime.getImageVersionLabel(t));
     }));
 
-    const current = ConfigurationService.getInstance().daliVersionTag;
+    const announce = opts.announce !== false;
+    const cfg = ConfigurationService.getInstance();
+    const current = cfg.daliVersionTag;
     // Order the picker so the version in use comes first, then other
     // already-downloaded tags, then not-yet-downloaded ones.
     const rank = (t: string): number => (t === current ? 0 : localSet.has(t) ? 1 : 2);
     const orderedTags = [...allTags].sort((a, b) => rank(a) - rank(b));
     const items = buildVersionQuickPickItems(orderedTags, { current, localSet, versionByTag });
+    // Show the CURRENT runtime (with its concrete DALi version when the tag is
+    // rolling) in the prompt so it's unambiguous what you're switching from.
+    const curVer = versionByTag.get(current);
+    const curLabel = curVer && !/\d+\.\d+\.\d+/.test(current) ? `${current} (DALi ${curVer})` : current;
     const pick = await vscode.window.showQuickPick(items, {
-        placeHolder: `Select a DALi runtime version to preview with (current: ${current})`,
+        placeHolder: `Current runtime: ${curLabel} — pick a version to switch to`,
         ignoreFocusOut: true,
     });
     if (!pick) {
         return undefined; // cancelled
     }
     if (pick.label === current) {
+        if (announce) {
+            void vscode.window.showInformationMessage(`DALi runtime is already '${pick.label}'${curVer && !/\d+\.\d+\.\d+/.test(current) ? ` (DALi ${curVer})` : ''} — no change.`);
+        }
         return pick.label; // committed to the current version — nothing to pull/restart
     }
 
-    await ConfigurationService.getInstance().update(
-        'daliVersionTag', pick.label, vscode.ConfigurationTarget.Global,
-    );
-    outputChannel.appendLine(`[Runtime] Version switched to '${pick.label}' — pulling if needed…`);
+    // pullRuntimeImageCommand pulls the CONFIGURED tag, so set it to the pick first;
+    // revert on a failed pull so a download failure never leaves the extension
+    // pointed at a version it doesn't actually have.
+    await cfg.update('daliVersionTag', pick.label, vscode.ConfigurationTarget.Global);
+    outputChannel.appendLine(`[Runtime] Switching runtime to '${pick.label}' — pulling if needed…`);
     const ok = await pullRuntimeImageCommand(runtime, outputChannel, /*force*/ false);
-    if (ok) {
-        await onSelected();
+    const ver = versionByTag.get(pick.label);
+    const verSuffix = ver && !/\d+\.\d+\.\d+/.test(pick.label) ? ` (DALi ${ver})` : '';
+    if (!ok) {
+        await cfg.update('daliVersionTag', current, vscode.ConfigurationTarget.Global); // revert
+        if (announce) {
+            void vscode.window.showErrorMessage(
+                `DALi runtime switch to '${pick.label}' failed — the image could not be downloaded. ` +
+                `Kept the previous runtime ('${current}'). Check the "DALi Preview" output, then retry.`,
+            );
+        }
+        return pick.label;
+    }
+    const ready = await onSelected();
+    if (announce) {
+        if (ready) {
+            void vscode.window.showInformationMessage(
+                `✓ DALi runtime switched to '${pick.label}'${verSuffix}. Open or save a preview file to render with it.`,
+            );
+        } else {
+            const choice = await vscode.window.showWarningMessage(
+                `DALi runtime set to '${pick.label}'${verSuffix}, but the preview server didn't come up. ` +
+                `Reload the window to apply it.`,
+                'Reload Window',
+            );
+            if (choice === 'Reload Window') {
+                await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        }
     }
     return pick.label;
 }
