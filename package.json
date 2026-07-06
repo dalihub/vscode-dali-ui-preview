@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "publisher": "dalihub",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
@@ -148,15 +148,42 @@
     ],
     "menus": {
       "commandPalette": [
-        { "command": "dali.previewFunction", "when": "false" },
-        { "command": "dali.verifyDocker", "when": "false" },
-        { "command": "dali.cleanRuntimeImages", "when": "false" },
-        { "command": "dali.resetExtension", "when": "false" },
-        { "command": "dali.installDocker", "when": "false" },
-        { "command": "dali.installXvfb", "when": "false" },
-        { "command": "dali.pullRuntimeImage", "when": "false" },
-        { "command": "dali.checkRuntimeUpdate", "when": "false" },
-        { "command": "dali.showReadme", "when": "false" }
+        {
+          "command": "dali.previewFunction",
+          "when": "false"
+        },
+        {
+          "command": "dali.verifyDocker",
+          "when": "false"
+        },
+        {
+          "command": "dali.cleanRuntimeImages",
+          "when": "false"
+        },
+        {
+          "command": "dali.resetExtension",
+          "when": "false"
+        },
+        {
+          "command": "dali.installDocker",
+          "when": "false"
+        },
+        {
+          "command": "dali.installXvfb",
+          "when": "false"
+        },
+        {
+          "command": "dali.pullRuntimeImage",
+          "when": "false"
+        },
+        {
+          "command": "dali.checkRuntimeUpdate",
+          "when": "false"
+        },
+        {
+          "command": "dali.showReadme",
+          "when": "false"
+        }
       ]
     },
     "walkthroughs": [
@@ -170,29 +197,45 @@
             "id": "welcome",
             "title": "Welcome",
             "description": "Quick tour of how DALi Preview works, plus the two runtime options.\n[Open Documentation](command:dali.showReadme)",
-            "media": { "markdown": "media/walkthrough/01-welcome.md" },
-            "completionEvents": ["onCommand:dali.showReadme"]
+            "media": {
+              "markdown": "media/walkthrough/01-welcome.md"
+            },
+            "completionEvents": [
+              "onCommand:dali.showReadme"
+            ]
           },
           {
             "id": "install-docker",
             "title": "Install Docker",
             "description": "Pre-fills the install command in a terminal — sudo password once. Grants this session access immediately (setfacl) — **no reboot or reload needed**.\n[Install via Terminal](command:dali.installDocker)\n[Verify Docker Access](command:dali.verifyDocker)",
-            "media": { "markdown": "media/walkthrough/03-install-docker.md" },
-            "completionEvents": ["onCommand:dali.verifyDocker"]
+            "media": {
+              "markdown": "media/walkthrough/03-install-docker.md"
+            },
+            "completionEvents": [
+              "onCommand:dali.verifyDocker"
+            ]
           },
           {
             "id": "download-runtime",
             "title": "Download DALi Runtime Image",
             "description": "Pulls the ~290 MB runtime image from GHCR with a progress bar. Verify Docker auto-prompts this — or run it directly here. Subsequent previews use the cached image, so this happens only once per version.\n[Download Runtime Image](command:dali.pullRuntimeImage)",
-            "media": { "markdown": "media/walkthrough/04-download-runtime.md" },
-            "completionEvents": ["onCommand:dali.pullRuntimeImage"]
+            "media": {
+              "markdown": "media/walkthrough/04-download-runtime.md"
+            },
+            "completionEvents": [
+              "onCommand:dali.pullRuntimeImage"
+            ]
           },
           {
             "id": "first-preview",
             "title": "Explore the Samples",
             "description": "Final step. Copies a guided **Samples** tour into a folder you pick and opens it in a new window — start at its `README.md`, then open any `*.preview.dali.cpp` and hit Ctrl+S to render (~1 second, image already cached).\n[Open Samples](command:dali.openExamples)",
-            "media": { "markdown": "media/walkthrough/06-first-preview.md" },
-            "completionEvents": ["onCommand:dali.openExamples"]
+            "media": {
+              "markdown": "media/walkthrough/06-first-preview.md"
+            },
+            "completionEvents": [
+              "onCommand:dali.openExamples"
+            ]
           }
         ]
       }

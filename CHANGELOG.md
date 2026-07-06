@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-07-06
+
 ### Changed
 
 - **Runtime image registry now auto-detects: BART GHCR proxy inside Samsung, else GHCR.**
