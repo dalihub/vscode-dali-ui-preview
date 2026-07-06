@@ -17,6 +17,15 @@ export class ConfigurationService {
     private static _instance: ConfigurationService | undefined;
     /** Auto-detected runtime image (BART proxy on the corp network, else GHCR). */
     private static _autoImage: string | undefined;
+    /** Bridges the read-after-write lag on `daliVersionTag` (see the getter). */
+    private static _versionTagOverride: string | undefined;
+
+    /** Drop the daliVersionTag override so config becomes the source of truth again.
+     *  Wired to onDidChangeConfiguration('daliPreview.daliVersionTag') in activate(),
+     *  which fires once VS Code's config model reflects the write (or an external edit). */
+    static clearVersionTagOverride(): void {
+        ConfigurationService._versionTagOverride = undefined;
+    }
 
     static getInstance(): ConfigurationService {
         if (!ConfigurationService._instance) {
@@ -81,8 +90,18 @@ export class ConfigurationService {
         return this.explicitDockerImage() ?? ConfigurationService._autoImage ?? GHCR_IMAGE;
     }
 
+    /**
+     * The runtime image tag. Prefers an in-memory override set by {@link update} —
+     * VS Code's `getConfiguration().get()` can lag a just-awaited `update()` by a
+     * tick or two, and the runtime-switch flow reads this back IMMEDIATELY (to pull
+     * the picked tag and restart the server). Without the override the switch pulls
+     * the STALE tag (e.g. re-pulls a broken `latest` instead of the version you
+     * picked). The override is cleared once config catches up (see
+     * {@link clearVersionTagOverride}, wired to onDidChangeConfiguration in activate()).
+     */
     get daliVersionTag(): string {
-        return this.getConfig().get<string>('daliVersionTag', DEFAULT_IMAGE_TAG);
+        return ConfigurationService._versionTagOverride
+            ?? this.getConfig().get<string>('daliVersionTag', DEFAULT_IMAGE_TAG);
     }
 
     get runtimeUpdatePolicy(): 'off' | 'notify' | 'auto' {
@@ -140,6 +159,12 @@ export class ConfigurationService {
     /** Update a setting value */
     async update(key: string, value: unknown, target?: vscode.ConfigurationTarget): Promise<void> {
         await this.getConfig().update(key, value, target);
+        // Bridge the read-after-write lag: make an immediate re-read of daliVersionTag
+        // (the runtime-switch pull + server restart) see the new value, not the stale
+        // one. Cleared by the onDidChangeConfiguration listener once config catches up.
+        if (key === 'daliVersionTag' && typeof value === 'string') {
+            ConfigurationService._versionTagOverride = value;
+        }
     }
 }
 

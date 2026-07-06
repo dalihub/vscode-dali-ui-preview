@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.2] - 2026-07-06
+
+### Fixed
+
+- **Runtime version switch pulled the WRONG (stale) tag — it re-pulled `latest` instead of
+  the version you picked.** VS Code's `getConfiguration().get()` can lag a just-awaited
+  `update()` by a tick, so the switch flow (which sets `daliVersionTag` then immediately
+  re-reads it to pull the image and restart the server) read the OLD tag. Result: picking
+  e.g. `dali_2.5.28-a3ede24` still tried to pull `:latest` (and failed if `latest` was
+  unavailable), so the switch never took effect. `ConfigurationService` now keeps an
+  in-memory override for `daliVersionTag` set on `update()`, so an immediate re-read returns
+  the tag you just picked; it's cleared once VS Code's config model catches up (or on an
+  external settings edit). This is what made "Select Runtime Version" appear to do nothing.
+
 ## [0.53.1] - 2026-07-06
 
 ### Changed

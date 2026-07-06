@@ -130,6 +130,17 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
     await ConfigurationService.ensureAutoImage(context);
     log.info('Extension', 'Runtime image resolved', { image: ConfigurationService.getInstance().dockerImage });
 
+    // Clear the daliVersionTag read-after-write override once VS Code's config model
+    // reflects the change (this event fires after the write settles, or on an external
+    // edit) — so config becomes the source of truth again. See ConfigurationService.
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('daliPreview.daliVersionTag')) {
+                ConfigurationService.clearVersionTagOverride();
+            }
+        }),
+    );
+
     // Load initial size from settings
     const initialCfg = ConfigurationService.getInstance();
     const initialWidth = initialCfg.previewWidth;

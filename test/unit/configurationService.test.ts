@@ -49,3 +49,48 @@ describe('ConfigurationService — runtimeMode / daliPrefix', () => {
         expect(ConfigurationService.getInstance().runtimeMode).to.equal('docker');
     });
 });
+
+describe('ConfigurationService — daliVersionTag read-after-write override', () => {
+    const realGetConfiguration = vscode.workspace.getConfiguration;
+    afterEach(() => {
+        (vscode.workspace as any).getConfiguration = realGetConfiguration;
+        ConfigurationService.clearVersionTagOverride(); // don't leak static state
+    });
+
+    // Simulate VS Code's read-after-write lag: get() keeps returning the stale tag,
+    // update() resolves without the model catching up in the same tick.
+    function stubLaggyConfig(staleTag: string): void {
+        (vscode.workspace as any).getConfiguration = () => ({
+            get: (key: string, dflt: any) => (key === 'daliVersionTag' ? staleTag : dflt),
+            update: () => Promise.resolve(),
+            inspect: () => undefined,
+        });
+    }
+
+    it('an immediate re-read after update() sees the NEW tag even if config.get() lags', async () => {
+        stubLaggyConfig('latest');
+        const cfg = ConfigurationService.getInstance();
+        expect(cfg.daliVersionTag).to.equal('latest');
+        await cfg.update('daliVersionTag', 'dali_2.5.28-a3ede24');
+        // The bug this guards: without the override the runtime switch re-reads the
+        // STALE tag and pulls the wrong (e.g. broken `latest`) image. With it, the
+        // immediate re-read is the tag we just picked.
+        expect(cfg.daliVersionTag).to.equal('dali_2.5.28-a3ede24');
+    });
+
+    it('clearVersionTagOverride() restores config as the source of truth', async () => {
+        stubLaggyConfig('latest');
+        const cfg = ConfigurationService.getInstance();
+        await cfg.update('daliVersionTag', 'dali_2.5.28-a3ede24');
+        expect(cfg.daliVersionTag).to.equal('dali_2.5.28-a3ede24');
+        ConfigurationService.clearVersionTagOverride(); // config model caught up / external edit
+        expect(cfg.daliVersionTag).to.equal('latest');
+    });
+
+    it('only daliVersionTag updates set the override (other keys unaffected)', async () => {
+        stubLaggyConfig('latest');
+        const cfg = ConfigurationService.getInstance();
+        await cfg.update('previewWidth', 800);
+        expect(cfg.daliVersionTag).to.equal('latest'); // no override from an unrelated key
+    });
+});
