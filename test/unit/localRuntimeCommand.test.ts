@@ -89,6 +89,46 @@ describe('useLocalRuntimeCommand', () => {
         expect(info.calledOnce).to.equal(true);
         expect(exec.calledWith('workbench.action.reloadWindow')).to.equal(false);
     });
+
+    it('overrides the shadowing scope with runtimeMode=local and reloads when the user picks "Switch Here to Local"', async () => {
+        sinon.stub(daliEnv, 'findDaliPrefix').resolves(DETECTED);
+        sinon.stub(daliEnv, 'resolveDaliPrefix').returns(RESOLVED);
+        const info = sinon.stub(vscode.window, 'showInformationMessage');
+        info.onFirstCall().resolves('Use This' as any);       // "Use this?"
+        info.onSecondCall().resolves('Reload Window' as any);  // reload prompt AFTER the override
+        // A folder-scoped runtimeMode=docker shadows the Global write; the user chooses to override it here.
+        sinon.stub(vscode.window, 'showWarningMessage').resolves('Switch Here to Local' as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        sinon.stub(vscode.workspace, 'getConfiguration').returns({
+            inspect: () => ({ workspaceFolderValue: 'docker' }),
+        } as any);
+        const exec = sinon.stub(vscode.commands, 'executeCommand').resolves();
+
+        await useLocalRuntimeCommand(false);
+
+        // runtimeMode=local is written to the WINNING (WorkspaceFolder) scope so it actually takes effect,
+        // then the window reloads to apply it.
+        expect(update.calledWith('runtimeMode', 'local', vscode.ConfigurationTarget.WorkspaceFolder)).to.equal(true);
+        expect(exec.calledWith('workbench.action.reloadWindow')).to.equal(true);
+    });
+
+    it('writes to the Workspace scope (not Folder) when the shadow is workspace-scoped', async () => {
+        sinon.stub(daliEnv, 'findDaliPrefix').resolves(DETECTED);
+        sinon.stub(daliEnv, 'resolveDaliPrefix').returns(RESOLVED);
+        const info = sinon.stub(vscode.window, 'showInformationMessage');
+        info.onFirstCall().resolves('Use This' as any);
+        info.onSecondCall().resolves(undefined as any); // dismiss the reload prompt
+        sinon.stub(vscode.window, 'showWarningMessage').resolves('Switch Here to Local' as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        sinon.stub(vscode.workspace, 'getConfiguration').returns({
+            inspect: () => ({ workspaceValue: 'docker' }),
+        } as any);
+        sinon.stub(vscode.commands, 'executeCommand').resolves();
+
+        await useLocalRuntimeCommand(false);
+
+        expect(update.calledWith('runtimeMode', 'local', vscode.ConfigurationTarget.Workspace)).to.equal(true);
+    });
 });
 
 describe('detectRuntimeModeShadow', () => {

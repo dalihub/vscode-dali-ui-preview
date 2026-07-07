@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-07-07
+
+### Changed
+
+- **"Use Local Runtime" can now apply immediately even when a workspace/folder setting
+  pins `runtimeMode` to `"docker"`.** Previously the command only wrote `runtimeMode=local`
+  to your User settings; a higher-precedence workspace/folder pin (e.g. `test/samples/
+  .vscode/settings.json`, which pins `"docker"` for the golden tests) silently won, so the
+  switch appeared to do nothing (and since v0.51.1 it showed a dead-end warning). The
+  warning now offers a **"Switch Here to Local"** button that writes `runtimeMode=local`
+  to the *shadowing* scope (Workspace or Folder) so the switch takes effect right away,
+  then reloads. "Open Settings" is still available to change it yourself. The
+  machine-specific `daliPrefix` is still written to User settings only.
+
 ## [0.54.0] - 2026-07-07
 
 ### Fixed

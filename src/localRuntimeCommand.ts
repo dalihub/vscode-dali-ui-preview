@@ -93,18 +93,20 @@ export async function useLocalRuntimeCommand(activeModeIsLocal = false): Promise
 
     // A Workspace/Folder-scoped runtimeMode outranks the Global write we just made
     // (e.g. opening a file under test/samples, whose .vscode/settings.json pins
-    // "docker"). Reloading wouldn't switch anything — surface the override instead
-    // of silently offering a useless reload.
+    // "docker"). Reloading the Global write alone wouldn't switch anything — offer a
+    // one-click override that writes runtimeMode=local to the SHADOWING scope so it
+    // takes effect immediately (or let the user open that settings file themselves).
     const config = vscode.workspace.getConfiguration('daliPreview');
     const inspected = config.inspect ? config.inspect<string>('runtimeMode') : undefined;
     const shadow = detectRuntimeModeShadow(inspected, 'local');
     if (shadow) {
         const scopeLabel = shadow.scope === 'workspaceFolder' ? "this folder's" : "this workspace's";
+        const SWITCH_HERE = 'Switch Here to Local';
         const choice = await vscode.window.showWarningMessage(
             `Local runtime saved to your User settings, but ${scopeLabel} settings pin ` +
-            `daliPreview.runtimeMode to "${shadow.value}", which takes precedence. The preview will ` +
-            `keep using the "${shadow.value}" runtime until you change it there.`,
-            'Open Settings',
+            `daliPreview.runtimeMode to "${shadow.value}", which takes precedence. Switch ${scopeLabel} ` +
+            `settings to "local" too so it applies here, or open them to change it yourself.`,
+            SWITCH_HERE, 'Open Settings',
         );
         if (choice === 'Open Settings') {
             await vscode.commands.executeCommand(
@@ -112,8 +114,20 @@ export async function useLocalRuntimeCommand(activeModeIsLocal = false): Promise
                     ? 'workbench.action.openFolderSettings'
                     : 'workbench.action.openWorkspaceSettings',
             );
+            return;
         }
-        return;
+        if (choice !== SWITCH_HERE) {
+            return; // dismissed
+        }
+        // Explicit override: write runtimeMode=local to the winning scope so the
+        // switch actually takes effect, then fall through to the reload prompt.
+        await cfg.update(
+            'runtimeMode',
+            'local',
+            shadow.scope === 'workspaceFolder'
+                ? vscode.ConfigurationTarget.WorkspaceFolder
+                : vscode.ConfigurationTarget.Workspace,
+        );
     }
 
     const choice = await vscode.window.showInformationMessage(
