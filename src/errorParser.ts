@@ -192,22 +192,27 @@ export function formatRawError(raw: string): string {
 }
 
 /**
- * dali-ui renamed its child-adding API between runtime-image versions
- * (`View::Children(initializer_list)` → `View::AddChildren`, 2026-06). When the
- * runtime IMAGE and the preview CODE disagree on which name exists, g++ emits e.g.
+ * dali-ui reshapes its API between runtime-image versions, and when the runtime
+ * IMAGE and the preview CODE disagree on which member exists, g++ emits e.g.
  *   `'class Dali::Ui::FlexLayout' has no member named 'AddChildren'; did you mean 'Children'?`
- * (or the reverse, when the image is NEWER than the code). That is NOT a bug the
- * user can fix in their source — it means the runtime image is out of sync with the
- * code, which in practice is almost always a STALE runtime (built before the code
- * migrated). Detect that signature so we can point the user at the fix instead of
- * leaving them staring at a cryptic compiler line.
+ * Two such renames are known:
+ *   • child-adding API: `View::Children(initializer_list)` → `View::AddChildren` (2026-06).
+ *   • focus indicator:  `UiConfig::SetAlwaysShowFocus` → device-driven model +
+ *     `UiConfig::SetDefaultFocusIndicatorEnabled` (dali-ui v2.5.28, 2026-07).
+ * Either way (image newer OR older than the code) it is NOT a bug the user can fix in
+ * their source — it means the runtime image is out of sync with the code, which in
+ * practice is almost always a STALE runtime (built before the code migrated). Detect
+ * the signature so we can point the user at the fix instead of leaving them staring
+ * at a cryptic compiler line. The focus-indicator members live on UiConfig (the
+ * harness itself emits them), so this fires even for a preview that never touches
+ * focus — again the correct signal that the runtime, not the code, is stale.
  *
  * IMPORTANT: g++ quotes identifiers with Unicode curly quotes (U+2018 ‘ … U+2019 ’),
  * NOT ASCII apostrophes, so the character classes below MUST accept both — matching
  * only `'…'` silently never fires on real compiler output (verified the hard way).
  */
 const RUNTIME_API_SKEW_RE =
-    /Dali::Ui::\w+['‘’]?\s+has no member named\s+['‘’']?(?:AddChildren|Children)['‘’']?/;
+    /Dali::Ui::\w+['‘’]?\s+has no member named\s+['‘’']?(?:AddChildren|Children|SetAlwaysShowFocus|IsFocusIndicatorAlwaysShown|SetDefaultFocusIndicatorEnabled)['‘’']?/;
 
 /** True if `stderr` carries the dali-ui child-API version-skew signature. */
 export function detectRuntimeApiSkew(stderr: string): boolean {

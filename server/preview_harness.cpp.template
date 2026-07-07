@@ -5,6 +5,10 @@
 #include <dali/dali.h>
 #include <dali/public-api/adaptor-framework/capture.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
+// dali-ui v2.5.28+: the focus ring is device-driven, so the POST_BUILD_FOCUS slot
+// force-flags the target's FOCUS_INDICATED state — the only setter for it lives in
+// integration-api (no public equivalent). Unused when no focus directive is present.
+#include <dali-ui-foundation/integration-api/view-integ.h>
 #include <dali/devel-api/text-abstraction/font-client.h>
 
 #include <iostream>
@@ -345,20 +349,23 @@ private:
 int main(int argc, char* argv[])
 {
   Application app = Application::New(&argc, &argv, "");
-  // SetAlwaysShowFocus(true) so a resolved focus target draws dali-ui's default
-  // focus indicator in a static (non-interactive) render. frozen-after-Apply
-  // (ui-config.h), so it must be set BEFORE Apply(). Harmless when no focus
-  // directive is present (nothing is focused → nothing drawn). ADR-004/ADR-006.
-  // The UI_CONFIG_SETUP slot injects additional frozen setters (e.g.
-  // SetScalingFactor for fontScale) on __uiConfig before Apply(). Empty by
-  // default. (locale=RTL is applied per-view via root LAYOUT_DIRECTION in the
-  // POST_BUILD_FOCUS slot, where `root` exists — not here — so a ROW FlexLayout
-  // mirrors; WU-M3.5.) NOTE: dali-ui setters return void (the fluent chaining API
-  // was removed), so these are sequential statements on __uiConfig, not a
-  // UiConfig::New().SetX()...Apply() chain.
+  // SetDefaultFocusIndicatorEnabled(true) keeps dali-ui's default focus indicator
+  // globally enabled so a resolved focus target can draw a ring in a static
+  // (non-interactive) render. frozen-after-Apply (ui-config.h), so it must be set
+  // BEFORE Apply(). (Was SetAlwaysShowFocus(true) before dali-ui v2.5.28, which
+  // removed the "always show" knob and made the ring device-driven; the
+  // POST_BUILD_FOCUS slot now force-indicates the target explicitly — see
+  // buildPostBuildFocus.) Harmless when no focus directive is present (nothing is
+  // focused → nothing drawn). ADR-004/ADR-006. The UI_CONFIG_SETUP slot injects
+  // additional frozen setters (e.g. SetScalingFactor for fontScale) on __uiConfig
+  // before Apply(). Empty by default. (locale=RTL is applied per-view via root
+  // LAYOUT_DIRECTION in the POST_BUILD_FOCUS slot, where `root` exists — not here —
+  // so a ROW FlexLayout mirrors; WU-M3.5.) NOTE: dali-ui setters return void (the
+  // fluent chaining API was removed), so these are sequential statements on
+  // __uiConfig, not a UiConfig::New().SetX()...Apply() chain.
   UiConfig __uiConfig = UiConfig::New();
 {{UI_CONFIG_SETUP}}
-  __uiConfig.SetAlwaysShowFocus(true);
+  __uiConfig.SetDefaultFocusIndicatorEnabled(true);
   __uiConfig.Apply();
   PreviewApp preview(app);
   app.MainLoop();

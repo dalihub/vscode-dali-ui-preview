@@ -251,6 +251,20 @@ describe('diagnoseGccErrors()', () => {
             expect(detectRuntimeApiSkew(NEWER_RUNTIME_ERR)).to.equal(true);
         });
 
+        // dali-ui v2.5.28 removed UiConfig::SetAlwaysShowFocus (the harness emitted it)
+        // and replaced the focus model with SetDefaultFocusIndicatorEnabled. A NEW image
+        // rendering OLD-harness code, or OLD image running NEW-harness code, skews here.
+        // These are the REAL curly-quote lines g++ printed against the 2.5.28 runtime.
+        const FOCUS_SKEW_OLD_HARNESS_NEW_IMAGE =
+            "/tmp/preview_harness.cpp:361:14: error: ‘class Dali::Ui::UiConfig’ has no member named ‘SetAlwaysShowFocus’";
+        const FOCUS_SKEW_NEW_HARNESS_OLD_IMAGE =
+            "/tmp/preview_harness.cpp:373:14: error: ‘class Dali::Ui::UiConfig’ has no member named ‘SetDefaultFocusIndicatorEnabled’";
+
+        it('flags the UiConfig focus-API skew (dali-ui v2.5.28) in BOTH directions', () => {
+            expect(detectRuntimeApiSkew(FOCUS_SKEW_OLD_HARNESS_NEW_IMAGE)).to.equal(true);
+            expect(detectRuntimeApiSkew(FOCUS_SKEW_NEW_HARNESS_OLD_IMAGE)).to.equal(true);
+        });
+
         it('also flags the ASCII-quote variant (some toolchains/locales emit straight quotes)', () => {
             expect(detectRuntimeApiSkew(
                 "error: 'class Dali::Ui::View' has no member named 'AddChildren'; did you mean 'Children'?",

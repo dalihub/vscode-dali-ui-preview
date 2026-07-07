@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-07
+
+### Fixed
+
+- **Preview failed to compile against the new dali-ui `v2.5.28` runtime — every preview
+  errored with `'class Dali::Ui::UiConfig' has no member named 'SetAlwaysShowFocus'`.**
+  dali-ui v2.5.28 removed `UiConfig::SetAlwaysShowFocus(bool)` (the harness set it so a
+  resolved focus target draws a ring in the static render) and replaced the "always show"
+  model with a **device-driven** focus indicator. The harness codegen is migrated: it now
+  calls `UiConfig::SetDefaultFocusIndicatorEnabled(true)` (global enable) to compile, and
+  the `{{POST_BUILD_FOCUS}}` slot force-flags the target's `ViewState::FOCUS_INDICATED`
+  via integration-api (`Dali::Ui::Integration::View::SetState`) then re-enables the default
+  indicator so `FocusManager` re-attaches its ring. Reproduced (51/51 previews failed on
+  the 2.5.28 image) and verified fixed (all 51 compile; the `focus-grid` ring renders on
+  the correct card; 26/26 golden renders pass on 2.5.28). The dali-ui public-header reorg
+  in the same release (headers moved under `views/`, `types/`, `configuration/`, …) is
+  absorbed by the `dali-ui-foundation` umbrella header, so no include churn was needed.
+
+### Added
+
+- **Stale-runtime self-diagnosis now covers the v2.5.28 focus API.** `detectRuntimeApiSkew`
+  also flags `UiConfig … has no member named 'SetDefaultFocusIndicatorEnabled' /
+  'SetAlwaysShowFocus'`, so a runtime/extension version mismatch on the focus API surfaces
+  the same actionable "your runtime is out of sync" hint (with real curly-quote fixtures).
+
+### Changed
+
+- Default `DALI_UI_REF` in `docker/Dockerfile.runtime` bumped to `v2.5.28.10837`; golden
+  baselines regenerated against the 2.5.28 runtime. (Published images are built by the
+  release agent, which date-anchors dali-core/dali-adaptor to the dali-ui tag date.)
+
 ## [0.53.2] - 2026-07-06
 
 ### Fixed

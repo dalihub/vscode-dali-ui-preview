@@ -64,19 +64,32 @@ npm run package       # Package as .vsix with vsce
 > and `View::Children(...)` was renamed to `View::AddChildren(...)`. Preview code is
 > non-fluent: declare a named local, call setters as separate statements, add children
 > via `AddChildren`, then `return` the root. The runtime is built from dali-ui
-> `v2.5.26.10708` (see `docker/Dockerfile.runtime`).
+> `v2.5.28.10837` (see `docker/Dockerfile.runtime`).
+>
+> **dali-ui v2.5.28 focus-API change (2026-07):** `UiConfig::SetAlwaysShowFocus(bool)`
+> was removed; the focus indicator is now device-driven. The harness/CLI codegen was
+> migrated: `UiConfig::SetDefaultFocusIndicatorEnabled(true)` (global enable) plus, in
+> the `{{POST_BUILD_FOCUS}}` slot, forcing the target's `ViewState::FOCUS_INDICATED`
+> via **integration-api** (`Dali::Ui::Integration::View::SetState`, `<dali-ui-foundation/
+> integration-api/view-integ.h>`) — a plain programmatic `SetCurrentFocusView` no
+> longer draws a ring in a static render (verified: focus child count 0→1 only after
+> the state+re-enable sequence). The header reorg in the same release (headers moved
+> under `views/`, `types/`, `configuration/`, …) is absorbed by the umbrella header.
 >
 > **Stale-runtime symptom (read this before "fixing" the code):** a preview error
 > like `'class Dali::Ui::FlexLayout' has no member named 'AddChildren'; did you mean
-> 'Children'?` does **not** mean the code is wrong — it means the **runtime is older
-> than the code** (predates the `Children → AddChildren` rename). The fix depends on
-> `daliPreview.runtimeMode`, and BOTH must be checked — they fail identically:
+> 'Children'?` — OR `'class Dali::Ui::UiConfig' has no member named
+> 'SetDefaultFocusIndicatorEnabled'` / `'SetAlwaysShowFocus'` — does **not** mean the
+> code is wrong — it means the **runtime is out of sync with the code** (usually the
+> runtime is older, predating the `Children→AddChildren` rename or the v2.5.28 focus
+> API). The fix depends on `daliPreview.runtimeMode`, and BOTH must be checked — they
+> fail identically:
 > - **docker** → refresh the image: re-pull the CONFIGURED image:tag (the "Update DALi
 >   Runtime" command does this). The image name auto-detects — inside Samsung it is the
 >   BART GHCR proxy `ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime`,
 >   externally `ghcr.io/lwc0917/dali-preview-runtime` (same repo path, `src/registry.ts`).
 >   e.g. `docker pull ghcr-docker-remote.bart.sec.samsung.net/lwc0917/dali-preview-runtime:latest`
->   (or `ghcr.io/...` off-network; or `:dali_2.5.26`). NOT by reverting samples.
+>   (or `ghcr.io/...` off-network; or `:dali_2.5.28`). NOT by reverting samples.
 > - **local** → the **native DALi prefix** (`daliPreview.daliPrefix`) predates the code;
 >   rebuild that prefix, or switch `runtimeMode` to `docker`.
 >

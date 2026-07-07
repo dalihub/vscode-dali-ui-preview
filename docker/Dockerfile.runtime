@@ -76,21 +76,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Stage 2: build DALi from source ─────────────────────────────────────
 FROM build-deps AS build-dali
 
-# Verified working refs — coordinated same-day (2026-06-17) snapshot matching
-# the dali-ui v2.5.26.10708 release. IMPORTANT: dali-ui REMOVED the fluent
-# chaining API on 2026-06-08 (commit 2f1c78c — builder setters now return void,
-# and View::Children(initializer_list) was renamed to View::AddChildren), so the
-# runtime MUST be at/after that. The previous 2026-06-04 snapshot (dali_2.5.24
-# line) is too OLD: it still has the fluent API and fails to compile the migrated
-# (non-fluent) preview samples/harness. Pin the SAME-DAY refs of all components
-# together — tagged releases drift in API across components (e.g. dali-core's
-# Stage-API removal lands alongside the matching dali-ui), so a same-snapshot set
-# is the most likely to compile together. (dali-toolkit is not built; ref kept
-# for reference only.)
+# dali-ui pinned to the v2.5.28.10837 release (2026-07). Two API breaks the
+# runtime MUST be at/after are why this line matters:
+#   • 2026-06-08 (commit 2f1c78c): dali-ui REMOVED the fluent chaining API —
+#     builder setters now return void, and View::Children(initializer_list) was
+#     renamed to View::AddChildren.
+#   • v2.5.28 (2026-07): UiConfig::SetAlwaysShowFocus was removed and the focus
+#     indicator became device-driven (SetDefaultFocusIndicatorEnabled + the
+#     integration-api FOCUS_INDICATED state); the harness/CLI codegen was migrated
+#     to match, so an OLDER runtime now fails to compile the new harness.
+# NOTE on core/adaptor/toolkit: the release agent (dali-preview-runtime-release)
+# date-anchors dali-core/dali-adaptor to the dali-ui TAG DATE and passes them as
+# build-args, so PUBLISHED images use a snapshot matched to DALI_UI_REF (e.g. the
+# adaptor Window::GetSize→GetPositionSize drift at 2.5.29 is patched there). The
+# SHAs below are only the manual-build fallback (a 2026-06-17 / 2.5.26-era
+# reference); the agent supersedes them. (dali-toolkit is not built; ref kept for
+# reference only.)
 ARG DALI_CORE_REF=a8d78cfbc014bf536cb9f3fb6d3b08620a67c09b
 ARG DALI_ADAPTOR_REF=a8dbf1b2c037d3133df901651f11d34849110b09
 ARG DALI_TOOLKIT_REF=7993cb22712adde994a6732ba3f7e84848ee854f
-ARG DALI_UI_REF=v2.5.26.10708
+ARG DALI_UI_REF=v2.5.28.10837
 ARG TIZENVG_REF=tizen
 ARG TIZENVG_REPO=git://review.tizen.org/git/platform/core/graphics/tizenvg
 ARG JOBS

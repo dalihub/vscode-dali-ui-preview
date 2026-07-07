@@ -4,6 +4,10 @@
  */
 #include <dali/dali.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
+// dali-ui v2.5.28+: FOCUS_INDICATED has no public setter; the POST_BUILD_FOCUS slot
+// forces it via integration-api. Included for slot symmetry with the harness (the
+// plugin path passes no focus id today, so the slot is empty and this is unused).
+#include <dali-ui-foundation/integration-api/view-integ.h>
 
 #include <iostream>
 #include <vector>

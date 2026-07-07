@@ -198,7 +198,17 @@ export function buildPostBuildFocus(focusId?: string): string {
         `        Dali::Actor __ft = root.FindChildByName("${id}");`,
         '        Dali::Ui::View __fv = Dali::Ui::View::DownCast(__ft);',
         '        if(!__fv) { __fv = __FindFirstFocusable(root); }',
-        '        if(__fv) { Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv); }',
+        '        if(__fv) {',
+        '            Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv);',
+        '            // dali-ui v2.5.28 made the focus ring device-driven: a programmatic',
+        '            // SetCurrentFocusView no longer flags the view as focus-indicated, so',
+        '            // no ring is drawn in a static render. Force the FOCUS_INDICATED state',
+        "            // (integration-api; there is no public setter), then re-enable the",
+        '            // default indicator so FocusManager re-attaches its ring to the current',
+        '            // focus view (empirically verified: focus child count 0 -> 1).',
+        '            Dali::Ui::Integration::View::SetState(__fv, Dali::Ui::ViewState::FOCUS_INDICATED, true);',
+        '            Dali::Ui::FocusManager::Get().SetDefaultFocusIndicatorEnabled(true);',
+        '        }',
         '    }',
     ].join('\n');
 }
