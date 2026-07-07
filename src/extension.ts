@@ -20,7 +20,7 @@ import { openWalkthrough } from './walkthroughController';
 import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
 import { PreviewOrchestrator } from './previewOrchestrator';
 import { DockerAccessPoller } from './dockerAccessPoller';
-import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand, buildVersionQuickPickItems } from './checkUpdateCommand';
+import { checkRuntimeUpdateCommand, maybeAutoCheckRuntimeUpdate, selectRuntimeVersionCommand, buildVersionQuickPickItems, extensionVersionChanged, EXT_VERSION_KEY, LAST_UPDATE_CHECK_KEY } from './checkUpdateCommand';
 import { checkExtensionUpdateCommand, maybeAutoCheckExtensionUpdate } from './extensionUpdateChecker';
 import * as path from 'path';
 import { BuildBackend } from './buildBackend';
@@ -555,6 +555,19 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
                 showGuidance: maybeShowDockerGuidance,
             });
         orchestrator?.setEnsureRuntimeReady(ensureDockerReadyForPreview);
+    }
+
+    // If the extension itself was just installed/updated, the cached runtime image may be
+    // stale (they version independently) — reset the once-a-day image update-check throttle
+    // so the check below runs NOW rather than up to a day later. This closes the "updated the
+    // extension but docker still renders on the old image" gap (e.g. old click-to-code metadata).
+    {
+        const extVersion = context.extension?.packageJSON?.version ?? '';
+        const storedExtVersion = context.globalState.get<string>(EXT_VERSION_KEY);
+        if (extensionVersionChanged(storedExtVersion, extVersion)) {
+            await context.globalState.update(LAST_UPDATE_CHECK_KEY, 0);
+            await context.globalState.update(EXT_VERSION_KEY, extVersion);
+        }
     }
 
     // Once-a-day background check for a newer runtime image (docker mode only,

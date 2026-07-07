@@ -1,0 +1,18 @@
+{
+    // Recompile TypeScript before F5 launches the Extension Development Host, so the dev
+    // host always runs the CURRENT source (out/) — not a stale build. NOTE: F5 still runs
+    // from THIS working copy, so `git pull` to get the latest source first; and it opens
+    // test/samples, which pins daliPreview.runtimeMode=docker (it uses the docker IMAGE, not
+    // the local docker/preview_server.cpp source).
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "npm: compile",
+            "type": "npm",
+            "script": "compile",
+            "problemMatcher": "$tsc",
+            "presentation": { "reveal": "silent", "clear": true },
+            "group": { "kind": "build", "isDefault": true }
+        }
+    ]
+}

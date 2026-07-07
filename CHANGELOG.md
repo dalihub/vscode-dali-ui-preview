@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.3] - 2026-07-07
+
+### Fixed
+
+- **Updating the extension didn't re-check the runtime image, so docker could keep rendering
+  on a stale image** (e.g. one with the old click-to-code metadata) until the next daily
+  check. The image and the extension version independently; on activation the extension now
+  detects a version change (install/update) and resets the once-a-day image-update-check
+  throttle so it runs immediately — a just-updated extension surfaces a newer image right
+  away (notify, or auto-pull under `runtimeUpdatePolicy: auto`) instead of silently staying
+  on the old one.
+
+### Developer
+
+- **F5 ("Run Extension") now recompiles first** (`preLaunchTask`) so the Extension
+  Development Host never runs a stale `out/`. NOTE for contributors: F5 runs the extension
+  from THIS source checkout — NOT the installed `.vsix` — and opens `test/samples`, which
+  pins `daliPreview.runtimeMode: docker` (docker mode uses the runtime IMAGE, not the local
+  `docker/preview_server.cpp` source). `git pull` before debugging, and update the runtime
+  image to see server-side changes. This is a developer-only workflow; end users install the
+  `.vsix` and are unaffected.
+
 ## [0.56.2] - 2026-07-07
 
 ### Fixed

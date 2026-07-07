@@ -5,6 +5,9 @@
             "name": "Run Extension",
             "type": "extensionHost",
             "request": "launch",
+            // Recompile out/ first so F5 never runs a stale build. (F5 runs THIS source copy,
+            // not the installed .vsix — pull latest before debugging.)
+            "preLaunchTask": "npm: compile",
             "args": [
                 "--extensionDevelopmentPath=${workspaceFolder}",
                 "${workspaceFolder}/test/samples"

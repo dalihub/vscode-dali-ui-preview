@@ -9,7 +9,23 @@ import {
     maybeAutoCheckRuntimeUpdate,
     selectRuntimeVersionCommand,
     buildVersionQuickPickItems,
+    extensionVersionChanged,
 } from '../../src/checkUpdateCommand';
+
+describe('extensionVersionChanged (force an image re-check after an extension update)', () => {
+    it('true when the version changed (extension was updated)', () => {
+        expect(extensionVersionChanged('0.56.1', '0.56.2')).to.equal(true);
+    });
+    it('true on first install (nothing stored yet)', () => {
+        expect(extensionVersionChanged(undefined, '0.56.2')).to.equal(true);
+    });
+    it('false on a plain reload with the same version (not an update → keep the daily throttle)', () => {
+        expect(extensionVersionChanged('0.56.2', '0.56.2')).to.equal(false);
+    });
+    it('false when the current version is unknown (defensive — do not thrash)', () => {
+        expect(extensionVersionChanged('0.56.2', '')).to.equal(false);
+    });
+});
 
 const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
 

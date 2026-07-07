@@ -8,7 +8,21 @@ import { getLogger } from './logger';
 
 /** Per-machine timestamp of the last auto update check (NOT settings-synced). */
 export const LAST_UPDATE_CHECK_KEY = 'daliPreview.lastUpdateCheck.v1';
+/** Per-machine record of the extension version seen at the last activation. */
+export const EXT_VERSION_KEY = 'daliPreview.extensionVersion.v1';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True when the extension's version changed since the last activation (a fresh install or an
+ * update). The runtime IMAGE and the extension version independently, so after an extension
+ * update the cached runtime image can be stale (e.g. still carrying the old click-to-code
+ * metadata). Activation uses this to reset the once-a-day image update-check throttle so the
+ * check runs IMMEDIATELY — a user who just updated the extension is told about a newer image
+ * instead of silently rendering on the stale one until the next daily check.
+ */
+export function extensionVersionChanged(stored: string | undefined, current: string): boolean {
+    return current.length > 0 && stored !== current;
+}
 
 export interface AutoUpdateCallbacks {
     /** Show a non-blocking "update available" affordance (e.g. status-bar badge). */
