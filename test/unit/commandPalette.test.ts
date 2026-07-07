@@ -21,6 +21,9 @@ const PALETTE_VISIBLE = [
     'dali.restartDaliRuntime',
     'dali.selectRuntimeVersion',
     'dali.checkExtensionUpdate',
+    // Disk hygiene: users must be able to reclaim accumulated ~1.2 GB runtime images
+    // (the README points here). Kept visible on purpose — see dockerMaintenance.
+    'dali.cleanRuntimeImages',
 ];
 
 // Hidden from the palette: CodeLens-only (previewFunction needs args), the
@@ -28,7 +31,6 @@ const PALETTE_VISIBLE = [
 const PALETTE_HIDDEN = [
     'dali.previewFunction',
     'dali.verifyDocker',
-    'dali.cleanRuntimeImages',
     'dali.resetExtension',
     'dali.installDocker',
     'dali.installXvfb',

@@ -394,6 +394,36 @@ describe('PreviewServer — IPC behavior', () => {
         clock.restore();
     });
 
+    it('does NOT resurrect the server after an intentional stop() (no orphaned process)', async () => {
+        // Leak guard: stop() SIGTERMs the process, which fires the 'exit' handler. Without a
+        // "was this an intentional stop?" guard the handler auto-restarts — spawning a NEW
+        // server that nobody holds a reference to and that can't be stopped. In local mode
+        // every DALi rebuild re-inits the server, so these orphaned native processes pile up.
+        let spawnCount = 0;
+        const procs: any[] = [];
+        const server = new PreviewServer(
+            '/ext', fakeOutputChannel, '/tmp/dali_preview', fakeDockerRuntime, 'test-tag',
+        );
+        (server as any).ensureServerBinary = async () => {};
+        (server as any)._killStaleContainer = () => {};
+        (server as any)._spawn = () => { spawnCount++; const p = makeProc(); procs.push(p); return p; };
+
+        const clock = sinon.useFakeTimers();
+        const startPromise = server.start();
+        await Promise.resolve();
+        procs[0].stdout.emit('data', Buffer.from('>>>READY\n'));
+        await startPromise;
+        expect(spawnCount).to.equal(1);
+
+        // Intentional stop → the SIGTERM makes the process exit; simulate that.
+        server.stop();
+        procs[0].emit('exit', 143); // 128 + SIGTERM
+        await clock.tickAsync(1000); // well past the 500ms restart delay
+
+        expect(spawnCount, 'stop() must not trigger a resurrecting respawn').to.equal(1);
+        clock.restore();
+    });
+
     it('start() returns false on READY_TIMEOUT', async () => {
         const clock = sinon.useFakeTimers();
         const { server } = makeServer();

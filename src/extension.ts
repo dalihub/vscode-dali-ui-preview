@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { PreviewManager } from './previewManager';
-import { BuildRunner } from './buildRunner';
+import { BuildRunner, sweepStaleTmpDirs } from './buildRunner';
 import { PreviewServer } from './previewServer';
 import { XvfbManager } from './xvfbManager';
 import { StatusBarManager, ThemeStatusBarItem } from './statusBar';
@@ -213,8 +213,14 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
     // activate() re-runs and starts Xvfb then.
     xvfbManager = new XvfbManager();
     if (hostXvfbNeeded(runtimeMode)) {
-        const xvfbStarted = await xvfbManager.start();
+        // Reap our own Xvfb leaked by a previous non-graceful exit (crash/force-quit skips
+        // deactivate→stop). We record the PID per-workspace so we only ever kill OUR prior
+        // Xvfb — never another window's live one. See XvfbManager.reapOurOrphan.
+        const XVFB_PID_KEY = 'daliPreview.xvfbPid';
+        const prevXvfbPid = context.workspaceState.get<number>(XVFB_PID_KEY);
+        const xvfbStarted = await xvfbManager.start(prevXvfbPid);
         if (xvfbStarted) {
+            void context.workspaceState.update(XVFB_PID_KEY, xvfbManager.getPid());
             outputChannel.appendLine(`Xvfb started on display ${xvfbManager.getDisplay()}`);
         } else if (!xvfbManager.isInstalled()) {
             // Missing Xvfb → offer the one-command install. Local preview stays
@@ -256,6 +262,10 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
 
     // Build runner
     buildRunner = new BuildRunner(context, outputChannel, backend);
+
+    // Reclaim this session's tmp dir now (dispose() is skipped on a crash) and GC tmp dirs
+    // abandoned by other workspaces / crashed sessions — they are never cleaned otherwise.
+    try { sweepStaleTmpDirs(BuildRunner.getWorkspaceTmpDir()); } catch { /* best-effort */ }
 
     // Create the orchestrator (previewManager will be set later via ensurePreviewManager)
     // We pass a dummy previewManager initially; ensurePreviewManager will update it

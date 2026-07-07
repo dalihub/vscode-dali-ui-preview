@@ -52,6 +52,21 @@ async function listDaliRuntimeImages(): Promise<DockerImageInfo[]> {
     }
 }
 
+/** Aggregate cached-runtime-image stats (count + total bytes) for the disk-cleanup nudge. */
+export async function getRuntimeImageStats(): Promise<{ count: number; bytes: number }> {
+    const images = await listDaliRuntimeImages();
+    return { count: images.length, bytes: images.reduce((s, i) => s + i.sizeBytes, 0) };
+}
+
+/**
+ * Whether to nudge the user to clean up cached runtime images. Each DALi version pulled is
+ * ~1.2 GB and nothing prunes them automatically, so once several accumulate we offer the
+ * (now palette-visible) cleanup command. Pure so the threshold is unit-testable.
+ */
+export function shouldOfferImageCleanup(imageCount: number, threshold = 3): boolean {
+    return imageCount >= threshold;
+}
+
 /** Parse docker's '290MB' / '1.6GB' / '512kB' style size strings to bytes. */
 function parseDockerSize(label: string): number {
     const m = /^([\d.]+)\s*([KMGT]?B)$/i.exec(label.trim());

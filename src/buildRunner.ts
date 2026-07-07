@@ -799,3 +799,59 @@ export function cleanupBuildTmpDir(tmpDir: string): number {
     }
     return removed;
 }
+
+/** Base name of a per-workspace tmp dir: `dali_preview` or `dali_preview_<8-hex>`. Used so the
+ *  GC sweep only ever touches OUR tmp-dir family under /tmp, never unrelated directories. */
+const TMPDIR_FAMILY_RE = /^dali_preview(_[0-9a-f]{8})?$/;
+
+/**
+ * From `/tmp` entries, pick OUR abandoned per-workspace tmp dirs to garbage-collect: matches
+ * the `dali_preview[_<hash>]` family, is NOT the active dir, and is older than `maxAgeMs`.
+ * getWorkspaceTmpDir() mints one dir per distinct workspace root and nothing ever removes the
+ * old ones (in local mode each also keeps a multi-MB `preview_server` binary) — this bounds it.
+ * Pure + exported for unit testing.
+ */
+export function selectStaleTmpDirs(
+    entries: { name: string; mtimeMs: number }[],
+    activeDirName: string,
+    nowMs: number,
+    maxAgeMs: number,
+): string[] {
+    return entries
+        .filter((e) => TMPDIR_FAMILY_RE.test(e.name))
+        .filter((e) => e.name !== activeDirName)
+        .filter((e) => nowMs - e.mtimeMs > maxAgeMs)
+        .map((e) => e.name);
+}
+
+/**
+ * Reclaim the active tmp dir's orphans AND remove stale sibling tmp dirs left by other
+ * workspaces / crashed sessions. Called at activation (the reliably-run lifecycle point —
+ * dispose() is skipped on a crash). Best-effort; never throws.
+ */
+export function sweepStaleTmpDirs(activeDir: string, maxAgeMs = 7 * 24 * 60 * 60 * 1000): void {
+    // 1. Reclaim the active dir's own leftovers now, not only on dispose().
+    try { cleanupBuildTmpDir(activeDir); } catch { /* best-effort */ }
+
+    // 2. GC abandoned sibling dirs under /tmp.
+    const tmpRoot = path.dirname(activeDir); // /tmp
+    const activeName = path.basename(activeDir);
+    let names: string[];
+    try {
+        names = fs.readdirSync(tmpRoot);
+    } catch {
+        return;
+    }
+    const entries = names.map((name) => {
+        try { return { name, mtimeMs: fs.statSync(path.join(tmpRoot, name)).mtimeMs }; }
+        catch { return { name, mtimeMs: Date.now() }; } // unreadable → treat as fresh (skip)
+    });
+    for (const name of selectStaleTmpDirs(entries, activeName, Date.now(), maxAgeMs)) {
+        try {
+            fs.rmSync(path.join(tmpRoot, name), { recursive: true, force: true });
+            getLogger().info('Cleanup', 'removed abandoned tmp dir', { name });
+        } catch (err) {
+            getLogger().trace('Cleanup', 'stale tmp dir remove failed', { name, error: String(err) });
+        }
+    }
+}

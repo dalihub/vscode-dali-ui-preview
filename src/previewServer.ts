@@ -43,6 +43,9 @@ export class PreviewServer {
     private pendingAnimInfo: { count: number; durationMs: number } | undefined;
     private stdoutBuffer = '';
     private restartTimer: NodeJS.Timeout | undefined;
+    /** Set by stop() so the process 'exit' handler (which SIGTERM itself fires) does NOT
+     *  auto-restart — otherwise an intentionally-stopped server resurrects as an orphan. */
+    private stopping = false;
 
     constructor(
         private readonly extensionPath: string,
@@ -131,6 +134,7 @@ export class PreviewServer {
         if (this.isRunning) {
             return true;
         }
+        this.stopping = false; // a fresh start clears any prior stop request
 
         try {
             await this.ensureServerBinary();
@@ -262,6 +266,7 @@ export class PreviewServer {
     /** Terminate the server process. */
     stop(): void {
         this.ready = false;
+        this.stopping = true; // the exit handler must NOT auto-restart after an intentional stop
         // H3: Cancel any pending restart timer to avoid ghost processes
         if (this.restartTimer) {
             clearTimeout(this.restartTimer);
@@ -519,8 +524,12 @@ export class PreviewServer {
                     this.pendingRequest = undefined;
                 }
 
-                // Auto-restart unless explicitly stopped or max restarts exceeded
-                if (this.restartCount < MAX_RESTARTS) {
+                // Auto-restart unless explicitly stopped or max restarts exceeded.
+                // stop() SIGTERMs the process, which fires THIS handler — the `stopping`
+                // guard stops that SIGTERM from resurrecting the server as an unowned orphan.
+                if (this.stopping) {
+                    this.outputChannel.appendLine('[PreviewServer] Stopped — not restarting');
+                } else if (this.restartCount < MAX_RESTARTS) {
                     this.restartCount++;
                     this.outputChannel.appendLine(
                         `[PreviewServer] Restarting (attempt ${this.restartCount}/${MAX_RESTARTS})...`

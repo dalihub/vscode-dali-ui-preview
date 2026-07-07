@@ -4,6 +4,7 @@ import { ConfigurationService } from './configurationService';
 import { checkDockerAccess } from './dockerAccessCheck';
 import { pullRuntimeImageCommand } from './pullImageCommand';
 import { listRemoteTags } from './registryClient';
+import { getRuntimeImageStats, shouldOfferImageCleanup } from './dockerMaintenance';
 import { getLogger } from './logger';
 
 /** Per-machine timestamp of the last auto update check (NOT settings-synced). */
@@ -305,6 +306,19 @@ export async function selectRuntimeVersionCommand(
                 await vscode.commands.executeCommand('workbench.action.reloadWindow');
             }
         }
+        // Each version pulled is ~1.2 GB and nothing prunes them automatically; once several
+        // pile up, nudge the user to the (now palette-visible) cleanup command. Non-blocking.
+        void getRuntimeImageStats().then((stats) => {
+            if (shouldOfferImageCleanup(stats.count)) {
+                void vscode.window.showInformationMessage(
+                    `${stats.count} DALi runtime versions are cached (~${(stats.bytes / 1e9).toFixed(1)} GB). ` +
+                    'Old versions are never removed automatically.',
+                    'Clean Up Now',
+                ).then((c) => {
+                    if (c === 'Clean Up Now') { void vscode.commands.executeCommand('dali.cleanRuntimeImages'); }
+                });
+            }
+        });
     }
     return pick.label;
 }

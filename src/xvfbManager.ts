@@ -7,6 +7,17 @@ import { getLogger } from './logger';
  *  display (:0). 16 candidates make exhaustion effectively impossible. */
 const CANDIDATE_DISPLAYS = Array.from({ length: 16 }, (_, i) => 99 + i); // :99 … :114
 const STARTUP_WAIT_MS = 500;
+/** Our Xvfb's distinctive screen geometry — used to recognise OUR servers when reaping a
+ *  recorded PID, so we never SIGTERM another tool's (or another window's) Xvfb. */
+const XVFB_SCREEN = '2048x2048x24';
+
+/**
+ * True only for a process command line that is an `Xvfb` started with OUR screen geometry.
+ * The reaper uses this so a recorded-but-reused PID (or a foreign Xvfb) is never killed.
+ */
+export function isOurXvfbProcess(cmdline: string): boolean {
+    return /(^|\/)Xvfb\b/.test(cmdline) && cmdline.includes(XVFB_SCREEN);
+}
 
 export class XvfbManager {
     private process: ChildProcess | undefined;
@@ -16,11 +27,19 @@ export class XvfbManager {
      * Start an Xvfb virtual display. Tries a wide band of displays (:99 … :114).
      * Returns true if Xvfb was started successfully.
      */
-    async start(): Promise<boolean> {
+    async start(reapPid?: number): Promise<boolean> {
         const log = getLogger();
         log.info('Xvfb', 'starting virtual display');
         if (this.process && this.isAlive()) {
             return true;
+        }
+
+        // Reclaim OUR own leftover Xvfb from a previous session that exited non-gracefully
+        // (a crash/force-quit skips deactivate() → stop(), so the detached Xvfb survives and
+        // squats its display). Only a PID we recorded for THIS workspace, and only if it's
+        // still an Xvfb with our geometry — never a foreign or another-window's Xvfb.
+        if (reapPid && reapPid > 0) {
+            this.reapOurOrphan(reapPid);
         }
 
         // No UI here: the caller (extension activate) decides how to surface a
@@ -84,6 +103,38 @@ export class XvfbManager {
      *  to install it when missing, instead of silently failing to a :0 render. */
     isInstalled(): boolean {
         return this.isXvfbInstalled();
+    }
+
+    /** PID of the Xvfb we started (for the caller to record per-workspace so a later
+     *  session can reap it if this one exits non-gracefully). Undefined if not running. */
+    getPid(): number | undefined {
+        return this.process?.pid;
+    }
+
+    /**
+     * SIGTERM a recorded PID only if it is still one of OUR Xvfb servers (matches our
+     * geometry via /proc/<pid>/cmdline), then clear its stale X lock so the display frees
+     * up for reuse. Safe no-op if the PID is dead, foreign, or /proc is unavailable.
+     */
+    private reapOurOrphan(pid: number): void {
+        const fs = require('fs');
+        try {
+            const raw: string = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+            const cmdline = raw.replace(/\0/g, ' ').trim();
+            if (!isOurXvfbProcess(cmdline)) {
+                return; // not our Xvfb (dead-and-reused, or a foreign process) — never kill
+            }
+            getLogger().info('Xvfb', 'reaping our orphaned Xvfb from a previous session', { pid });
+            try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+            // Best-effort: drop the display's lock file (e.g. /tmp/.X101-lock) if it points at this pid.
+            const m = cmdline.match(/(^|\s):(\d+)\b/);
+            if (m) {
+                const lock = `/tmp/.X${m[2]}-lock`;
+                try { if (parseInt(fs.readFileSync(lock, 'utf-8').trim(), 10) === pid) { fs.unlinkSync(lock); } } catch { /* ignore */ }
+            }
+        } catch {
+            // /proc/<pid> gone (already dead) or unreadable → nothing to reap.
+        }
     }
 
     private isXvfbInstalled(): boolean {

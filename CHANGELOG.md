@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.4] - 2026-07-07
+
+### Fixed (long-term resource accumulation)
+
+- **Orphaned preview-server processes piled up during normal local-mode use.** `stop()`
+  SIGTERMs the server, which fired the process `exit` handler that auto-restarted it — so an
+  intentionally-stopped server resurrected as an unowned process that could no longer be
+  stopped. Every DALi rebuild (lib watcher), runtime switch, or restart re-inits the server,
+  so in local mode these accumulated across a session. Added a `stopping` guard so an
+  intentional stop never restarts.
+- **Leaked Xvfb virtual displays exhausted the `:99–:114` band.** On a non-graceful exit
+  (crash / force-quit) our detached Xvfb survived and squatted its display; after ~16 such
+  exits local preview was disabled ("display band busy"). The extension now records its Xvfb
+  PID per-workspace and reaps its own leftover on the next start — only ever an Xvfb it
+  started (verified by our screen-geometry signature), never another tool's or window's.
+- **Abandoned `/tmp/dali_preview_<hash>` working directories were never garbage-collected.**
+  One is minted per distinct workspace root (in local mode each also kept a multi-MB compiled
+  server binary), and cleanup ran only at `deactivate()` (skipped on a crash). Activation now
+  reclaims the current dir's orphans and removes sibling tmp dirs older than 7 days (only our
+  `dali_preview[_<hash>]` family — never unrelated `/tmp` entries).
+
+### Added / Changed (runtime image disk usage)
+
+- **"DALi Preview: Clean Runtime Images" is now available in the Command Palette.** It was
+  contributed with `when:false` (hidden) despite the README pointing users to it — so the
+  documented way to reclaim accumulated ~1.2 GB-per-version runtime images was unreachable.
+- After switching runtime versions, a non-blocking nudge offers one-click cleanup once
+  several images (≥3) have accumulated (nothing prunes them automatically).
+
 ## [0.56.3] - 2026-07-07
 
 ### Fixed

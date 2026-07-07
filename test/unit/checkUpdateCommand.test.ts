@@ -330,3 +330,16 @@ describe('buildVersionQuickPickItems', () => {
         expect(items.every((i) => (i.description ?? '').includes('will download'))).to.equal(true);
     });
 });
+
+describe('shouldOfferImageCleanup (disk-cleanup nudge threshold)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { shouldOfferImageCleanup } = require('../../src/dockerMaintenance');
+    it('offers cleanup once several runtime images have accumulated (>=3)', () => {
+        expect(shouldOfferImageCleanup(3)).to.equal(true);
+        expect(shouldOfferImageCleanup(5)).to.equal(true);
+    });
+    it('does not nag for a small number of cached images', () => {
+        expect(shouldOfferImageCleanup(0)).to.equal(false);
+        expect(shouldOfferImageCleanup(2)).to.equal(false);
+    });
+});
