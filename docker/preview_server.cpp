@@ -1095,13 +1095,19 @@ public:
             req.bgColor.empty() ? ThemeToColor(req.theme) : HexToColor(req.bgColor));
 
         // Resize window if needed
-        Vector2 winSize = mWindow.GetSize();
+        // Window::GetSize()/SetSize(WindowSize) were renamed to GetPositionSize()/
+        // SetPositionSize(PositionSize) and removed from Dali::Window in dali-adaptor
+        // 2.5.29. Use the new API directly so this compiles against a current adaptor in
+        // BOTH runtimes — local (host prefix) AND docker (the runtime-release agent's
+        // sed-patch is now a no-op). PositionSize is a Rect<int32_t> (.x/.y/.width/.height),
+        // so keep the current window position and just change the size.
+        Dali::PositionSize winSize = mWindow.GetPositionSize();
         if (static_cast<int>(winSize.width)  != static_cast<int>(req.width) ||
             static_cast<int>(winSize.height) != static_cast<int>(req.height))
         {
-            mWindow.SetSize(Window::WindowSize(
-                static_cast<uint32_t>(req.width),
-                static_cast<uint32_t>(req.height)));
+            mWindow.SetPositionSize(Dali::PositionSize(winSize.x, winSize.y,
+                static_cast<int>(req.width),
+                static_cast<int>(req.height)));
         }
 
         // Clear existing actors
@@ -1163,13 +1169,19 @@ public:
             req.bgColor.empty() ? ThemeToColor(req.theme) : HexToColor(req.bgColor));
 
         // Resize window if dimensions changed
-        Vector2 winSize = mWindow.GetSize();
+        // Window::GetSize()/SetSize(WindowSize) were renamed to GetPositionSize()/
+        // SetPositionSize(PositionSize) and removed from Dali::Window in dali-adaptor
+        // 2.5.29. Use the new API directly so this compiles against a current adaptor in
+        // BOTH runtimes — local (host prefix) AND docker (the runtime-release agent's
+        // sed-patch is now a no-op). PositionSize is a Rect<int32_t> (.x/.y/.width/.height),
+        // so keep the current window position and just change the size.
+        Dali::PositionSize winSize = mWindow.GetPositionSize();
         if (static_cast<int>(winSize.width)  != static_cast<int>(req.width) ||
             static_cast<int>(winSize.height) != static_cast<int>(req.height))
         {
-            mWindow.SetSize(Window::WindowSize(
-                static_cast<uint32_t>(req.width),
-                static_cast<uint32_t>(req.height)));
+            mWindow.SetPositionSize(Dali::PositionSize(winSize.x, winSize.y,
+                static_cast<int>(req.width),
+                static_cast<int>(req.height)));
         }
 
         // Unload previous plugin

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-07-07
+
+### Fixed
+
+- **Local runtime (`runtimeMode: local`) failed to start its resident preview server on a
+  current DALi prefix.** `docker/preview_server.cpp` still used `Window::GetSize()` /
+  `SetSize(WindowSize)`, which dali-adaptor 2.5.29 renamed to `GetPositionSize()` /
+  `SetPositionSize(PositionSize)` and removed. In docker mode the runtime-release agent
+  sed-patches this at image-build time, but the local backend compiles the server against
+  the host prefix with no such patch, so it failed to compile ("`class Dali::Window` has no
+  member named `GetSize`"). Ported the source to the new API directly, so the server
+  compiles in BOTH runtimes (and the agent's patch is now a no-op). Verified: the resident
+  server compiles + renders against the host prefix at `dali-env/opt` (9/9 server-path
+  samples, click-to-code coords correct; 51/51 harness previews compile).
+
 ## [0.56.0] - 2026-07-07
 
 ### Fixed
