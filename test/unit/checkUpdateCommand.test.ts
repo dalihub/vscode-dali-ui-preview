@@ -176,6 +176,43 @@ describe('selectRuntimeVersionCommand', () => {
         expect(onSelected.called).to.equal(false); // never restarts on a failed pull
     });
 
+    // Re-selecting the version you are ALREADY on must NOT dead-end: the resident server
+    // may be running an OLDER image than the one now under this tag (a rolling tag moved,
+    // or the server started before a re-pull). Re-selecting must re-apply it so the user
+    // can refresh a stale server — this is what left docker click-to-code stuck on a stale
+    // (broken-metadata) image even after the fixed image was published.
+    it('re-applies the CURRENT immutable version by RESTARTING the server (refreshes a stale server; no re-pull)', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['dali_2.5.28-9d55242', 'latest']);
+        sinon.stub(ConfigurationService.prototype, 'daliVersionTag').get(() => 'dali_2.5.28-9d55242');
+        sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'dali_2.5.28-9d55242' } as any);
+        sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
+        const onSelected = sinon.stub().resolves(true);
+        const rt = makeRuntime({
+            listLocalTags: sinon.stub().resolves(['dali_2.5.28-9d55242']),
+            hasImage: sinon.stub().resolves(true),
+        });
+        await selectRuntimeVersionCommand(rt, fakeOut, onSelected);
+        expect(onSelected.calledOnce, 'restarts the server so a stale resident server picks up the current image').to.equal(true);
+        expect(rt.pullImage.called, 'immutable dali_X.Y.Z-<sha> cannot move → no re-pull').to.equal(false);
+    });
+
+    it('re-applies the CURRENT rolling tag by force-re-pulling (moves it) AND restarting', async () => {
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        sinon.stub(registryClient, 'listRemoteTags').resolves(['latest']);
+        sinon.stub(ConfigurationService.prototype, 'daliVersionTag').get(() => 'latest');
+        sinon.stub(vscode.window, 'showQuickPick').resolves({ label: 'latest' } as any);
+        sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
+        const onSelected = sinon.stub().resolves(true);
+        const rt = makeRuntime({
+            listLocalTags: sinon.stub().resolves(['latest']),
+            hasImage: sinon.stub().resolves(true),
+        });
+        await selectRuntimeVersionCommand(rt, fakeOut, onSelected);
+        expect(rt.pullImage.calledOnce, 'rolling tag force-re-pulled to pick up a moved digest').to.equal(true);
+        expect(onSelected.calledOnce, 'server restarted on the refreshed image').to.equal(true);
+    });
+
     it('does nothing when the registry returns no tags', async () => {
         sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
         sinon.stub(registryClient, 'listRemoteTags').resolves([]);

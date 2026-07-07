@@ -225,10 +225,36 @@ export async function selectRuntimeVersionCommand(
         return undefined; // cancelled
     }
     if (pick.label === current) {
-        if (announce) {
-            void vscode.window.showInformationMessage(`DALi runtime is already '${pick.label}'${curVer && !/\d+\.\d+\.\d+/.test(current) ? ` (DALi ${curVer})` : ''} — no change.`);
+        // Re-selecting the version you are ALREADY on is NOT a dead no-op: the resident
+        // server may be running an OLDER image than the one now under this tag — a rolling
+        // tag (`latest` / `dali_X.Y.Z`) can move on the registry, or the server started
+        // before a re-pull. Re-pull a rolling tag (force, so it actually moves) and restart
+        // via onSelected() so re-selecting re-applies the current published image (this is
+        // how you recover a stale server — e.g. one still on a broken-metadata image after
+        // the fixed one shipped). Immutable `dali_X.Y.Z-<sha7>` tags can't move → just restart.
+        const immutable = /-[0-9a-f]{7,}$/.test(pick.label);
+        if (!immutable) {
+            outputChannel.appendLine(`[Runtime] Re-applying '${pick.label}' — re-pulling the rolling tag to pick up any newer image…`);
+            await pullRuntimeImageCommand(runtime, outputChannel, /*force*/ true);
         }
-        return pick.label; // committed to the current version — nothing to pull/restart
+        const ready = await onSelected();
+        if (announce) {
+            const verNote = curVer && !/\d+\.\d+\.\d+/.test(current) ? ` (DALi ${curVer})` : '';
+            if (ready) {
+                void vscode.window.showInformationMessage(
+                    `✓ DALi runtime re-applied ('${pick.label}'${verNote}) — the preview server was restarted on the current image.`,
+                );
+            } else {
+                const choice = await vscode.window.showWarningMessage(
+                    `DALi runtime '${pick.label}'${verNote} re-applied, but the preview server didn't come up. Reload the window to apply it.`,
+                    'Reload Window',
+                );
+                if (choice === 'Reload Window') {
+                    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            }
+        }
+        return pick.label;
     }
 
     // pullRuntimeImageCommand pulls the CONFIGURED tag, so set it to the pick first;
