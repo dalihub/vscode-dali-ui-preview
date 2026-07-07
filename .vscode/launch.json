@@ -5,9 +5,10 @@
             "name": "Run Extension",
             "type": "extensionHost",
             "request": "launch",
-            // Recompile out/ first so F5 never runs a stale build. (F5 runs THIS source copy,
-            // not the installed .vsix — pull latest before debugging.)
-            "preLaunchTask": "npm: compile",
+            // NOTE (contributors): F5 runs the extension from THIS source checkout — NOT the
+            // installed .vsix — and opens test/samples (which pins runtimeMode=docker). It is a
+            // developer-only debugging workflow; end users just install the .vsix and open a
+            // preview normally. Run `npm run compile` yourself after changing TypeScript.
             "args": [
                 "--extensionDevelopmentPath=${workspaceFolder}",
                 "${workspaceFolder}/test/samples"
