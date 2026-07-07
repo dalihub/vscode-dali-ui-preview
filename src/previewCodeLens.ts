@@ -30,6 +30,10 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
 
     /** Cached result of project-level DALi detection. undefined = not yet checked. */
     private _isDaliProject: boolean | undefined = undefined;
+    /** True when the project qualified ONLY via docker mode (no local DALi signal). In that
+     *  case we additionally require a per-file DALi signal so the lens never shows on unrelated
+     *  C++ that merely happens to return a `View`/`Control`/`Actor` and call `X::New()`. */
+    private _isDockerModeProject = false;
 
     refresh(): void {
         // Invalidate the cache on refresh so detection re-runs on next provideCodeLenses call
@@ -50,13 +54,16 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
         if (this._isDaliProject !== undefined) {
             return this._isDaliProject;
         }
+        this._isDockerModeProject = false;
 
         // 0. Docker runtime: the container provides DALi, so NO local DALi install (setenv /
         // daliPrefix / pkg-config) exists or is needed. Any C++ file is a preview candidate —
         // the per-file DALi ::New() scan below is the real relevance gate. Without this, docker
-        // users (who have no host DALi) never saw the Preview CodeLens.
+        // users (who have no host DALi) never saw the Preview CodeLens. Because this relaxes the
+        // project-level gate, provideCodeLenses additionally requires a per-file DALi signal.
         if (ConfigurationService.getInstance().runtimeMode === 'docker') {
             this._isDaliProject = true;
+            this._isDockerModeProject = true;
             return true;
         }
 
@@ -112,6 +119,13 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
             return [];
         }
 
+        // In docker mode the project-level gate is relaxed (there's no host DALi install to key
+        // on), so ALSO require a per-file DALi signal here. Otherwise unrelated C++ that merely
+        // returns a `View`/`Control`/`Actor` and calls `X::New()` would wrongly get the lens.
+        if (this._isDockerModeProject && !fileHasDaliSignal(document.getText())) {
+            return [];
+        }
+
         // Find no-arg functions returning DALi View types whose body contains ::New()
         const lenses: vscode.CodeLens[] = [];
         for (let i = 0; i < document.lineCount; i++) {
@@ -147,6 +161,16 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
         log.trace('CodeLens', 'scan', { fileName: document.fileName, lensCount: lenses.length });
         return lenses;
     }
+}
+
+/**
+ * A file-level DALi signal — an include of a `dali` header, a `Dali::` namespace reference,
+ * `using namespace Dali`, or a `@dali-preview` marker. Used ONLY in docker mode (where the
+ * project-level gate is relaxed) so the Preview lens never appears on unrelated C++ whose
+ * functions coincidentally return a `View`/`Control`/`Actor` and call `X::New()`.
+ */
+export function fileHasDaliSignal(text: string): boolean {
+    return /\bDali::|using\s+namespace\s+Dali|#\s*include\s*[<"][^">]*\bdali|@dali-preview/i.test(text);
 }
 
 /** Check if function body contains a DALi-UI component ::New() call. */

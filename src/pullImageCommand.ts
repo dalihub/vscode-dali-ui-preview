@@ -13,11 +13,19 @@ export function isRollingTag(tag: string): boolean {
 }
 
 /**
- * When a rolling tag can't be pulled (e.g. `:latest` is un-warmed on the corp BART proxy but a
- * concrete version is), pick the best CONCRETE fallback from the registry's tag list. Prefer the
- * newest moving version tag `dali_X.Y.Z` (the release agent always points it at the newest —
- * already-fixed — build and warms it), else the newest immutable `dali_X.Y.Z-<sha>`. Returns
- * undefined when the list has no usable concrete tag. Pure + exported for unit testing.
+ * When a rolling tag can't be pulled, pick the best CONCRETE fallback from the registry's tag list.
+ *
+ * Root cause (why this is needed): on a caching proxy like the corp BART/Artifactory mirror, a
+ * MUTABLE tag (`latest`, and also the moving `dali_X.Y.Z`) is not served from cache — the proxy
+ * must revalidate it against the upstream (ghcr.io) on each pull to check whether it moved, and
+ * that upstream round-trip fails over the restricted corp egress. An IMMUTABLE `dali_X.Y.Z-<sha>`
+ * tag never moves, so the proxy serves it straight from cache with no upstream call — which is why
+ * `latest` fails there while `dali_2.5.28-<sha>` (the SAME digest) succeeds.
+ *
+ * Therefore prefer the newest IMMUTABLE `dali_X.Y.Z-<sha>` (the reliably-servable one), and only
+ * fall back to a moving `dali_X.Y.Z` if no immutable tag exists. The agent prunes old builds, so
+ * the newest-version immutable is the current, already-fixed image. Returns undefined when the
+ * list has no usable concrete tag. Pure + exported for unit testing.
  */
 export function pickFallbackTag(tags: string[], failedTag: string): string | undefined {
     const ver = (t: string): [number, number, number] | undefined => {
@@ -30,9 +38,9 @@ export function pickFallbackTag(tags: string[], failedTag: string): string | und
             return bv[0] - av[0] || bv[1] - av[1] || bv[2] - av[2];
         })[0];
     const usable = tags.filter((t) => t !== failedTag && ver(t));
-    const moving = usable.filter((t) => /^dali_\d+\.\d+\.\d+$/.test(t)); // dali_X.Y.Z
     const immutable = usable.filter((t) => /^dali_\d+\.\d+\.\d+-[0-9a-f]{7,}$/.test(t));
-    return newest(moving) ?? newest(immutable);
+    const moving = usable.filter((t) => /^dali_\d+\.\d+\.\d+$/.test(t)); // dali_X.Y.Z (also mutable)
+    return newest(immutable) ?? newest(moving);
 }
 
 /**
@@ -192,11 +200,14 @@ async function pullWithProgress(
         );
 
         if (!analysis.shouldRetry || attempt >= maxRetries) {
-            // A rolling tag (`latest` / `dali_X.Y.Z`) can be un-warmed/missing on a caching
-            // proxy (BART) even when a concrete version IS available — the exact case where a
-            // user gives up on `latest` and manually picks `dali_X.Y.Z-<sha>`. Automate that:
-            // pull the newest concrete version instead, pin it, and tell the user. Only for a
-            // rolling tag, and the fallback tag is concrete so this recurses at most once.
+            // A MUTABLE tag (`latest` / moving `dali_X.Y.Z`) can fail to pull through a caching
+            // proxy (corp BART/Artifactory) even when the SAME image is available under an
+            // immutable tag: the proxy must revalidate a mutable tag against ghcr.io on each pull
+            // (to see if it moved) and that upstream call fails over the restricted egress, while
+            // an immutable `dali_X.Y.Z-<sha>` is served straight from cache. This is the exact
+            // case where a user gives up on `latest` and manually picks `dali_X.Y.Z-<sha>`.
+            // Automate it: resolve the newest immutable tag, pull it, pin it, and tell the user.
+            // Only for a rolling tag, and the fallback tag is concrete so this recurses at most once.
             if (isRollingTag(tag)) {
                 let fallback: string | undefined;
                 try { fallback = pickFallbackTag(await listRemoteTags(runtime.getImageName()), tag); }

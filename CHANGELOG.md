@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.6] - 2026-07-07
+
+### Fixed
+
+- **Runtime-image download refinement (follow-up to 0.56.5): fall back to the newest
+  IMMUTABLE tag, not a moving version tag.** On the corp BART/Artifactory proxy the reason
+  `latest` fails while `dali_X.Y.Z-<sha>` (the *same* image digest) succeeds is that the proxy
+  can't serve a **mutable** tag from cache — it must revalidate `latest` against ghcr.io on
+  every pull, and that upstream call fails over the restricted corporate egress. The moving
+  `dali_X.Y.Z` tag is *also* mutable, so 0.56.5's "prefer the moving version tag" fallback
+  could still fail. The fallback now prefers the newest **immutable** `dali_X.Y.Z-<sha>` (the
+  one the proxy reliably serves from cache — exactly the tag users pick manually), and only
+  uses a moving tag if no immutable one exists.
+- **The Preview CodeLens is now suppressed on unrelated C++ in Docker mode.** 0.56.5 let Docker
+  mode qualify any C++ file as a preview candidate (the container provides DALi). To keep the
+  lens from appearing on non-DALi C++ that merely returns a `View`/`Control`/`Actor` and calls
+  `X::New()`, Docker mode now *also* requires a per-file DALi signal (a `dali` include, a
+  `Dali::` reference, `using namespace Dali`, or a `@dali-preview` marker). Local mode is
+  unchanged (its host-DALi project gate already scoped the lens).
+
 ## [0.56.5] - 2026-07-07
 
 ### Fixed

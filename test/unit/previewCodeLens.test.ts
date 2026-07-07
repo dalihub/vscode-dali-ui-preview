@@ -88,6 +88,7 @@ describe('PreviewCodeLensProvider', () => {
             sinon.stub(ConfigurationService.prototype, 'runtimeMode').get(() => 'docker');
             sinon.stub(vscode.workspace, 'workspaceFolders').value(undefined);
             const doc = createMockDocument('/tmp/example.cpp', [
+                '#include <dali-ui-foundation/dali-ui-foundation.h>',
                 'View CreateUI() {',
                 '    return View::New();',
                 '}',
@@ -96,6 +97,24 @@ describe('PreviewCodeLensProvider', () => {
             const lenses = await provider.provideCodeLenses(doc as any);
             expect(lenses).to.have.length(1);
             expect(lenses[0].command!.title).to.include('Preview');
+        });
+
+        it('does NOT show the CodeLens in DOCKER mode for unrelated C++ with no DALi signal', async () => {
+            // The docker short-circuit relaxes the project-level gate, so a per-file DALi signal
+            // (a dali include / Dali:: / using namespace Dali) is required — otherwise generic
+            // C++ that returns a `View`/`Control`/`Actor` and calls `X::New()` would wrongly match.
+            (provider as any)._isDaliProject = undefined;
+            sinon.stub(ConfigurationService.prototype, 'runtimeMode').get(() => 'docker');
+            sinon.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+            const doc = createMockDocument('/tmp/unrelated.cpp', [
+                '// A non-DALi UI framework that also uses ::New() factories',
+                'View CreateUI() {',
+                '    return View::New();',
+                '}',
+            ].join('\n'));
+
+            const lenses = await provider.provideCodeLenses(doc as any);
+            expect(lenses).to.have.length(0);
         });
 
         it('finds CodeLens for function returning View with ::New() in body', async () => {

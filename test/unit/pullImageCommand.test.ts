@@ -237,14 +237,17 @@ describe('pickFallbackTag / isRollingTag (corp-proxy ":latest unavailable" fallb
         expect(isRollingTag('dali_2.5.28-9d55242')).to.equal(false); // immutable
     });
 
-    it('prefers the newest MOVING version tag (always the newest, already-fixed, agent-warmed build)', () => {
+    it('prefers the newest IMMUTABLE tag (the corp proxy serves it from cache; mutable tags fail there)', () => {
+        // Mirrors the real registry: latest + moving dali_2.5.28 + immutable dali_2.5.28-<sha>.
+        // The moving dali_2.5.28 is ALSO mutable → would also fail on the proxy, so we must pick
+        // the immutable one — the exact tag the colleague pulled manually and succeeded with.
         const tags = ['latest', 'dali_2.5.26', 'dali_2.5.28', 'dali_2.5.28-9d55242', 'dali_2.5.26-aaaaaaa'];
-        expect(pickFallbackTag(tags, 'latest')).to.equal('dali_2.5.28');
+        expect(pickFallbackTag(tags, 'latest')).to.equal('dali_2.5.28-9d55242');
     });
 
-    it('falls back to the newest immutable tag when no moving version tag exists', () => {
-        const tags = ['latest', 'dali_2.5.26-aaaaaaa', 'dali_2.5.28-9d55242'];
-        expect(pickFallbackTag(tags, 'latest')).to.equal('dali_2.5.28-9d55242');
+    it('falls back to a moving version tag only when NO immutable tag exists', () => {
+        const tags = ['latest', 'dali_2.5.26', 'dali_2.5.28'];
+        expect(pickFallbackTag(tags, 'latest')).to.equal('dali_2.5.28');
     });
 
     it('never returns the tag that just failed', () => {
