@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.5] - 2026-07-07
+
+### Fixed
+
+- **The "▶ Preview" CodeLens never appeared in Docker mode.** Its "is this a DALi project?"
+  check only passed with a LOCAL DALi install (a `setenv` file, `daliPreview.daliPrefix`, or
+  `pkg-config dali2-ui-foundation`) — but Docker-mode users have no host DALi (it lives in the
+  runtime container), so the CodeLens was silently absent for them. Docker mode now qualifies
+  directly (the container provides DALi; the per-file DALi `::New()` scan remains the real
+  relevance gate), so the CodeLens shows for Docker users on any C++ file that builds DALi UI.
+- **Downloading the runtime image could fail on `latest` while a concrete version works —
+  common on the corporate BART GHCR proxy, where a rolling tag may be un-warmed/uncached.**
+  When a rolling tag (`latest` / `dali_X.Y.Z`) can't be pulled after retries, the extension now
+  automatically falls back to the newest concrete version tag (the moving `dali_X.Y.Z` the
+  release agent keeps pointed at the latest build, else the newest `dali_X.Y.Z-<sha>`), pins it,
+  and tells the user — automating the manual "pick a specific version" workaround.
+
 ## [0.56.4] - 2026-07-07
 
 ### Fixed (long-term resource accumulation)

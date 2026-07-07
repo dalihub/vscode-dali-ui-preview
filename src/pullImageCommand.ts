@@ -3,6 +3,37 @@ import { ConfigurationService } from './configurationService';
 import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess } from './dockerAccessCheck';
 import { describeRegistry } from './registry';
+import { listRemoteTags } from './registryClient';
+
+/** A ROLLING tag (`latest` / `dali_X.Y.Z`) can move on the registry and may be missing/uncached
+ *  on a caching proxy even when a concrete immutable build is available. An immutable
+ *  `dali_X.Y.Z-<sha>` tag never moves. */
+export function isRollingTag(tag: string): boolean {
+    return tag === 'latest' || /^dali_\d+\.\d+\.\d+$/.test(tag);
+}
+
+/**
+ * When a rolling tag can't be pulled (e.g. `:latest` is un-warmed on the corp BART proxy but a
+ * concrete version is), pick the best CONCRETE fallback from the registry's tag list. Prefer the
+ * newest moving version tag `dali_X.Y.Z` (the release agent always points it at the newest —
+ * already-fixed — build and warms it), else the newest immutable `dali_X.Y.Z-<sha>`. Returns
+ * undefined when the list has no usable concrete tag. Pure + exported for unit testing.
+ */
+export function pickFallbackTag(tags: string[], failedTag: string): string | undefined {
+    const ver = (t: string): [number, number, number] | undefined => {
+        const m = /^dali_(\d+)\.(\d+)\.(\d+)/.exec(t);
+        return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+    };
+    const newest = (arr: string[]): string | undefined =>
+        arr.length === 0 ? undefined : [...arr].sort((a, b) => {
+            const [av, bv] = [ver(a)!, ver(b)!];
+            return bv[0] - av[0] || bv[1] - av[1] || bv[2] - av[2];
+        })[0];
+    const usable = tags.filter((t) => t !== failedTag && ver(t));
+    const moving = usable.filter((t) => /^dali_\d+\.\d+\.\d+$/.test(t)); // dali_X.Y.Z
+    const immutable = usable.filter((t) => /^dali_\d+\.\d+\.\d+-[0-9a-f]{7,}$/.test(t));
+    return newest(moving) ?? newest(immutable);
+}
 
 /**
  * Build the download-notification sub-message. Deliberately percentage-free.
@@ -161,6 +192,27 @@ async function pullWithProgress(
         );
 
         if (!analysis.shouldRetry || attempt >= maxRetries) {
+            // A rolling tag (`latest` / `dali_X.Y.Z`) can be un-warmed/missing on a caching
+            // proxy (BART) even when a concrete version IS available — the exact case where a
+            // user gives up on `latest` and manually picks `dali_X.Y.Z-<sha>`. Automate that:
+            // pull the newest concrete version instead, pin it, and tell the user. Only for a
+            // rolling tag, and the fallback tag is concrete so this recurses at most once.
+            if (isRollingTag(tag)) {
+                let fallback: string | undefined;
+                try { fallback = pickFallbackTag(await listRemoteTags(runtime.getImageName()), tag); }
+                catch (e) { outputChannel.appendLine(`[Runtime] Could not list tags for fallback: ${String(e).slice(0, 120)}`); }
+                if (fallback) {
+                    outputChannel.appendLine(`[Runtime] '${tag}' unavailable — falling back to the pinned version '${fallback}'…`);
+                    if (await pullWithProgress(runtime, fallback, outputChannel)) {
+                        await ConfigurationService.getInstance().update('daliVersionTag', fallback, vscode.ConfigurationTarget.Global);
+                        void vscode.window.showInformationMessage(
+                            `'${tag}' couldn't be downloaded from your registry/proxy, so DALi Preview pinned the available version '${fallback}'. ` +
+                            'Change it any time via "Select Runtime Version".',
+                        );
+                        return true;
+                    }
+                }
+            }
             // Final attempt failed or not retryable
             const items: string[] = ['View Logs'];
             if (analysis.shouldRetry) {

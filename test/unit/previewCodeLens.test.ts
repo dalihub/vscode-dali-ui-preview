@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as vscode from 'vscode';
 import { createMockDocument } from '../helpers/mockDocument';
 import { PreviewCodeLensProvider } from '../../src/previewCodeLens';
+import { ConfigurationService } from '../../src/configurationService';
 
 describe('PreviewCodeLensProvider', () => {
     let provider: PreviewCodeLensProvider;
@@ -77,6 +78,24 @@ describe('PreviewCodeLensProvider', () => {
 
             const lenses = await provider.provideCodeLenses(doc as any);
             expect(lenses).to.have.length(0);
+        });
+
+        it('shows the Preview CodeLens in DOCKER mode with NO local DALi install', async () => {
+            // Regression: docker users have no host DALi (no setenv / daliPrefix / pkg-config),
+            // so the old checkDaliProject() returned false and the Preview CodeLens never
+            // appeared. The runtime container provides DALi, so docker mode must qualify.
+            (provider as any)._isDaliProject = undefined; // let checkDaliProject() run
+            sinon.stub(ConfigurationService.prototype, 'runtimeMode').get(() => 'docker');
+            sinon.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+            const doc = createMockDocument('/tmp/example.cpp', [
+                'View CreateUI() {',
+                '    return View::New();',
+                '}',
+            ].join('\n'));
+
+            const lenses = await provider.provideCodeLenses(doc as any);
+            expect(lenses).to.have.length(1);
+            expect(lenses[0].command!.title).to.include('Preview');
         });
 
         it('finds CodeLens for function returning View with ::New() in body', async () => {

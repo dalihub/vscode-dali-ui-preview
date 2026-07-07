@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from './logger';
+import { ConfigurationService } from './configurationService';
 
 const execAsync = promisify(exec);
 
@@ -48,6 +49,15 @@ export class PreviewCodeLensProvider implements vscode.CodeLensProvider {
     private async checkDaliProject(): Promise<boolean> {
         if (this._isDaliProject !== undefined) {
             return this._isDaliProject;
+        }
+
+        // 0. Docker runtime: the container provides DALi, so NO local DALi install (setenv /
+        // daliPrefix / pkg-config) exists or is needed. Any C++ file is a preview candidate —
+        // the per-file DALi ::New() scan below is the real relevance gate. Without this, docker
+        // users (who have no host DALi) never saw the Preview CodeLens.
+        if (ConfigurationService.getInstance().runtimeMode === 'docker') {
+            this._isDaliProject = true;
+            return true;
         }
 
         // 1. Check workspace folders for a `setenv` file with DESKTOP_PREFIX
