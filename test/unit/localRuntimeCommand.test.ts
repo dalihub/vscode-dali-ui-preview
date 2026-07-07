@@ -3,7 +3,7 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import * as daliEnv from '../../src/daliEnvironment';
 import { ConfigurationService } from '../../src/configurationService';
-import { useLocalRuntimeCommand, detectRuntimeModeShadow } from '../../src/localRuntimeCommand';
+import { useLocalRuntimeCommand, detectRuntimeModeShadow, resolveRuntimeModeShadow } from '../../src/localRuntimeCommand';
 
 /*
  * localRuntimeCommand is wired into activation (the docker↔local runtime switch
@@ -128,6 +128,65 @@ describe('useLocalRuntimeCommand', () => {
         await useLocalRuntimeCommand(false);
 
         expect(update.calledWith('runtimeMode', 'local', vscode.ConfigurationTarget.Workspace)).to.equal(true);
+    });
+});
+
+describe('resolveRuntimeModeShadow (shared docker↔local shadow guard)', () => {
+    afterEach(() => sinon.restore());
+
+    const stubInspect = (inspected: any) =>
+        sinon.stub(vscode.workspace, 'getConfiguration').returns({ inspect: () => inspected } as any);
+
+    it("returns 'proceed' with no prompt when nothing shadows the desired mode", async () => {
+        stubInspect({ globalValue: 'docker' }); // no workspace/folder pin
+        const warn = sinon.stub(vscode.window, 'showWarningMessage');
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+
+        expect(await resolveRuntimeModeShadow('docker')).to.equal('proceed');
+        expect(warn.called).to.equal(false);
+        expect(update.called).to.equal(false);
+    });
+
+    it("DOCKER: overrides the shadowing scope and returns 'proceed' on 'Switch Here to Docker'", async () => {
+        stubInspect({ workspaceValue: 'local' }); // workspace pins local, shadows a docker switch
+        const warn = sinon.stub(vscode.window, 'showWarningMessage').resolves('Switch Here to Docker' as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+
+        const outcome = await resolveRuntimeModeShadow('docker');
+
+        expect(outcome).to.equal('proceed');
+        expect(warn.calledOnce).to.equal(true);
+        expect(update.calledWith('runtimeMode', 'docker', vscode.ConfigurationTarget.Workspace)).to.equal(true);
+    });
+
+    it("DOCKER: returns 'abort' (no override write) when the user opens settings instead", async () => {
+        stubInspect({ workspaceFolderValue: 'local' });
+        sinon.stub(vscode.window, 'showWarningMessage').resolves('Open Settings' as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+        const exec = sinon.stub(vscode.commands, 'executeCommand').resolves();
+
+        expect(await resolveRuntimeModeShadow('docker')).to.equal('abort');
+        expect(update.calledWith('runtimeMode', 'docker', vscode.ConfigurationTarget.WorkspaceFolder)).to.equal(false);
+        expect(exec.calledWith('workbench.action.openFolderSettings')).to.equal(true);
+    });
+
+    it("DOCKER: returns 'abort' when the warning is dismissed", async () => {
+        stubInspect({ workspaceValue: 'local' });
+        sinon.stub(vscode.window, 'showWarningMessage').resolves(undefined as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+
+        expect(await resolveRuntimeModeShadow('docker')).to.equal('abort');
+        expect(update.called).to.equal(false);
+    });
+
+    it("LOCAL: overrides to the Folder scope and returns 'proceed' on 'Switch Here to Local'", async () => {
+        stubInspect({ workspaceFolderValue: 'docker' }); // folder pins docker, shadows a local switch
+        const warn = sinon.stub(vscode.window, 'showWarningMessage').resolves('Switch Here to Local' as any);
+        const update = sinon.stub(ConfigurationService.prototype, 'update').resolves();
+
+        expect(await resolveRuntimeModeShadow('local')).to.equal('proceed');
+        expect(warn.calledOnce).to.equal(true);
+        expect(update.calledWith('runtimeMode', 'local', vscode.ConfigurationTarget.WorkspaceFolder)).to.equal(true);
     });
 });
 

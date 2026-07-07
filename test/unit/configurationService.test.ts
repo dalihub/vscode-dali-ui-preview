@@ -19,6 +19,32 @@ describe('ConfigurationService — runtimeUpdatePolicy', () => {
     });
 });
 
+describe('ConfigurationService — active runtime mode (frozen at activation, task-2 Hole 3)', () => {
+    const realGetConfiguration = vscode.workspace.getConfiguration;
+    afterEach(() => {
+        (vscode.workspace as any).getConfiguration = realGetConfiguration;
+        ConfigurationService.setActiveRuntimeMode(undefined); // reset the frozen mode between tests
+    });
+    function stubConfig(values: Record<string, any>): void {
+        (vscode.workspace as any).getConfiguration = () => ({
+            get: (key: string, dflt: any) => (key in values ? values[key] : dflt),
+            update: () => Promise.resolve(),
+        });
+    }
+
+    it('returns the FROZEN active mode even when the live setting has since changed (title must not lie)', () => {
+        ConfigurationService.setActiveRuntimeMode('docker');
+        stubConfig({ runtimeMode: 'local' }); // user edited the setting but has NOT reloaded
+        expect(ConfigurationService.getInstance().getActiveRuntimeMode()).to.equal('docker');
+    });
+
+    it('falls back to the live setting before activation freezes the mode', () => {
+        ConfigurationService.setActiveRuntimeMode(undefined);
+        stubConfig({ runtimeMode: 'local' });
+        expect(ConfigurationService.getInstance().getActiveRuntimeMode()).to.equal('local');
+    });
+});
+
 describe('ConfigurationService — runtimeMode / daliPrefix', () => {
     const realGetConfiguration = vscode.workspace.getConfiguration;
     afterEach(() => { (vscode.workspace as any).getConfiguration = realGetConfiguration; });

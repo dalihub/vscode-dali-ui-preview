@@ -20,6 +20,37 @@ export class ConfigurationService {
     /** Bridges the read-after-write lag on `daliVersionTag` (see the getter). */
     private static _versionTagOverride: string | undefined;
 
+    /**
+     * Timestamp of the last EXTENSION-initiated runtimeMode write (via {@link update}).
+     * The activate() runtimeMode config listener uses it to tell an external Settings-UI
+     * edit (should prompt a reload) from one of our own switch commands (which already
+     * prompt) — see {@link wasRecentSelfRuntimeModeWrite} / shouldPromptRuntimeModeReload.
+     */
+    private static _selfRuntimeModeWriteAt = 0;
+
+    /** True if the extension itself wrote runtimeMode within the debounce window. */
+    static wasRecentSelfRuntimeModeWrite(): boolean {
+        return Date.now() - ConfigurationService._selfRuntimeModeWriteAt < 3000;
+    }
+
+    /**
+     * The runtime mode actually in effect — the backend built at activation. The backend
+     * is frozen until a window reload, so the panel title must show THIS, not the live
+     * setting: after an edit-without-reload (e.g. "Switch Here" when the reload prompt is
+     * dismissed, or a direct settings edit) the live value would make the title lie about
+     * what is rendering. Set once per activation from `backend.kind`. (task-2 Hole 3)
+     */
+    private static _activeRuntimeMode: 'docker' | 'local' | undefined;
+
+    static setActiveRuntimeMode(mode: 'docker' | 'local' | undefined): void {
+        ConfigurationService._activeRuntimeMode = mode;
+    }
+
+    /** The active (frozen) runtime mode; falls back to the live setting before activation sets it. */
+    getActiveRuntimeMode(): 'docker' | 'local' {
+        return ConfigurationService._activeRuntimeMode ?? this.runtimeMode;
+    }
+
     /** Drop the daliVersionTag override so config becomes the source of truth again.
      *  Wired to onDidChangeConfiguration('daliPreview.daliVersionTag') in activate(),
      *  which fires once VS Code's config model reflects the write (or an external edit). */
@@ -164,6 +195,12 @@ export class ConfigurationService {
         // one. Cleared by the onDidChangeConfiguration listener once config catches up.
         if (key === 'daliVersionTag' && typeof value === 'string') {
             ConfigurationService._versionTagOverride = value;
+        }
+        // Mark our own runtimeMode writes so the activate() config listener does not
+        // double-prompt a reload (the switch commands already prompt); an EXTERNAL
+        // Settings edit never goes through update(), so the listener still fires for it.
+        if (key === 'runtimeMode') {
+            ConfigurationService._selfRuntimeModeWriteAt = Date.now();
         }
     }
 }

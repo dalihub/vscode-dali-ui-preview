@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-07-07
+
+### Fixed
+
+- **Click-to-code regions landed in the wrong place on the dali-ui `v2.5.28` runtime.**
+  dali-ui v2.5.28 changed the default actor coordinate convention (PARENT_ORIGIN/PIVOT).
+  The scene-metadata exporters reconstructed each actor's screen rect with hand-rolled
+  `parentOrigin/anchor` math, which that change silently broke — the RENDER stayed correct
+  but a full-window container was reported at `(-960,-540)` and text fully off-screen, so
+  the webview's clickable overlays no longer matched what was drawn. Both exporters
+  (`docker/preview_server.cpp` server path and `server/preview_harness.cpp.template` full
+  build) now ask DALi for the actual screen bounds via `Actor::CalculateScreenExtents()` —
+  convention-independent, so regions always track the render. (The `dali-ui-preview-cli`
+  already used this API and was unaffected.) *The server-path fix ships in the rebuilt
+  runtime image; the harness-path fix is in this extension.*
+- **The pixel golden tests could not see this class of bug** (the render was correct, only
+  the metadata coordinates were wrong). Added a coordinate sanity guard (`metadataCheck`)
+  wired into both e2e runners: any drawn actor reported at a negative / off-left-top screen
+  position now fails the suite. Verified it flags the real broken v2.5.28 metadata.
+
+### Fixed (runtime-switch UX — "your choice must apply, and problems must be surfaced")
+
+- **Switching to the Docker runtime while a workspace/folder pins `runtimeMode=local` was a
+  silent no-op** that still claimed success ("switching to Docker… Reload to apply") — the
+  reverse of the local-switch case already handled in v0.55.0. The shadow guard is now
+  shared and symmetric: both directions offer a one-click **"Switch Here to Docker/Local"**
+  that writes to the shadowing scope so the switch actually takes effect, and never claim
+  success when it wouldn't.
+- **Editing `daliPreview.runtimeMode` directly in the Settings UI did nothing** — no preview
+  change, no message (the backend is frozen at activation). A config listener now detects an
+  external change and offers a reload, without double-prompting when one of the extension's
+  own switch commands made the change.
+- **The preview panel tab title could lie about the active runtime** after an
+  edit-without-reload (e.g. showing "Local" while still rendering in Docker). The title's
+  mode now reflects the actually-active backend (frozen at activation); the version tag
+  stays live.
+
+### Added
+
+- The preview webview footer now shows the installed extension version (`DALi Preview vX.Y.Z`).
+
 ## [0.55.0] - 2026-07-07
 
 ### Changed

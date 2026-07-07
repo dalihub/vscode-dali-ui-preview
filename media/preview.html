@@ -488,6 +488,15 @@
     color: #888;
     flex-shrink: 0;
   }
+  .status-bar .status-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .status-bar .version-text {
+    color: #6a6a6a;
+    white-space: nowrap;
+  }
 
   /* ── High Contrast theme support ── */
   body.vscode-high-contrast {
@@ -534,6 +543,9 @@
     border-top: 1px solid #ffffff;
     color: #ffffff;
   }
+
+  body.vscode-high-contrast .status-bar .version-text { color: #ffffff; }
+  body.vscode-high-contrast-light .status-bar .version-text { color: #000000; }
 
   body.vscode-high-contrast-light {
     background: #ffffff;
@@ -1210,8 +1222,11 @@
 
   <!-- Status bar -->
   <div class="status-bar">
-    <span id="buildTimeText"></span>
-    <span id="timestampText"></span>
+    <span class="status-left">
+      <span id="buildTimeText"></span>
+      <span id="timestampText"></span>
+    </span>
+    <span class="version-text" title="Installed DALi Preview extension version">DALi Preview v{{extensionVersion}}</span>
   </div>
 
 <script>

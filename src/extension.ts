@@ -26,7 +26,7 @@ import * as path from 'path';
 import { BuildBackend } from './buildBackend';
 import { DockerBackend } from './backends/dockerBackend';
 import { LocalBackend } from './backends/localBackend';
-import { useLocalRuntimeCommand, presentLocalRuntimeIssues } from './localRuntimeCommand';
+import { useLocalRuntimeCommand, presentLocalRuntimeIssues, resolveRuntimeModeShadow, shouldPromptRuntimeModeReload } from './localRuntimeCommand';
 import { addAgentGuideCommand } from './agentGuideCommand';
 import { reportIssueCommand } from './reportIssueCommand';
 import { findDaliPrefix, validateDaliPrefix } from './daliEnvironment';
@@ -178,6 +178,32 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
     const runtimeMode = ConfigurationService.getInstance().runtimeMode;
     const isLocalRuntime = runtimeMode === 'local';
 
+    // Task-2 Hole 2: the backend is frozen here at activation, so a DIRECT edit of
+    // daliPreview.runtimeMode (Settings UI / settings.json) would otherwise be a silent
+    // no-op — no preview change, no message. Offer a reload when an external edit moves
+    // the resolved mode off the active one. `wasRecentSelfRuntimeModeWrite` suppresses a
+    // double prompt when one of our own switch commands made the change (they prompt too).
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (!shouldPromptRuntimeModeReload(
+                e.affectsConfiguration('daliPreview.runtimeMode'),
+                ConfigurationService.wasRecentSelfRuntimeModeWrite(),
+                ConfigurationService.getInstance().runtimeMode,
+                runtimeMode,
+            )) {
+                return;
+            }
+            const newMode = ConfigurationService.getInstance().runtimeMode;
+            const choice = await vscode.window.showInformationMessage(
+                `DALi Preview: runtime mode changed to "${newMode}". Reload the window to apply it.`,
+                'Reload Window',
+            );
+            if (choice === 'Reload Window') {
+                await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        }),
+    );
+
     // The xvfbManager instance is always created (the orchestrator and
     // getDisplay() fallbacks reference it), but host Xvfb is only STARTED when the
     // runtime actually renders on the host. In docker mode the container carries
@@ -222,6 +248,11 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
         dockerRuntime = new DockerRuntime(ConfigurationService.getInstance().dockerImage);
         backend = new DockerBackend(dockerRuntime, outputChannel);
     }
+
+    // Freeze the ACTIVE runtime mode (what actually renders) from the backend we just
+    // built, so the panel title reflects it rather than a just-edited-but-not-reloaded
+    // setting. (task-2 Hole 3)
+    ConfigurationService.setActiveRuntimeMode(backend.kind);
 
     // Build runner
     buildRunner = new BuildRunner(context, outputChannel, backend);
@@ -642,6 +673,13 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
                     return; // cancelled — stay in local mode
                 }
                 await cfg.update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
+                // A workspace/folder pin of runtimeMode=local would shadow the Global
+                // write above (VS Code precedence Folder>Workspace>User), making the
+                // switch a silent no-op. Surface it + offer a one-click override to the
+                // shadowing scope; on 'abort' don't claim success with a reload prompt.
+                if ((await resolveRuntimeModeShadow('docker')) === 'abort') {
+                    return;
+                }
                 const choice = await vscode.window.showInformationMessage(
                     `DALi Preview: switching to the Docker runtime (${picked}). Reload the window to apply.`,
                     'Reload Window',
@@ -703,6 +741,10 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
                 persistDockerMode: async (tag) => {
                     await cfg.update('daliVersionTag', tag, vscode.ConfigurationTarget.Global);
                     await cfg.update('runtimeMode', 'docker', vscode.ConfigurationTarget.Global);
+                    // If a workspace/folder pins runtimeMode=local it shadows the Global
+                    // write; surface it + offer the override so the freshly-bootstrapped
+                    // docker runtime actually takes effect (the bootstrap reloads next).
+                    await resolveRuntimeModeShadow('docker');
                 },
                 reload: async () => { await vscode.commands.executeCommand('workbench.action.reloadWindow'); },
                 warn: async (msg) => { await vscode.window.showWarningMessage(msg); },

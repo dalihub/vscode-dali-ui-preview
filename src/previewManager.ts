@@ -42,7 +42,10 @@ export class PreviewManager {
         const cfg = ConfigurationService.getInstance();
         this.panel = vscode.window.createWebviewPanel(
             'daliPreview',
-            runtimePanelTitle(cfg.runtimeMode, cfg.daliVersionTag),
+            // MODE = the frozen active backend (getActiveRuntimeMode), not the live
+            // setting — otherwise the title lies after an edit-without-reload. TAG stays
+            // live (docker "Select Runtime Version" restarts on the new tag, no reload).
+            runtimePanelTitle(cfg.getActiveRuntimeMode(), cfg.daliVersionTag),
             { viewColumn: vscode.ViewColumn.Two, preserveFocus },
             {
                 enableScripts: true,
@@ -85,7 +88,8 @@ export class PreviewManager {
             return;
         }
         const cfg = ConfigurationService.getInstance();
-        this.panel.title = runtimePanelTitle(cfg.runtimeMode, cfg.daliVersionTag);
+        // MODE from the frozen active backend (a mode switch needs a reload); TAG live.
+        this.panel.title = runtimePanelTitle(cfg.getActiveRuntimeMode(), cfg.daliVersionTag);
     }
 
     updateImage(pngPath: string, buildTimeMs: number, metadata?: object | null, isScrub = false, epoch = 0): void {
@@ -408,6 +412,11 @@ export class PreviewManager {
         if (this.panel) {
             html = html.replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource);
         }
+
+        // Show the running extension version in the webview footer. Static per session,
+        // so a plain placeholder substitution (no postMessage plumbing) is enough.
+        const version = this.context.extension?.packageJSON?.version ?? '';
+        html = html.replace(/\{\{extensionVersion\}\}/g, version);
 
         return html;
     }
