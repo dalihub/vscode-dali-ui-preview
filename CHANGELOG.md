@@ -11,21 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Re-selecting the runtime version you were already on did nothing** — "Select Runtime
-  Version" → pick the current version → only an "already … no change" toast, no restart and
-  no re-pull. That dead-end meant a resident docker server stuck on an OLD image (e.g. one
-  still carrying the pre-fix click-to-code metadata after the fixed runtime image shipped)
-  could not be refreshed from the picker — the switch/refresh the user asked for silently
-  didn't happen. Re-selecting the current version now RE-APPLIES it: a rolling tag
-  (`latest` / `dali_X.Y.Z`) is force-re-pulled to move it to the newest digest, then the
-  preview server is restarted on the current image so the running preview actually reflects
-  it. Immutable `dali_X.Y.Z-<sha>` tags skip the pull (they can't move) and just restart.
-  (Recover a stale docker preview without this fix by reloading the window.)
-
-## [0.56.1] - 2026-07-07
-
-### Fixed
-
 - **Local runtime (`runtimeMode: local`) failed to start its resident preview server on a
   current DALi prefix.** `docker/preview_server.cpp` still used `Window::GetSize()` /
   `SetSize(WindowSize)`, which dali-adaptor 2.5.29 renamed to `GetPositionSize()` /
@@ -36,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compiles in BOTH runtimes (and the agent's patch is now a no-op). Verified: the resident
   server compiles + renders against the host prefix at `dali-env/opt` (9/9 server-path
   samples, click-to-code coords correct; 51/51 harness previews compile).
+- **Re-selecting the runtime version you were already on did nothing** — "Select Runtime
+  Version" → pick the current version → only an "already … no change" toast, no restart and
+  no re-pull. That dead-end meant a resident docker server stuck on an OLD image (e.g. one
+  still carrying the pre-fix click-to-code metadata after the fixed runtime image shipped)
+  could not be refreshed from the picker — the switch/refresh the user asked for silently
+  didn't happen. Re-selecting the current version now RE-APPLIES it: a rolling tag
+  (`latest` / `dali_X.Y.Z`) is force-re-pulled to move it to the newest digest, then the
+  preview server is restarted on the current image so the running preview actually reflects
+  it. Immutable `dali_X.Y.Z-<sha>` tags skip the pull (they can't move) and just restart.
+  (Recover a stale docker preview without this fix by reloading the window.)
 
 ## [0.56.0] - 2026-07-07
 
