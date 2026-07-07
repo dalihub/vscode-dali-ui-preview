@@ -29,6 +29,7 @@ import * as path from 'path';
 import { PreviewServer } from '../../src/previewServer';
 import { parseChainExpression, SceneNode } from '../../src/cppParser';
 import { compareImages } from './imageComparator';
+import { checkMetadataOnScreen } from './metadataCheck';
 
 // The 'vscode' module is shimmed by '../helpers/setup' (imported above, runs
 // first). Resolve it here only for createOutputChannel(); the require runs at
@@ -159,6 +160,22 @@ async function runSample(
     }
     if (!fs.existsSync(actualPng)) {
         return { name, passed: false, error: 'Server reported OK but produced no PNG' };
+    }
+
+    // Click-to-code guard on the SERVER path (docker/preview_server.cpp's metadata
+    // exporter — the exact path dali-ui v2.5.28 broke): the exported screen rects must
+    // match where actors are drawn, which the pixel golden cannot verify. Fail on any
+    // drawn actor at a negative / off-left-top screen position.
+    if (fs.existsSync(metadataPath)) {
+        try {
+            const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+            const coordErr = checkMetadataOnScreen(meta, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            if (coordErr) {
+                return { name, passed: false, error: `click-to-code metadata: ${coordErr}` };
+            }
+        } catch (e: any) {
+            return { name, passed: false, error: `metadata unreadable: ${e?.message ?? e}` };
+        }
     }
 
     // `// @render-only` samples carry async / non-deterministic content (e.g. an

@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
+import { checkMetadataOnScreen } from './metadataCheck';
 import { detectDefaultImage } from '../../src/registry';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -336,6 +337,22 @@ async function runSample(
 
     if (!fs.existsSync(actualPng)) {
         return { name, passed: false, error: 'Binary ran but produced no PNG' };
+    }
+
+    // Click-to-code guard: the exported metadata's screen rects must match where the
+    // actors are actually drawn (the pixel golden below cannot see coordinate drift —
+    // dali-ui v2.5.28 shipped exactly such a regression). Fail if any drawn actor is at
+    // a negative / off-left-top screen position. Only when metadata was written.
+    if (fs.existsSync(metadataPath)) {
+        try {
+            const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+            const coordErr = checkMetadataOnScreen(meta, width, height);
+            if (coordErr) {
+                return { name, passed: false, error: `click-to-code metadata: ${coordErr}` };
+            }
+        } catch (e: any) {
+            return { name, passed: false, error: `metadata unreadable: ${e?.message ?? e}` };
+        }
     }
 
     // `// @render-only` samples carry async / non-deterministic content (e.g. an

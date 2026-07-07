@@ -135,15 +135,19 @@ void CollectActorMetadata(Actor actor, std::ostringstream& json,
 
     Dali::String name = actor.GetProperty<Dali::String>(Actor::Property::NAME);
     Vector3 pos = actor.GetCurrentProperty<Vector3>(Actor::Property::POSITION);
-    Vector3 size = actor.GetCurrentProperty<Vector3>(Actor::Property::SIZE);
-    Vector3 anchor = actor.GetCurrentProperty<Vector3>(Actor::Property::PIVOT);
-    Vector3 parentOrigin = actor.GetCurrentProperty<Vector3>(Actor::Property::PARENT_ORIGIN);
 
-    float w = size.x;
-    float h = size.y;
-    // Screen position = parent top-left + parent size * parentOrigin + local position - size * anchor
-    float x = pX + pW * parentOrigin.x + pos.x - w * anchor.x;
-    float y = pY + pH * parentOrigin.y + pos.y - h * anchor.y;
+    // Absolute screen-space bounds straight from DALi — convention-independent.
+    // The old hand-rolled parentOrigin/PIVOT math silently broke when dali-ui v2.5.28
+    // changed the default actor coordinate convention: the RENDER stayed correct but
+    // the reconstructed click-to-code regions landed off-screen. CalculateScreenExtents()
+    // is what DALi uses to place the actor, so the region always matches the render.
+    // (pos is kept only for the localX/localY reference fields below.)
+    Dali::Rect<float> ext = actor.CalculateScreenExtents();
+    float x = std::isfinite(ext.x)      ? ext.x      : 0.0f;
+    float y = std::isfinite(ext.y)      ? ext.y      : 0.0f;
+    float w = std::isfinite(ext.width)  ? ext.width  : 0.0f;
+    float h = std::isfinite(ext.height) ? ext.height : 0.0f;
+    (void)pX; (void)pY; (void)pW; (void)pH; // parent-rect threading no longer needed
 
     std::string typeName = ShortTypeName(std::string(actor.GetTypeName().CStr()));
     if(typeName.empty()) typeName = "Actor";

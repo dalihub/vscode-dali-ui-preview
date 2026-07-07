@@ -118,6 +118,17 @@ npm run package       # Package as .vsix with vsce
 > hook runs `test:e2e` on push); github-hosted CI can't render complex DALi scenes, so
 > `golden-test.yml` is on-demand only.
 
+> **Click-to-code metadata coordinates:** the webview overlays each actor's exported
+> screen rect on the PNG, so those rects MUST be true screen coordinates. Compute them
+> with `Actor::CalculateScreenExtents()` (dali-core public-api) — NOT hand-rolled
+> `PARENT_ORIGIN/PIVOT` math, which dali-ui v2.5.28 broke by changing the default actor
+> coordinate convention (render stayed correct, regions went off-screen; pixel goldens
+> can't see it). Both exporters must match: `docker/preview_server.cpp` (server/parser
+> fast path — **baked into the runtime image, so a change needs an image rebuild**) and
+> `server/preview_harness.cpp.template` (full-build path — compiled fresh, no rebuild).
+> `test/e2e/metadataCheck.ts` (`checkMetadataOnScreen`) guards this in both e2e runners:
+> any drawn actor at a negative / off-left-top screen position fails the suite.
+
 ## Testing Requirements
 
 **MANDATORY**: All of the following must pass before any PR is merged:
