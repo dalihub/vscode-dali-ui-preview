@@ -123,3 +123,25 @@ export function checkExpectedRects(
     }
     return offenders.length ? `click-to-code rect drift: ${offenders.join('; ')}` : null;
 }
+
+/**
+ * Positive-semantic focus assertion: the focused actor must own a focus-ring
+ * child. dali-ui draws the indicator as an ImageView child of the focused view
+ * (focus-grid: focused card gains one ImageViewImpl child; unfocused cards have
+ * none). A compile-clean run where the ring silently fails to draw leaves the
+ * focused node childless — this catches that ("focus child 0->1" invariant).
+ */
+export function checkFocusIndicator(
+    metadata: { root?: MetaNode } | MetaNode,
+    focusedName: string,
+): string | null {
+    const node = findFirstNode(metadata, (n) => n.name === focusedName);
+    if (!node) {
+        return `focus target "${focusedName}" not found in metadata`;
+    }
+    const hasRing = (node.children ?? []).some((c) => (c.type ?? '').includes('Image'));
+    if (!hasRing) {
+        return `focus target "${focusedName}" has no focus-ring child (indicator not drawn)`;
+    }
+    return null;
+}

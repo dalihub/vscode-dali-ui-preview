@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
-import { checkMetadataOnScreen, checkExpectedRects } from './metadataCheck';
+import { checkMetadataOnScreen, checkExpectedRects, checkFocusIndicator } from './metadataCheck';
 import { EXPECTED_RECTS } from './expectedRects';
 import { detectDefaultImage } from '../../src/registry';
 
@@ -356,6 +356,12 @@ async function runSample(
                 const rectErr = checkExpectedRects(meta, expected);
                 if (rectErr) {
                     return { name, passed: false, error: rectErr };
+                }
+            }
+            if (focusId) {
+                const focusErr = checkFocusIndicator(meta, focusId);
+                if (focusErr) {
+                    return { name, passed: false, error: focusErr };
                 }
             }
         } catch (e: any) {
