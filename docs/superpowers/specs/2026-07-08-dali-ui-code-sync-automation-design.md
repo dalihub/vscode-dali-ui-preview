@@ -99,7 +99,7 @@ flowchart TD
     A["[1] Detect (2-axis, latest tag only)<br/>release_check.sh + no-op ledger key"] --> B["[2] Build CANDIDATE image<br/>(local, UNPUSHED)"]
     B -->|docker build fails =<br/>baked-server skew, class b| F1["AI-fix: preview_server.cpp /<br/>shared exporter → rebuild"]
     F1 --> B
-    B -->|builds| G["[3] Gate against candidate:<br/>verify:previews + golden(fresh+baked) + metadataCheck"]
+    B -->|builds| G["[3] Gate — docker image + native prefix:<br/>verify:previews + golden(fresh+baked) + metadataCheck"]
     G -->|green| P["[4] PUBLISH: publish.sh<br/>(3 tags, proxy warm, prune, ledger)"]
     G -->|red = fresh-path skew, class a| F2["AI-fix loop: templates/codegen<br/>≤3 tries, monotonic, cycle-abort"]
     F2 --> B
@@ -134,7 +134,10 @@ No automation is built until these are green. Both repos.
 - Add a **focus child-count 0→1** semantic assertion.
 - Convert text/CJK-heavy goldens from raw pixel-diff to **semantic checks** (node-count, region-color); **auto-regenerate** pixel goldens on image rebuild to kill flakiness.
 - **Encode the 6 historical breaks as fixtures** (the automation's regression harness; also used to validate the detector/fixer in Phase 3).
-- **Where render gates run:** on the agent-hub runner against the freshly-built candidate image (hosted CI cannot render complex DALi), surfaced back as a required status check. For native mode: build a native prefix from the same dali-ui tag, *or* scope the required check to docker-mode and flag native as human-review.
+- **Where render gates run:** on the agent-hub runner (hosted CI cannot render complex DALi), surfaced back as a required status check. **Both runtime modes are required gates** — the primary maintainer uses native/local mode, and native-only skew (e.g. event #6, `Window` API) is *masked in docker* by the release agent's `sed` patch, so docker alone is insufficient:
+  - **docker mode** — runs against the freshly-built candidate image (free; the runner just built it): `goldenTestRunner` + `metadataCheck` + `verify:previews:docker`.
+  - **native mode** — runs `verify:previews` (native) + `serverGoldenRunner` against a **native dali-ui prefix built on the runner from the same dali-ui tag**, pinned to the same dependency snapshot as the image. The prefix is **cached keyed by the dali-ui tag** to amortize the build across runs.
+  - After Phase 2 migrates the `sed` rules into tracked source, the native gate is also what **proves that migration** — docker no longer masks class-(b) skew, so native and docker must agree.
 
 ### Phase 2 — Consolidate (shrink the fix surface) as a versioned shared library
 
@@ -156,8 +159,8 @@ No automation is built until these are green. Both repos.
 
 ### Credentials & security (single-agent-safe)
 
-- **GitHub App installation token**, minted per-run from the App private key, scoped to the two repos, short-lived — **not** a standing PAT. The box holds only the App private key.
-- **Token isolation:** the AI-fix step (which ingests g++ output + release notes) and the git-push step run as **separate steps of the same agent**; the token is **never in the LLM's context**. This contains the prompt-injection → auto-release vector without splitting the process (delta B3/B4).
+- **Fine-grained PAT** (maintainer-supplied), scoped to the two repos with minimal permissions (contents + pull_requests write), provisioned as a **runner secret** (never on disk in plaintext, never committed). It is longer-lived than a GitHub App installation token, so the mitigations are: minimal scope, periodic rotation, and the token-isolation below. (A GitHub App would be tighter but is not available/required in this environment.) Actions appear under the token owner's identity.
+- **Token isolation:** the AI-fix step (which ingests g++ output + release notes) and the git-push step run as **separate steps of the same agent**; the token is **never in the LLM's context**. This contains the prompt-injection → auto-release vector without splitting the process (delta B3/B4). This isolation matters *more* with a PAT than with a short-lived App token.
 - **CLI safety (delta B4):** CLI releases via github-clone to `main` (no PR gate). Therefore every CLI Registry row is `auto_merge_eligible=false` until Phase 1 covers CLI; until then the AI opens a PR to a `next` branch and a human promotes. **Auto-merge never auto-releases.**
 
 ### Idempotency, triggering & the "latest tag" assumption
@@ -177,7 +180,7 @@ Replay the **6 historical break events** (table above) as fixtures: feed the pip
 | **M1** | Harden extension gates + 6 historical fixtures | first-ever **unattended real-render** verification |
 | **M2** | Harden CLI gates (currently none) | CLI reaches parity for detection |
 | **M3** | Consolidate codegen into versioned shared lib + handshake + ABI version + migrate `sed` | one fix surface; `standaloneBuildRunner` drift gone |
-| **M4** | Insert gate + candidate-build into the agent (publish gated), **shadow mode** (detect only) | skew detected automatically on release |
+| **M4** | Insert gate + candidate-build into the agent (publish gated), **shadow mode** (detect only); provision native-prefix build + cache and the PAT secret on the runner | skew detected automatically on release, both modes |
 | **M5** | AI-fix + PR (always `review-required`) | verified fix drafted for a human in minutes |
 | **M6** | Graduated auto-merge (eligible features first); `sed` hack retired | hands-off for graduated features |
 
@@ -185,8 +188,8 @@ Replay the **6 historical break events** (table above) as fixtures: feed the pip
 
 - `lwc0917` owns both repos (auto-merge is impossible fork→upstream). The auto-cut extension release (post-M6) must run the `.vscodeignore` / unzip check or it ships the 46 MB CLI-bloated `.vsix` (delta M1).
 - The agent-hub runner has egress to `api.github.com` + git push (an install prerequisite distinct from the BART GHCR proxy route).
-- A GitHub App can be created/installed on both repos to mint per-run tokens.
-- Native-mode gating: build a native prefix from the dali-ui tag, or scope the required check to docker-mode (decision deferred to M1).
+- **Credential (decided):** a maintainer-supplied **fine-grained PAT** scoped to the two repos is provisioned as a runner secret for branch push / PR / merge. (Not a GitHub App — see Credentials & security.)
+- **Native gate (decided):** the runner can build a native dali-ui prefix from source (toolchain present) so the **native-mode gate runs alongside docker-mode**; the prefix is cached per dali-ui tag. Provisioned at M4.
 
 ## Verified touch points (where a dali-ui API change forces edits)
 
