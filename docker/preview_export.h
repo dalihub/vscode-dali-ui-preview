@@ -216,7 +216,14 @@ inline void ExportSceneMetadata(Actor root, const std::string& metadataPath,
     float rH = rootSize.y;
 
     std::ostringstream json;
-    json << "{\"root\":{\"name\":\"RootLayer\","
+    // M3bc Task 4: stamp the exporter-contract version so the extension can detect
+    // a STALE docker image (baked server lagging the fresh harness/code). Emitted
+    // as a top-level sibling of "root"; consumers that read root.x/y/w/h/children
+    // ignore this unknown key, so it is behavior-preserving for existing readers.
+    // Since this header is #included by BOTH the docker server and the harness,
+    // both exporters emit it automatically.
+    json << "{\"exportVersion\":\"" << dali_preview_export_version() << "\","
+         << "\"root\":{\"name\":\"RootLayer\","
          << "\"x\":0,\"y\":0,\"w\":" << rW << ",\"h\":" << rH;
 
     uint32_t childCount = root.GetChildCount();

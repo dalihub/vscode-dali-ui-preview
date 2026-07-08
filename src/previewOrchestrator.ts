@@ -11,6 +11,7 @@ import { parseChainExpression, SceneNode } from './cppParser';
 import { buildSlice, SliceResult, SourceFile } from './sliceBuilder';
 import { enrichMetadataWithFlexProps } from './flexMetadata';
 import { parseGccErrors, getHarnessCodeOffset, getPluginCodeOffset, formatErrorsForDisplay, formatRawError, diagnoseGccErrors } from './errorParser';
+import { exportVersionHint } from './exportHandshake';
 import { PreviewConfig, MultiPreviewResult, ProvenanceEntry } from './previewConfig';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
@@ -713,6 +714,17 @@ export class PreviewOrchestrator {
             try {
                 metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf-8'));
             } catch (err) { log.trace('Extension', 'metadata read skipped', { error: String(err) }); }
+        }
+        // M3bc Task 4: mode-aware exporter-version handshake. In DOCKER mode the
+        // baked server can be STALE vs this extension's exporter contract, which
+        // silently mis-renders; compare the runtime-emitted exportVersion against
+        // our compiled-in constant and surface an actionable stale-runtime hint
+        // (non-fatal — a log line, never a failed render). Genuine NO-OP in local
+        // mode (server + harness are compiled from the same checkout, so their
+        // versions can never disagree — the metadata is not even inspected).
+        const skewHint = exportVersionHint(this.deps.previewServer?.isDockerMode === true, metadata);
+        if (skewHint) {
+            this.deps.outputChannel.appendLine(`[PreviewServer] ${skewHint}`);
         }
         // Enrich metadata with FlexLayout properties from the parser tree
         if (metadata && parserScene) {
