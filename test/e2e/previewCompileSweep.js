@@ -31,6 +31,7 @@ function findRepoRoot(start) {
 }
 const REPO = findRepoRoot(__dirname);
 const SBR = require(path.join(REPO, 'out/test/e2e/standaloneBuildRunner.js'));
+const { isRuntimeApiSkew } = require(path.join(REPO, 'out/src/skewSignature.js'));
 
 const BACKEND = (process.env.SWEEP_BACKEND || 'native').toLowerCase();
 const NATIVE_PREFIX = process.env.DALI_PREFIX || '/home/woochan/tizen/generativeUI/dali-env/opt';
@@ -38,10 +39,6 @@ const IMAGE = process.env.PREVIEW_IMAGE || 'ghcr.io/lwc0917/dali-preview-runtime
 const TEMPLATE = path.join(REPO, 'server/preview_harness.cpp.template');
 const OUT = path.join(process.env.TMPDIR || '/tmp', 'preview_sweep_out');
 fs.mkdirSync(OUT, { recursive: true });
-
-// dali-ui child-API version-skew signature (the stale-runtime symptom).
-// NB: g++ uses Unicode curly quotes (U+2018/U+2019), so accept those AND ASCII.
-const SKEW_RE = /Dali::Ui::\w+['‘’]?\s+has no member named\s+['‘’']?(?:AddChildren|Children)['‘’']?/;
 
 function listPreviewFiles() {
   const out = cp.execSync(
@@ -100,7 +97,7 @@ function firstCompileError(err) {
     try {
       r = BACKEND === 'docker' ? await SBR.buildAndCaptureDocker(opts, IMAGE) : await SBR.buildAndCapture(opts);
     } catch (e) { r = { success: false, error: String(e && e.stack || e) }; }
-    const skew = !r.success && SKEW_RE.test(String(r.error || ''));
+    const skew = !r.success && isRuntimeApiSkew(r.error);
     results.push({ rel, ok: !!r.success, skew, err: r.success ? '' : firstCompileError(r.error) });
     console.log(`  ${r.success ? 'PASS' : (skew ? 'FAIL*' : 'FAIL ')}  ${rel}${r.success ? '' : '   ' + results[results.length - 1].err}`);
   }
