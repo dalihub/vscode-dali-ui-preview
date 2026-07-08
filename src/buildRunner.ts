@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BuildBackend } from './buildBackend';
 import { ConfigurationService } from './configurationService';
-import { isRtlLocale } from './previewConfig';
+import * as codegen from './harnessCodegen';
 import { getLogger } from './logger';
 
 export interface BuildResult {
@@ -83,9 +83,7 @@ export class BuildRunner {
      * Returns the DALi Vector4 background color literal for the given theme.
      */
     static themeToBackgroundColor(theme: 'light' | 'dark'): string {
-        return theme === 'light'
-            ? 'Vector4(1.0f, 1.0f, 1.0f, 1.0f)'
-            : 'Vector4(0.1f, 0.1f, 0.12f, 1.0f)';
+        return codegen.themeToBackgroundColor(theme);
     }
 
     /**
@@ -104,44 +102,7 @@ export class BuildRunner {
      * desync-guarded by the DARK_PALETTE_TOKENS list).
      */
     static buildPaletteDefs(theme?: 'light' | 'dark', locale?: string): string {
-        const blocks: string[] = [];
-        if (theme === 'dark') {
-            blocks.push(BuildRunner.darkPaletteFreeFunction());
-        }
-        // locale set → emit the honest untranslated override (WU-M3.6). Free
-        // function (no captures) as required by LocalizedStringOverrideFunc
-        // (ui-localization-manager.h).
-        if (locale) {
-            blocks.push(BuildRunner.localeOverrideFreeFunction());
-        }
-        return blocks.join('\n');
-    }
-
-    /**
-     * Build the static `__LocaleOverride` free function (no captures) backing the
-     * honest untranslated-IDS signal (WU-M3.6 / ADR-007 `untranslated`). It
-     * returns FALSE for every key so dali-ui falls back to dgettext, which — with
-     * NO catalog loaded (M3 does not load locale catalogs) — yields the resource
-     * id verbatim (ui-localization-manager.h: "dgettext null result -> resourceId").
-     * So an `IDS_TITLE` label renders the raw key `IDS_TITLE`, NOT a fabricated
-     * translation. This is the DELIBERATE honest boundary: the tool never invents
-     * a translation string (ADR-004 §2). The matching `untranslated` provenance is
-     * merged by the host (previewOrchestrator); the visible badge chip is M5.
-     */
-    private static localeOverrideFreeFunction(): string {
-        return [
-            '// Locale override (locale=<l>). Free function — no captures — as',
-            '// required by LocalizedStringOverrideFunc (ui-localization-manager.h).',
-            '// Returns false for EVERY key so dali-ui falls back to dgettext; with',
-            '// no catalog loaded that yields the resource id verbatim (e.g. an',
-            '// IDS_TITLE binding shows "IDS_TITLE"). The tool never fabricates a',
-            '// translation — honest untranslated boundary (ADR-004 §2, ADR-007).',
-            'static bool __LocaleOverride(Dali::StringView resourceId, Dali::StringView domain, Dali::String& outString)',
-            '{',
-            '    (void)resourceId; (void)domain; (void)outString;',
-            '    return false; // fall through to dgettext → raw key when uncatalogued',
-            '}',
-        ].join('\n');
+        return codegen.buildPaletteDefs(theme, locale);
     }
 
     /**
@@ -158,10 +119,7 @@ export class BuildRunner {
      * translation (text is unchanged; ADR-004 §2 honest boundary).
      */
     static buildPostBuildLayoutDir(locale?: string): string {
-        if (!isRtlLocale(locale)) {
-            return '';
-        }
-        return '    root.SetProperty(Dali::Actor::Property::LAYOUT_DIRECTION, Dali::LayoutDirection::RIGHT_TO_LEFT);';
+        return codegen.buildPostBuildLayoutDir(locale);
     }
 
     /**
@@ -187,15 +145,7 @@ export class BuildRunner {
      * plugin (warm server is already past Apply()).
      */
     static buildUiConfigSetup(fontScale?: number, brokenImagePath?: string): string {
-        const lines: string[] = [];
-        if (typeof fontScale === 'number' && fontScale > 0) {
-            lines.push(`  __uiConfig.SetScalingFactor(${BuildRunner.formatFloat(fontScale)});`);
-        }
-        if (brokenImagePath) {
-            const p = brokenImagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            lines.push(`  __uiConfig.SetBrokenImageUrl(UiConfig::BrokenImageType::NORMAL, "${p}");`);
-        }
-        return lines.join('\n');
+        return codegen.buildUiConfigSetup(fontScale, brokenImagePath);
     }
 
     /**
@@ -213,23 +163,7 @@ export class BuildRunner {
         isPlugin = false,
         locale?: string,
     ): string {
-        const lines: string[] = [];
-        if (theme === 'dark') {
-            lines.push('    Dali::Ui::UiColorManager::Get().SetColorOverride(&__DarkPalette);');
-        }
-        // locale set → install the honest untranslated override (WU-M3.6). Runtime,
-        // warm-server-safe (refreshes all bindings on install — ui-localization-
-        // manager.h). __LocaleOverride is emitted into {{PALETTE_DEFS}} when locale
-        // is set, so the symbol exists here.
-        if (locale) {
-            lines.push('    Dali::Ui::UiLocalizationManager::Get().SetLocalizedStringOverride(&__LocaleOverride);');
-        }
-        // Runtime scale only on the warm/plugin path; the harness uses the frozen
-        // SetScalingFactor in {{UI_CONFIG_SETUP}} (both wired per ADR-004 §2).
-        if (isPlugin && typeof fontScale === 'number' && fontScale > 0) {
-            lines.push(`    Dali::Ui::UiScaleManager::Get().SetScale(${BuildRunner.formatFloat(fontScale)});`);
-        }
-        return lines.join('\n');
+        return codegen.buildPreBuildInstall(theme, fontScale, isPlugin, locale);
     }
 
     /**
@@ -315,75 +249,12 @@ export class BuildRunner {
         });
     }
 
-    /** Format a float for a C++ literal: always a decimal point + trailing `f`. */
-    private static formatFloat(v: number): string {
-        const s = Number.isInteger(v) ? `${v}.0` : `${v}`;
-        return `${s}f`;
-    }
-
-    /**
-     * The dark-theme token ids that get reskinned. Each maps a dali-ui color
-     * token string (what UiColor::PRIMARY / UiColor("Primary") resolve through)
-     * to a dark RGBA. Kept SMALL and as a code constant (ADR-004 §3 honest scope):
-     * only token-based colors reskin; hex colors never do. SHARED with the
-     * server's __DarkServerPalette — keep both in sync.
-     */
-    private static readonly DARK_PALETTE_TOKENS: ReadonlyArray<{ id: string; rgba: [number, number, number, number] }> = [
-        { id: 'Primary',    rgba: [0.49, 0.55, 0.99, 1.0] }, // indigo-ish accent
-        { id: 'Background', rgba: [0.10, 0.10, 0.12, 1.0] }, // near-black surface
-        { id: 'Outline',    rgba: [0.45, 0.45, 0.52, 1.0] }, // muted border
-        { id: 'Surface',    rgba: [0.16, 0.16, 0.20, 1.0] }, // raised surface
-        { id: 'OnSurface',  rgba: [0.92, 0.92, 0.96, 1.0] }, // light text on dark
-        { id: 'OnPrimary',  rgba: [1.0,  1.0,  1.0,  1.0] }, // text on accent
-    ];
-
-    /**
-     * Emit the static `__DarkPalette` free function (no captures) backing the
-     * dark theme color override. Shared shape with the server's palette.
-     */
-    private static darkPaletteFreeFunction(): string {
-        const rows = BuildRunner.DARK_PALETTE_TOKENS.map(
-            (t) => `        {"${t.id}", Dali::Vector4(${t.rgba.map((c) => BuildRunner.formatFloat(c)).join(', ')})},`,
-        ).join('\n');
-        return [
-            '// Dark-theme token palette (theme=dark). Free function — no captures —',
-            '// as required by ColorOverrideFunc (ui-color-manager.h). Returns false',
-            '// for unmapped ids so they fall through to the theme (hex colors never',
-            '// reach here, so they are unaffected — honest reskin boundary).',
-            'static bool __DarkPalette(Dali::StringView id, Dali::Vector4& out)',
-            '{',
-            '    struct Row { const char* k; Dali::Vector4 v; };',
-            '    static const Row table[] = {',
-            rows,
-            '    };',
-            '    for(const auto& r : table)',
-            '    {',
-            '        if(id == r.k) { out = r.v; return true; }',
-            '    }',
-            '    return false;',
-            '}',
-        ].join('\n');
-    }
-
     /**
      * Converts a #RRGGBB hex color string to a DALi Vector4 literal.
      * Returns the dark-theme fallback if the input is not a valid #RRGGBB string.
      */
     static hexToVector4(hex: string): string {
-        if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
-            return BuildRunner.themeToBackgroundColor('dark');
-        }
-        const r = parseInt(hex.slice(1, 3), 16) / 255;
-        const g = parseInt(hex.slice(3, 5), 16) / 255;
-        const b = parseInt(hex.slice(5, 7), 16) / 255;
-        return `Vector4(${r.toFixed(4)}f, ${g.toFixed(4)}f, ${b.toFixed(4)}f, 1.0f)`;
-    }
-
-    /** Resolve the DALi background Vector4 literal from an optional #RRGGBB hex or the theme. */
-    private static resolveBgColorVec(bgColor: string | undefined, theme: 'light' | 'dark'): string {
-        return bgColor && /^#[0-9a-fA-F]{6}$/.test(bgColor)
-            ? BuildRunner.hexToVector4(bgColor)
-            : BuildRunner.themeToBackgroundColor(theme);
+        return codegen.hexToVector4(hex);
     }
 
     /**
@@ -479,28 +350,7 @@ export class BuildRunner {
      * must not import vscode-dependent modules, and this one pulls in vscode.
      */
     static buildPostBuildFocus(focusId?: string): string {
-        if (!focusId) {
-            return '';
-        }
-        const id = focusId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        return [
-            '    {',
-            `        Dali::Actor __ft = root.FindChildByName("${id}");`,
-            '        Dali::Ui::View __fv = Dali::Ui::View::DownCast(__ft);',
-            '        if(!__fv) { __fv = __FindFirstFocusable(root); }',
-            '        if(__fv) {',
-            '            Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv);',
-            '            // dali-ui v2.5.28 made the focus ring device-driven: a programmatic',
-            '            // SetCurrentFocusView no longer flags the view as focus-indicated, so',
-            '            // no ring is drawn in a static render. Force the FOCUS_INDICATED state',
-            "            // (integration-api; there is no public setter), then re-enable the",
-            '            // default indicator so FocusManager re-attaches its ring to the current',
-            '            // focus view (empirically verified: focus child count 0 -> 1).',
-            '            Dali::Ui::Integration::View::SetState(__fv, Dali::Ui::ViewState::FOCUS_INDICATED, true);',
-            '            Dali::Ui::FocusManager::Get().SetDefaultFocusIndicatorEnabled(true);',
-            '        }',
-            '    }',
-        ].join('\n');
+        return codegen.buildPostBuildFocus(focusId);
     }
 
     /**
@@ -513,9 +363,7 @@ export class BuildRunner {
      * must not import vscode).
      */
     static buildPostBuild(locale?: string, focusId?: string): string {
-        return [BuildRunner.buildPostBuildLayoutDir(locale), BuildRunner.buildPostBuildFocus(focusId)]
-            .filter((s) => s !== '')
-            .join('\n');
+        return codegen.buildPostBuild(locale, focusId);
     }
 
     /**
@@ -527,43 +375,7 @@ export class BuildRunner {
      * (Nth-focusable fallback handles it). Duplicated in standaloneBuildRunner.ts.
      */
     static injectFocusName(userCode: string, focusId?: string): string {
-        if (!focusId || !/^[A-Za-z_]\w*$/.test(focusId)) {
-            return userCode;
-        }
-        const declRe = new RegExp(`(?:^|\\n)[^\\n]*?\\b(?:auto|[\\w:]+(?:<[^>]*>)?)\\s+${focusId}\\s*=`, 'g');
-        const m = declRe.exec(userCode);
-        if (!m) {
-            return userCode;
-        }
-        const eqIdx = m.index + m[0].length;
-        const semiIdx = BuildRunner.findStatementEnd(userCode, eqIdx);
-        if (semiIdx < 0) {
-            return userCode;
-        }
-        const insertAt = semiIdx + 1;
-        const tag = `\n${focusId}.SetProperty(Dali::Actor::Property::NAME, Dali::String("${focusId}"));`;
-        return userCode.slice(0, insertAt) + tag + userCode.slice(insertAt);
-    }
-
-    /** Index of the statement-terminating `;` at/after `from`, skipping `;` inside
-     *  (), {}, [], and string/char literals. -1 if none. */
-    private static findStatementEnd(code: string, from: number): number {
-        let depth = 0;
-        let inStr = false;
-        let strCh = '';
-        for (let i = from; i < code.length; i++) {
-            const ch = code[i];
-            if (inStr) {
-                if (ch === '\\') { i++; }
-                else if (ch === strCh) { inStr = false; }
-                continue;
-            }
-            if (ch === '"' || ch === '\'') { inStr = true; strCh = ch; }
-            else if (ch === '(' || ch === '{' || ch === '[') { depth++; }
-            else if (ch === ')' || ch === '}' || ch === ']') { depth--; }
-            else if (ch === ';' && depth <= 0) { return i; }
-        }
-        return -1;
+        return codegen.injectFocusName(userCode, focusId);
     }
 
     /**
@@ -573,13 +385,7 @@ export class BuildRunner {
      * Named animations only — unnamed temporaries have no handle to scrub and are skipped.
      */
     static instrumentAnimations(userCode: string): string {
-        // Capture the FULL handle chain before `.Play();` so member/qualified
-        // handles register the whole expression — `this->anim` / `obj.anim` —
-        // not a stray sub-identifier that would be undeclared in user scope.
-        return userCode.replace(
-            /((?:[A-Za-z_]\w*\s*(?:\.|->)\s*)*[A-Za-z_]\w*)\s*\.\s*Play\s*\(\s*\)\s*;/g,
-            '$& __RegisterPreviewAnimation($1);'
-        );
+        return codegen.instrumentAnimations(userCode);
     }
 
     /**
@@ -703,7 +509,7 @@ export class BuildRunner {
         // byte-identical. undefined (asset missing) → SetBrokenImageUrl omitted.
         const brokenImagePath = this.stageBrokenImagePlaceholder();
 
-        const bgColorVec = BuildRunner.resolveBgColorVec(bgColor, theme);
+        const bgColorVec = codegen.resolveBgColorVec(bgColor, theme);
         const harness = this.renderHarness(this.templateContent, {
             userCode, width, height, bgColorVec, fontSetup,
             includes: sliceIncludes, globals: sliceGlobals, focusId,
