@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "features": [
+    { "feature": "render-at-all", "codeRegions": ["server/preview_harness.cpp.template", "docker/preview_server.cpp"], "rootVerifyCheck": "goldenTestRunner: no-PNG fails; pixel-diff vs golden", "unattended": false, "positiveSemantic": true, "autoMergeEligible": false },
+    { "feature": "image", "codeRegions": ["docker/preview_server.cpp", "server/preview_harness.cpp.template"], "rootVerifyCheck": "serverGoldenRunner: checkRegionColor(image-loads magenta)", "unattended": false, "positiveSemantic": true, "autoMergeEligible": false },
+    { "feature": "click-to-code", "codeRegions": ["docker/preview_server.cpp", "server/preview_harness.cpp.template"], "rootVerifyCheck": "checkMetadataOnScreen + checkExpectedRects(focus-grid)", "unattended": false, "positiveSemantic": true, "autoMergeEligible": false },
+    { "feature": "focus", "codeRegions": ["src/buildRunner.ts", "server/preview_harness.cpp.template"], "rootVerifyCheck": "checkFocusIndicator(focus-grid)", "unattended": false, "positiveSemantic": true, "autoMergeEligible": false },
+    { "feature": "theme", "codeRegions": ["src/buildRunner.ts", "docker/preview_server.cpp"], "rootVerifyCheck": "goldenTestRunner: theme-dark-tokens pixel-diff (not yet semantic)", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false },
+    { "feature": "animation", "codeRegions": ["server/preview_plugin.cpp.template", "docker/preview_server.cpp"], "rootVerifyCheck": "none (animation/ not scanned by golden runner)", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false },
+    { "feature": "layout", "codeRegions": ["docker/preview_server.cpp", "server/preview_harness.cpp.template"], "rootVerifyCheck": "checkExpectedRects (extend coverage) + pixel-diff", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false },
+    { "feature": "CJK", "codeRegions": ["docker/Dockerfile.runtime"], "rootVerifyCheck": "korean-label pixel-diff (flaky; not yet semantic)", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false },
+    { "feature": "RTL", "codeRegions": ["src/buildRunner.ts"], "rootVerifyCheck": "buildRunner.locale.test (codegen, CI) + pixel-diff", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false },
+    { "feature": "multifile", "codeRegions": ["src/sliceBuilder.ts", "src/cppParser.ts"], "rootVerifyCheck": "multiFileGoldenRunner (manual) + crossFile.test (CI)", "unattended": false, "positiveSemantic": false, "autoMergeEligible": false }
+  ]
+}
