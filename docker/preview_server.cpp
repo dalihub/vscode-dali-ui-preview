@@ -1002,16 +1002,26 @@ public:
 
         // ABI version gate — run BEFORE any other symbol resolution so an
         // ABI-drifted plugin is refused loudly instead of silently wrong-rendering.
-        // A MISSING symbol (old plugin predating the gate) counts as a mismatch and
-        // is NOT tolerated, unlike the optional animation symbols resolved below.
+        // Two cases, treated differently so a new image stays backward-compatible
+        // with an old extension's plugin:
+        //   - MISSING symbol (old plugin predating the gate): TOLERATED — warn and
+        //     proceed, so a fresh runtime does not break existing installs.
+        //   - PRESENT but value != server constant (a genuinely declared-incompatible
+        //     plugin): REFUSED loudly (dlclose + bail), like before.
         static const int kServerAbiVersion = 1;
         using AbiVersionFn = int (*)();
         AbiVersionFn abiVersion =
             reinterpret_cast<AbiVersionFn>(dlsym(mPluginHandle, "dali_preview_abi_version"));
-        if (!abiVersion || abiVersion() != kServerAbiVersion)
+        if (!abiVersion)
         {
-            std::string pluginAbi = abiVersion ? std::to_string(abiVersion()) : "missing";
-            std::cout << ">>>ERROR:abi mismatch (plugin=" << pluginAbi
+            // Old/pre-gate plugin: no ABI symbol. Non-fatal — proceed as normal.
+            std::cout << ">>>WARN:plugin predates ABI gate (no dali_preview_abi_version)"
+                      << " — proceeding; update the extension for future compatibility"
+                      << std::endl;
+        }
+        else if (abiVersion() != kServerAbiVersion)
+        {
+            std::cout << ">>>ERROR:abi mismatch (plugin=" << abiVersion()
                       << ", server=" << kServerAbiVersion
                       << ") — update runtime image" << std::endl;
             dlclose(mPluginHandle);

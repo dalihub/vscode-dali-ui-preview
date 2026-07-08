@@ -68,7 +68,9 @@ extern "C" void __SetPreviewProgress(float p) // p in [0,1]
 // layout, signatures, calling convention). The server dlsyms this and refuses a
 // plugin whose value != its own compiled-in constant, turning a silent
 // ABI-drift wrong-render into a loud, actionable error. A MISSING symbol (old
-// plugin predating the gate) is treated as a mismatch, not tolerated.
+// plugin predating the gate) is TOLERATED — the server warns and proceeds so a
+// new runtime image stays backward-compatible with old extension installs; only
+// a PRESENT-but-mismatched value is refused.
 extern "C" int dali_preview_abi_version() { return 1; }
 {{USER_GLOBALS}}
 // === Build-time install palette definitions (ADR-004 PALETTE_DEFS slot) ===

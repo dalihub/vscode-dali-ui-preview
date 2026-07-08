@@ -506,6 +506,12 @@ export class PreviewOrchestrator {
     private currentBgColor_: string | undefined;
     private activeEpoch_ = 0;  // buildGeneration of the currently displayed preview
 
+    // Throttle for the docker exporter-version skew hint: the pure
+    // exportVersionHint() returns a hint on EVERY render when the baked runtime
+    // is stale, which is noisy for an old-image user whose preview works fine.
+    // Log it at most once per session (resets on extension reactivation).
+    private exportSkewHintShown = false;
+
     // Tracks the width/height most recently supplied by a @preview-config directive
     // (undefined when the previewed file had none). Used to detect transitions
     // between cfg-bearing and cfg-less files so currentWidth_/Height_ can be reset
@@ -723,8 +729,9 @@ export class PreviewOrchestrator {
         // mode (server + harness are compiled from the same checkout, so their
         // versions can never disagree — the metadata is not even inspected).
         const skewHint = exportVersionHint(this.deps.previewServer?.isDockerMode === true, metadata);
-        if (skewHint) {
+        if (skewHint && !this.exportSkewHintShown) {
             this.deps.outputChannel.appendLine(`[PreviewServer] ${skewHint}`);
+            this.exportSkewHintShown = true;
         }
         // Enrich metadata with FlexLayout properties from the parser tree
         if (metadata && parserScene) {
