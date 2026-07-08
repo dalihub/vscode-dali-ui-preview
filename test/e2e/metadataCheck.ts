@@ -73,3 +73,53 @@ export function checkMetadataOnScreen(
     }
     return null;
 }
+
+export interface ExpectedRect { name: string; x: number; y: number; w: number; h: number; }
+
+/** Depth-first search for the first node matching `predicate`. */
+export function findFirstNode(
+    metadata: { root?: MetaNode } | MetaNode,
+    predicate: (n: MetaNode) => boolean,
+): MetaNode | undefined {
+    const root: MetaNode | undefined = (metadata as { root?: MetaNode }).root ?? (metadata as MetaNode);
+    const stack: MetaNode[] = root ? [root] : [];
+    while (stack.length) {
+        const n = stack.pop()!;
+        if (predicate(n)) { return n; }
+        (n.children ?? []).forEach((c) => stack.push(c));
+    }
+    return undefined;
+}
+
+/**
+ * Positive-semantic click-to-code correctness: each named actor's exported
+ * screen rect must equal its EXPECTED rect within `tol` px. Unlike
+ * checkMetadataOnScreen (which only rejects negative/off-left-top coords and so
+ * passes a wrong-but-on-screen drift), this pins the actual geometry — the
+ * coordinate-regression class that must never silently ship.
+ */
+export function checkExpectedRects(
+    metadata: { root?: MetaNode } | MetaNode,
+    expected: ExpectedRect[],
+    tol = 4,
+): string | null {
+    const offenders: string[] = [];
+    for (const e of expected) {
+        const node = findFirstNode(metadata, (n) => n.name === e.name);
+        if (!node) {
+            offenders.push(`"${e.name}" not found in metadata`);
+            continue;
+        }
+        const dx = Math.abs((node.x ?? 0) - e.x);
+        const dy = Math.abs((node.y ?? 0) - e.y);
+        const dw = Math.abs((node.w ?? 0) - e.w);
+        const dh = Math.abs((node.h ?? 0) - e.h);
+        if (dx > tol || dy > tol || dw > tol || dh > tol) {
+            offenders.push(
+                `"${e.name}" @ (${node.x},${node.y},${node.w}x${node.h}) ` +
+                `!= expected (${e.x},${e.y},${e.w}x${e.h}) [tol ${tol}px]`,
+            );
+        }
+    }
+    return offenders.length ? `click-to-code rect drift: ${offenders.join('; ')}` : null;
+}

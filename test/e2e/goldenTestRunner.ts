@@ -9,7 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAndCapture, buildAndCaptureDocker, detectDaliPrefix } from './standaloneBuildRunner';
 import { compareImages } from './imageComparator';
-import { checkMetadataOnScreen } from './metadataCheck';
+import { checkMetadataOnScreen, checkExpectedRects } from './metadataCheck';
+import { EXPECTED_RECTS } from './expectedRects';
 import { detectDefaultImage } from '../../src/registry';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -349,6 +350,13 @@ async function runSample(
             const coordErr = checkMetadataOnScreen(meta, width, height);
             if (coordErr) {
                 return { name, passed: false, error: `click-to-code metadata: ${coordErr}` };
+            }
+            const expected = EXPECTED_RECTS[name];
+            if (expected) {
+                const rectErr = checkExpectedRects(meta, expected);
+                if (rectErr) {
+                    return { name, passed: false, error: rectErr };
+                }
             }
         } catch (e: any) {
             return { name, passed: false, error: `metadata unreadable: ${e?.message ?? e}` };
