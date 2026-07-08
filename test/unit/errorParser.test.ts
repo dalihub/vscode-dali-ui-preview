@@ -271,10 +271,21 @@ describe('diagnoseGccErrors()', () => {
             )).to.equal(true);
         });
 
+        // Skew is NOT confined to Dali::Ui:: — dali-core/adaptor members skew between
+        // runtime versions too. A break confined to these (no Dali::Ui:: line in stderr)
+        // must still get the stale-runtime hint, not be mis-classified as generic.
+        it('flags dali-core (Dali::Actor) and dali-adaptor (Dali::Window) skew — curly quotes', () => {
+            expect(detectRuntimeApiSkew("‘class Dali::Actor’ has no member named ‘CalculateScreenExtents’")).to.equal(true);
+            expect(detectRuntimeApiSkew("‘class Dali::Window’ has no member named ‘GetSize’")).to.equal(true);
+            // ASCII-quote variant too
+            expect(detectRuntimeApiSkew("'class Dali::Actor' has no member named 'CalculateScreenExtents'")).to.equal(true);
+        });
+
         it('does NOT flag unrelated errors or typos on non-dali types (no false positive)', () => {
             expect(detectRuntimeApiSkew('/tmp/preview_harness.cpp:25:10: error: use of undeclared identifier ‘Foo’')).to.equal(false);
             // a member typo on the user's OWN class must not be blamed on the runtime
             expect(detectRuntimeApiSkew('‘class MyWidget’ has no member named ‘AddChildren’')).to.equal(false);
+            expect(detectRuntimeApiSkew("‘class std::vector<int>’ has no member named ‘push’")).to.equal(false);
             expect(detectRuntimeApiSkew('')).to.equal(false);
         });
 
