@@ -19,8 +19,21 @@ describe('graduation registry', () => {
         assert.deepStrictEqual(validateRegistry(loadRegistry(REGISTRY)), []);
     });
 
-    it('enables NO auto-merge in M1 (철칙 1)', () => {
-        assert.ok(loadRegistry(REGISTRY).features.every((f) => f.autoMergeEligible === false));
+    it('derives autoMergeEligible === unattended && positiveSemantic for every row', () => {
+        for (const f of loadRegistry(REGISTRY).features) {
+            assert.strictEqual(
+                f.autoMergeEligible, f.unattended && f.positiveSemantic,
+                `${f.feature}: autoMergeEligible must equal unattended && positiveSemantic`,
+            );
+        }
+    });
+
+    it('flags exactly the 4 render features (gate.sh U3 now enforces them as BLOCKING)', () => {
+        const eligible = loadRegistry(REGISTRY).features
+            .filter((f) => f.autoMergeEligible)
+            .map((f) => f.feature)
+            .sort();
+        assert.deepStrictEqual(eligible, ['click-to-code', 'focus', 'image', 'render-at-all']);
     });
 
     it('validateRegistry reports a violated invariant', () => {
