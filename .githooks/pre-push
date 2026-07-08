@@ -30,6 +30,16 @@ else
   npm run test:e2e
   echo "[pre-push] preview compile sweep (docker)…"
   npm run verify:previews:docker
+  # Image-render gate (serverGoldenRunner, native) needs a native DALi prefix.
+  # Run it when one is present; skip with a note otherwise so contributors
+  # without a native build aren't blocked (the agent-hub runner always runs it — M4).
+  PREFIX="${DALI_PREFIX:-/home/woochan/tizen/generativeUI/dali-env/opt}"
+  if [ -d "$PREFIX/lib" ]; then
+    echo "[pre-push] server golden suite (native — image-render check)…"
+    npm run test:e2e:server
+  else
+    echo "[pre-push] no native DALi prefix ($PREFIX) → skipping server golden (image-render) suite."
+  fi
 fi
 
 echo "[pre-push] ✓ all checks passed — pushing."
