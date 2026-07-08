@@ -63,6 +63,13 @@ extern "C" void __SetPreviewProgress(float p) // p in [0,1]
         if(a) a.SetCurrentProgress(p);
     }
 }
+// === ABI version gate ===
+// Bumped whenever the extern "C" plugin/server contract changes shape (struct
+// layout, signatures, calling convention). The server dlsyms this and refuses a
+// plugin whose value != its own compiled-in constant, turning a silent
+// ABI-drift wrong-render into a loud, actionable error. A MISSING symbol (old
+// plugin predating the gate) is treated as a mismatch, not tolerated.
+extern "C" int dali_preview_abi_version() { return 1; }
 {{USER_GLOBALS}}
 // === Build-time install palette definitions (ADR-004 PALETTE_DEFS slot) ===
 // Static free-function color/locale palettes (theme=dark, locale overrides),

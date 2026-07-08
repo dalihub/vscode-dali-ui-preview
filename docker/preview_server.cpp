@@ -1000,6 +1000,27 @@ public:
             return;
         }
 
+        // ABI version gate — run BEFORE any other symbol resolution so an
+        // ABI-drifted plugin is refused loudly instead of silently wrong-rendering.
+        // A MISSING symbol (old plugin predating the gate) counts as a mismatch and
+        // is NOT tolerated, unlike the optional animation symbols resolved below.
+        static const int kServerAbiVersion = 1;
+        using AbiVersionFn = int (*)();
+        AbiVersionFn abiVersion =
+            reinterpret_cast<AbiVersionFn>(dlsym(mPluginHandle, "dali_preview_abi_version"));
+        if (!abiVersion || abiVersion() != kServerAbiVersion)
+        {
+            std::string pluginAbi = abiVersion ? std::to_string(abiVersion()) : "missing";
+            std::cout << ">>>ERROR:abi mismatch (plugin=" << pluginAbi
+                      << ", server=" << kServerAbiVersion
+                      << ") — update runtime image" << std::endl;
+            dlclose(mPluginHandle);
+            mPluginHandle = nullptr;
+            mCaptureBusy  = false;
+            FlushPending();
+            return;
+        }
+
         // Resolve CreatePreview symbol
         using CreatePreviewFn = View (*)();
         CreatePreviewFn createPreview =
