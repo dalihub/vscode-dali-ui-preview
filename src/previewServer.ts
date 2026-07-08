@@ -106,9 +106,14 @@ export class PreviewServer {
         }
         this.outputChannel.appendLine(`[PreviewServer] Building native preview_server (${cfg.daliPrefix}) ...`);
         const pkgConfigPath = `${cfg.daliPrefix}/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig`;
+        // preview_server.cpp does `#include "preview_export.h"` (the shared Family-1
+        // exporter, adopted M3b). That header lives in the bundled server/ dir, a
+        // sibling of docker/, so add it to the include path for the native compile.
+        const serverIncludeDir = path.join(this.extensionPath, 'server');
         const cmd = [
             `PKG_CONFIG_PATH="${pkgConfigPath}"`,
             'g++ -std=c++17 -O2',
+            `-I"${serverIncludeDir}"`,
             `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --cflags ${DALI_PKG_MODULES})`,
             `"${cfg.serverSrcPath}"`,
             `$(PKG_CONFIG_PATH="${pkgConfigPath}" pkg-config --libs ${DALI_PKG_MODULES})`,
