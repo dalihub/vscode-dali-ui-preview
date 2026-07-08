@@ -164,7 +164,17 @@ RUN curl -fsSL "https://github.com/dalihub/dali-ui/archive/${DALI_UI_REF}.tar.gz
 # and dlopen fast paths. Same source as on the host
 # (server/preview_server.cpp). Pre-compiled here so the extension never has
 # to compile it on the user's machine in docker mode.
+#
+# preview_server.cpp does `#include "preview_export.h"` (M3b single-source
+# exporter, shared with the full-build harness). The Docker build context is
+# `docker/`, so the header must live here too: `docker/preview_export.h` is an
+# EXACT byte-for-byte mirror of the canonical `server/preview_export.h`, kept in
+# lockstep by the `exportHeaderSync` unit guard (edit ONLY server/preview_export.h,
+# then re-copy). It is compiled INTO the baked binary here (unlike the harness
+# path, which stages the header fresh) — a change to the exporter therefore needs
+# an image rebuild for the server/parser fast path, as it already did.
 COPY preview_server.cpp /build/preview_server.cpp
+COPY preview_export.h /build/preview_export.h
 RUN g++ -std=c++17 -O2 \
       $(pkg-config --cflags dali2-core dali2-adaptor dali2-ui-foundation dali2-ui-components glib-2.0) \
       /build/preview_server.cpp \
@@ -172,7 +182,7 @@ RUN g++ -std=c++17 -O2 \
       -L${DESKTOP_PREFIX}/lib -Wl,-rpath-link,${DESKTOP_PREFIX}/lib \
       -ldl \
       -o ${DESKTOP_PREFIX}/bin/preview_server && \
-    rm /build/preview_server.cpp
+    rm /build/preview_server.cpp /build/preview_export.h
 
 # ── Stage 3: slim runtime image ─────────────────────────────────────────
 FROM ubuntu:22.04 AS runtime

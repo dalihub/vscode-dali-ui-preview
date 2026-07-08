@@ -195,6 +195,31 @@ export class BuildRunner {
     }
 
     /**
+     * Stage the shared scene-graph exporter header next to the harness source.
+     *
+     * The rendered harness does `#include "preview_export.h"` (M3b: single-source
+     * exporter shared with docker/preview_server.cpp). A quote-include resolves
+     * relative to the including file's directory, so the header MUST sit in the
+     * same dir as the compiled `source.cpp`:
+     *   - docker: `tmpDir` is bind-mounted at `/work`, source is `/work/source.cpp`,
+     *     so the container sees `/work/preview_export.h`.
+     *   - local:  g++ compiles `tmpDir/source.cpp` directly, finding the sibling.
+     * The header is copied FRESH on every build (never baked into the image), so a
+     * runtime API change in the exporter needs no image rebuild for the harness path.
+     * Best-effort: on failure the compile surfaces a clear
+     * `preview_export.h: No such file` error, so nothing is silently masked.
+     */
+    private stageExportHeader(): void {
+        const HEADER = 'preview_export.h';
+        const src = path.join(this.extensionPath, 'server', HEADER);
+        try {
+            fs.copyFileSync(src, path.join(this.tmpDir, HEADER));
+        } catch (err) {
+            getLogger().warn('Build', 'export header stage failed (harness compile will fail)', { src, error: String(err) });
+        }
+    }
+
+    /**
      * Stage local-file image assets referenced by `ImageView::New("…")` /
      * `SetResourceUrl("…")` so they actually resolve at render time.
      *
@@ -508,6 +533,10 @@ export class BuildRunner {
         // the standalone golden runner gates it per-sample to keep existing goldens
         // byte-identical. undefined (asset missing) → SetBrokenImageUrl omitted.
         const brokenImagePath = this.stageBrokenImagePlaceholder();
+
+        // The harness `#include "preview_export.h"` — stage the shared exporter
+        // header next to source.cpp (see stageExportHeader) BEFORE compiling.
+        this.stageExportHeader();
 
         const bgColorVec = codegen.resolveBgColorVec(bgColor, theme);
         const harness = this.renderHarness(this.templateContent, {

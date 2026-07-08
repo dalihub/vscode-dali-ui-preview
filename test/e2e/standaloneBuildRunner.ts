@@ -79,6 +79,20 @@ export interface StandaloneBuildResult {
 }
 
 /**
+ * Stage the shared exporter header next to the harness source. The harness
+ * template does `#include "preview_export.h"` (M3b single-source exporter), and a
+ * quote-include resolves relative to the compiled source's directory — so the
+ * header must be copied into the same dir the harness .cpp is written to (native:
+ * the tmp compile dir; docker: the bind-mounted WORK dir → /work). The header is a
+ * sibling of the template (both live in <repo>/server), so it is derived from
+ * `templatePath`. Mirrors BuildRunner.stageExportHeader in production.
+ */
+function stageExportHeader(destDir: string, templatePath: string): void {
+    const src = path.join(path.dirname(templatePath), 'preview_export.h');
+    fs.copyFileSync(src, path.join(destDir, 'preview_export.h'));
+}
+
+/**
  * Detect DALi prefix without VS Code dependency.
  * Priority: env DALI_PREFIX → env DESKTOP_PREFIX → common paths.
  */
@@ -179,6 +193,8 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
 
     try {
         fs.writeFileSync(harnessPath, harness);
+        // Stage the shared exporter header next to the harness (it #includes it).
+        stageExportHeader(tmpDir, opts.templatePath);
     } catch (e) {
         return { success: false, error: `Failed to write harness: ${(e as Error).message}` };
     }
@@ -241,6 +257,9 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
 
     try {
         fs.writeFileSync(path.join(WORK, 'harness.cpp'), harness);
+        // Stage the shared exporter header into the bind-mount so the container
+        // sees it at /work/preview_export.h (harness.cpp #includes it).
+        stageExportHeader(WORK, opts.templatePath);
         fs.rmSync(path.join(WORK, 'render.png'), { force: true });
     } catch (e) { return { success: false, error: `Failed to write harness: ${(e as Error).message}` }; }
 
