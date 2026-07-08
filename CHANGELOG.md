@@ -5,6 +5,10 @@ All notable changes to the **DALi UI Preview** extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.56.7] - 2026-07-08
+
+### Changed
+- AI agent guide (AGENTS.md) accuracy pass: document cross-file resolution honestly — inlines namespace/const/constexpr constants + View-returning free functions via relative #include inside THIS project, but a value in a SEPARATE module/library (different build unit) becomes a grey placeholder (a full-build previewer like Compose resolves cross-module; this source slicer does not). Reframe genuinely-unpreviewable cases (real/async data, DI-built view-models) as inherent sandbox limits shared with Jetpack Compose Preview; move focus/animation out of "limits" (they are supported via @preview-state). Docs-only; no runtime change.
 ## [Unreleased]
 
 ## [0.56.6] - 2026-07-07
