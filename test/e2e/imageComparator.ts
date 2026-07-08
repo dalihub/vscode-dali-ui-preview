@@ -103,3 +103,49 @@ export function compareImages(
         diffImagePath: match ? undefined : diffPath,
     };
 }
+
+export interface Rect { x: number; y: number; w: number; h: number; }
+export interface Rgb { r: number; g: number; b: number; }
+
+/**
+ * Count pixels within `tol` (per channel, 0-255) of `color` inside `region`.
+ * Region is clamped to the image bounds. Used for positive-semantic render
+ * assertions ("the image region actually painted this color"), not a
+ * full-frame golden diff which a blank frame + blank golden would both pass.
+ */
+export function countRegionColor(pngPath: string, region: Rect, color: Rgb, tol = 24): number {
+    const img = readPng(pngPath);
+    const x0 = Math.max(0, Math.floor(region.x));
+    const y0 = Math.max(0, Math.floor(region.y));
+    const x1 = Math.min(img.width, Math.floor(region.x + region.w));
+    const y1 = Math.min(img.height, Math.floor(region.y + region.h));
+    let count = 0;
+    for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+            const i = (y * img.width + x) * 4;
+            if (
+                Math.abs(img.data[i] - color.r) <= tol &&
+                Math.abs(img.data[i + 1] - color.g) <= tol &&
+                Math.abs(img.data[i + 2] - color.b) <= tol
+            ) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+/**
+ * Positive-semantic assertion: at least `minCount` pixels in `region` match
+ * `color`. Returns an error string (for a runner TestResult) or null on pass.
+ */
+export function checkRegionColor(
+    pngPath: string, region: Rect, color: Rgb, minCount: number, tol = 24,
+): string | null {
+    const n = countRegionColor(pngPath, region, color, tol);
+    if (n < minCount) {
+        return `region (${region.x},${region.y},${region.w}x${region.h}) has only ${n} px ` +
+            `near rgb(${color.r},${color.g},${color.b}) (need >= ${minCount}) — image did not render`;
+    }
+    return null;
+}
