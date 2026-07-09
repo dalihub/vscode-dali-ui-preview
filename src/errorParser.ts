@@ -210,9 +210,14 @@ export function formatRawError(raw: string): string {
  * IMPORTANT: g++ quotes identifiers with Unicode curly quotes (U+2018 ‘ … U+2019 ’),
  * NOT ASCII apostrophes, so the character classes below MUST accept both — matching
  * only `'…'` silently never fires on real compiler output (verified the hard way).
+ *
+ * Skew is ALSO not confined to Dali::Ui:: — dali-core/adaptor members skew between
+ * runtime versions too (`Dali::Actor` lost `CalculateScreenExtents`, `Dali::Window`
+ * `GetSize`, …). So instead of a hardcoded member-name list we match ANY missing
+ * member on ANY qualified `Dali::` type, kept in sync with skewSignature.ts.
  */
 const RUNTIME_API_SKEW_RE =
-    /Dali::Ui::\w+['‘’]?\s+has no member named\s+['‘’']?(?:AddChildren|Children|SetAlwaysShowFocus|IsFocusIndicatorAlwaysShown|SetDefaultFocusIndicatorEnabled)['‘’']?/;
+    /Dali(::\w+)+['‘’]?\s+has no member named\s+['‘’]?\w+/;
 
 /** True if `stderr` carries the dali-ui child-API version-skew signature. */
 export function detectRuntimeApiSkew(stderr: string): boolean {

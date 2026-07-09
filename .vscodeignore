@@ -37,3 +37,5 @@ dali-ui-preview-cli/**
 samples/**
 hello-dali.preview.dali.cpp
 dali-animation-playground.html
+# Internal: merge-policy/CI tooling data — no extension runtime reader.
+graduation-registry.json

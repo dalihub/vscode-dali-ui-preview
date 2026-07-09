@@ -28,8 +28,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { PreviewServer } from '../../src/previewServer';
 import { parseChainExpression, SceneNode } from '../../src/cppParser';
-import { compareImages } from './imageComparator';
-import { checkMetadataOnScreen } from './metadataCheck';
+import { compareImages, checkRegionColor } from './imageComparator';
+import { checkMetadataOnScreen, findFirstNode } from './metadataCheck';
 
 // The 'vscode' module is shimmed by '../helpers/setup' (imported above, runs
 // first). Resolve it here only for createOutputChannel(); the require runs at
@@ -175,6 +175,24 @@ async function runSample(
             }
         } catch (e: any) {
             return { name, passed: false, error: `metadata unreadable: ${e?.message ?? e}` };
+        }
+    }
+
+    // Positive-semantic image-render assertion (철칙 2): `image-loads` stages a
+    // solid magenta asset. Assert the ImageView's exported screen rect actually
+    // painted magenta — a blank capture (the async-load-before-capture bug) would
+    // leave ~0 magenta px and FAIL, where a full-frame golden diff might not.
+    if (name === 'image-loads' && fs.existsSync(metadataPath)) {
+        const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+        const iv = findFirstNode(meta, (n) => (n.type ?? '').includes('Image') && (n.w ?? 0) > 1);
+        if (!iv) {
+            return { name, passed: false, error: 'image-loads: no ImageView in metadata' };
+        }
+        const region = { x: iv.x ?? 0, y: iv.y ?? 0, w: iv.w ?? 0, h: iv.h ?? 0 };
+        const minCount = Math.floor(region.w * region.h * 0.5);
+        const err = checkRegionColor(actualPng, region, { r: 255, g: 0, b: 255 }, minCount);
+        if (err) {
+            return { name, passed: false, error: `image-loads: ${err}` };
         }
     }
 

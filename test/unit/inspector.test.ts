@@ -55,15 +55,20 @@ function makeManagerWithSpy() {
 // Harness template: Inspector-related JSON fields
 // ---------------------------------------------------------------------------
 
-describe('Inspector — harness template JSON structure', () => {
-    const TEMPLATE_PATH = path.resolve(__dirname, '../../../server/preview_harness.cpp.template');
+describe('Inspector — exporter JSON structure', () => {
+    // M3b: the scene-graph exporter (JsonEscapeStr / ShortTypeName /
+    // CollectActorMetadata / ExportSceneMetadata) moved out of the harness
+    // template into the single-source header server/preview_export.h, which the
+    // harness now #includes. Inspect that header — it is the one place the JSON
+    // contract is defined (shared with docker/preview_server.cpp).
+    const EXPORTER_PATH = path.resolve(__dirname, '../../../server/preview_export.h');
     let template: string;
 
     before(() => {
-        template = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
+        template = fs.readFileSync(EXPORTER_PATH, 'utf-8');
     });
 
-    it('template includes #include <string> for helper functions', () => {
+    it('exporter includes #include <string> for helper functions', () => {
         expect(template).to.include('#include <string>');
     });
 
@@ -184,12 +189,12 @@ describe('Inspector — harness template JSON structure', () => {
         expect(template).to.not.include('\\"color\\":\\"');
     });
 
-    it('JsonEscapeStr is defined as a static function', () => {
-        expect(template).to.include('static std::string JsonEscapeStr');
+    it('JsonEscapeStr is defined as an inline function', () => {
+        expect(template).to.include('inline std::string JsonEscapeStr');
     });
 
-    it('ShortTypeName is defined as a static function', () => {
-        expect(template).to.include('static std::string ShortTypeName');
+    it('ShortTypeName is defined as an inline function', () => {
+        expect(template).to.include('inline std::string ShortTypeName');
     });
 
     it('JsonEscapeStr is called when serialising actor name', () => {

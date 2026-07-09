@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-07-09
+
+### Added
+- **Render-gate hardening (M1):** positive-semantic e2e checks that fail when a
+  preview feature silently breaks — `checkRegionColor` (an image actually painted,
+  not a blank/placeholder frame), `checkExpectedRects` (click-to-code screen rects
+  are correct, not merely on-screen), `checkFocusIndicator` (the focus ring is
+  drawn as an ImageView child of the focused view). Shared, curly-quote-safe
+  runtime-API-skew signature (`src/skewSignature.ts`) matching any missing member on
+  a **qualified `Dali::` type** (dali-core/adaptor/ui — catches e.g. `Dali::Actor`
+  and `Dali::Window` breaks, not just `Dali::Ui::`; future renames included); the
+  compile sweep now runs in the pre-push gate. Consolidated historical-break
+  regression guard (`test/unit/historicalBreaks.test.ts`) over the 6 known dali-ui
+  breaks. Seeded `graduation-registry.json` (auto-merge eligibility = unattended &&
+  positive-semantic).
+- **Plugin ABI gate (M3c):** the dlopen plugin exports `dali_preview_abi_version()`;
+  the server refuses a *present-but-mismatched* plugin with a loud `>>>ERROR:abi
+  mismatch` instead of a silent wrong-render, while **tolerating a missing symbol**
+  (an old plugin) so a newer runtime image never breaks an older extension install.
+- **Mode-aware exporter-version handshake:** a stale docker runtime image (its baked
+  server lagging this build's exporter) surfaces an actionable "update runtime image"
+  hint — non-fatal, once per session; a genuine no-op in local mode.
+
+### Changed
+- **Single-source scene exporter (M3a/M3b):** the harness slot-filler codegen was
+  extracted into `src/harnessCodegen.ts` (consumed by both `BuildRunner` and the e2e
+  runners — kills the `standaloneBuildRunner` drift), and the C++ metadata-exporter
+  now lives in one `server/preview_export.h` `#include`d by both the baked
+  `docker/preview_server.cpp` and the fresh `preview_harness.cpp.template`. Behavior-
+  preserving (docker golden 26/0, native server golden 9/0, byte-identical renders).
+
 ## [0.57.0] - 2026-07-09
 
 ### Added
