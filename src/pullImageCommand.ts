@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ConfigurationService } from './configurationService';
 import { DockerRuntime } from './dockerRuntime';
 import { checkDockerAccess } from './dockerAccessCheck';
-import { describeRegistry } from './registry';
+import { describeRegistry, BART_PROXY_HOST } from './registry';
 import { listRemoteTags } from './registryClient';
 
 /** A ROLLING tag (`latest` / `dali_X.Y.Z`) can move on the registry and may be missing/uncached
@@ -63,30 +63,71 @@ export function formatPullMessage(
     return `${head} · ${elapsed} elapsed`;
 }
 
+export type PullErrorCategory = 'network' | 'auth' | 'notfound' | 'cert' | 'dns' | 'unknown';
+
 /**
- * Categorize a docker pull error and suggest an action.
- * Returns { category, userMessage, shouldRetry, details }
- * Exported for testing.
+ * Categorize a docker pull error and decide whether a SAME-host retry is worth it.
+ * Returns { category, userMessage, shouldRetry, details }. Exported for testing.
+ *
+ * `shouldRetry` governs only the same-registry auto-retry — cross-registry
+ * fallback (see {@link buildDownloadFailureGuidance}) happens regardless, so a
+ * config error like `cert`/`dns` fails the host fast, then the other registry is
+ * still tried.
  */
 export function analyzePullError(errorMessage: string): {
-    category: 'network' | 'auth' | 'notfound' | 'unknown';
+    category: PullErrorCategory;
     userMessage: string;
     shouldRetry: boolean;
     details: string;
 } {
     const lower = errorMessage.toLowerCase();
 
+    // Auth FIRST: GHCR token failures often arrive wrapped in an httpReadSeeker
+    // frame that also trips the network matcher, but auth is the actionable one.
     if (
         lower.includes('failed to authorize') ||
         lower.includes('failed to fetch anonymous token') ||
         lower.includes('401') ||
-        lower.includes('403')
+        lower.includes('403') ||
+        lower.includes('unauthorized') ||
+        lower.includes('denied')
     ) {
         return {
             category: 'auth',
-            userMessage: 'Authentication or authorization failed. Check your network connectivity and firewall settings.',
+            userMessage: 'Authentication/authorization with the registry failed (often transient).',
             shouldRetry: true,
-            details: 'GHCR registry returned an authentication error. This can be transient if your network/proxy blocks the token endpoint.',
+            details: 'The registry returned an auth error. Can be transient if a proxy intercepts the token endpoint.',
+        };
+    }
+
+    // TLS trust — a corporate MITM proxy presenting a cert the daemon doesn't trust.
+    if (
+        lower.includes('x509') ||
+        lower.includes('certificate signed by unknown authority') ||
+        lower.includes('certificate has expired') ||
+        lower.includes('certificate is not trusted') ||
+        lower.includes('tls: failed to verify')
+    ) {
+        return {
+            category: 'cert',
+            userMessage: 'The Docker daemon does not trust the registry’s TLS certificate.',
+            shouldRetry: false,
+            details: 'A corporate MITM web proxy is likely intercepting the connection with a CA the Docker daemon does not trust.',
+        };
+    }
+
+    // DNS — host does not resolve (typically off the corp network / VPN).
+    if (
+        lower.includes('no such host') ||
+        lower.includes('server misbehaving') ||
+        lower.includes('name resolution') ||
+        lower.includes('could not resolve host')
+    ) {
+        return {
+            category: 'dns',
+            userMessage: 'The registry host could not be resolved (DNS).',
+            shouldRetry: false,
+            details: 'The host did not resolve — you may be off the Samsung corporate network/VPN, or DNS is misconfigured.',
         };
     }
 
@@ -96,26 +137,30 @@ export function analyzePullError(errorMessage: string): {
         lower.includes('timeout') ||
         lower.includes('i/o timeout') ||
         lower.includes('network is unreachable') ||
-        lower.includes('httpreadseeker')
+        lower.includes('no route to host') ||
+        lower.includes('tls handshake') ||
+        lower.includes('httpreadseeker') ||
+        lower.includes('eof')
     ) {
         return {
             category: 'network',
-            userMessage: 'Network connection issue detected. This is often temporary.',
+            userMessage: 'Network connection to the registry was interrupted (often temporary).',
             shouldRetry: true,
-            details: 'The network connection to the registry was interrupted. This can happen due to proxy, firewall, or transient connectivity issues. Retrying often helps.',
+            details: 'Proxy/firewall/transient connectivity to the registry. Retrying often helps.',
         };
     }
 
     if (
         lower.includes('not found') ||
+        lower.includes('manifest unknown') ||
         lower.includes('manifest not found') ||
         lower.includes('image not found')
     ) {
         return {
             category: 'notfound',
-            userMessage: 'Runtime image not found in the registry.',
+            userMessage: 'The requested runtime image/tag was not found in the registry.',
             shouldRetry: false,
-            details: 'The configured image does not exist or is no longer available.',
+            details: 'The configured tag does not exist (or was removed). Pick a different version.',
         };
     }
 
@@ -128,15 +173,89 @@ export function analyzePullError(errorMessage: string): {
 }
 
 /**
- * Pull the configured runtime image with a VS Code progress notification.
- * Shared by `pullRuntimeImageCommand` (explicit user command) and
- * `ensureRuntimeImage` (automatic setup flow). Resolves true on success.
+ * Per-registry, per-category guidance: WHY a pull failed on a specific host and
+ * HOW to fix it. Host-aware, because the corp-network failure modes differ by
+ * registry — the internal BART proxy must be reached DIRECTLY (bypassing the web
+ * proxy), whereas ghcr.io must be reached THROUGH it. Pure/exported for testing.
  */
-async function pullWithProgress(
+export function describeFailure(
+    category: PullErrorCategory,
+    host: string,
+): { reason: string; fix: string } {
+    const isBart = host === BART_PROXY_HOST;
+    switch (category) {
+        case 'cert':
+            return {
+                reason: `Docker daemon does not trust the TLS certificate presented for ${host}.`,
+                fix: isBart
+                    ? 'The pull is going through the corporate MITM web proxy. Make the daemon reach Samsung-internal hosts DIRECTLY: add ".samsung.net" to the daemon NO_PROXY (/etc/systemd/system/docker.service.d/http-proxy.conf) and `sudo systemctl restart docker`. (Or install the corporate proxy CA into the system trust store.)'
+                    : 'If reaching ghcr.io through the corporate web proxy, install that proxy’s CA into the SYSTEM trust store (e.g. update-ca-certificates) and `sudo systemctl restart docker`.',
+            };
+        case 'dns':
+            return {
+                reason: `Host ${host} did not resolve (DNS).`,
+                fix: isBart
+                    ? 'The internal BART host only resolves on the Samsung corporate network/VPN. Connect to the corp network/VPN and retry.'
+                    : 'DNS for ghcr.io failed — check your network/DNS/proxy settings.',
+            };
+        case 'network':
+            return {
+                reason: `Network connection to ${host} was refused/reset/timed out.`,
+                fix: isBart
+                    ? 'Ensure you are on the corp network and the daemon routes ".samsung.net" DIRECTLY (not via the web proxy): add ".samsung.net" to the daemon NO_PROXY and restart docker.'
+                    : 'The daemon may need the corporate HTTP proxy configured (systemd drop-in) to reach the public internet — or ghcr.io is throttling the shared egress IP; retry.',
+            };
+        case 'auth':
+            return {
+                reason: `${host} returned an authorization error (401/403).`,
+                fix: 'Usually transient — retry. If it persists, a proxy may be intercepting the registry token endpoint.',
+            };
+        case 'notfound':
+            return {
+                reason: `The requested tag does not exist on ${host}.`,
+                fix: 'Pick a different version (e.g. "latest" or "dali_2.5.28") via "DALi Preview: Select Runtime Version".',
+            };
+        default:
+            return {
+                reason: `Unexpected error from ${host}.`,
+                fix: 'Open the "DALi Preview" output log for the full docker error.',
+            };
+    }
+}
+
+/**
+ * Compose the full user-facing "download failed" guidance across EVERY registry
+ * tried (primary + any fallback): names each server, why it failed, and how to fix
+ * it. Pure/exported for testing.
+ */
+export function buildDownloadFailureGuidance(
+    attempts: { label: string; host: string; error: string }[],
+): string {
+    const lines: string[] = ['Could not download the DALi runtime image.', ''];
+    lines.push(attempts.length > 1 ? `Tried ${attempts.length} registries — all failed:` : 'Tried:');
+    for (const a of attempts) {
+        const { category } = analyzePullError(a.error);
+        const { reason, fix } = describeFailure(category, a.host);
+        lines.push(`• ${a.label} (${a.host})`);
+        lines.push(`    Why: ${reason}`);
+        lines.push(`    Fix: ${fix}`);
+    }
+    lines.push('');
+    lines.push('The "local" runtime (daliPreview.runtimeMode: local) needs no download and is unaffected.');
+    return lines.join('\n');
+}
+
+/**
+ * Pull `tag` from ONE registry (the runtime's image name) with a progress
+ * notification and up to `maxRetries` SAME-host auto-retries (backoff on the
+ * retryable categories). Returns the outcome instead of showing any dialog — the
+ * caller decides fallback/guidance. Never throws.
+ */
+async function attemptPull(
     runtime: DockerRuntime,
     tag: string,
     outputChannel: vscode.OutputChannel,
-): Promise<boolean> {
+): Promise<{ success: boolean; error: string }> {
     const ref = runtime.imageRef(tag);
     // describeRegistry only reads the host (first path segment), so the tagged ref works.
     const src = describeRegistry(ref);
@@ -144,10 +263,11 @@ async function pullWithProgress(
 
     const maxRetries = 3;
     let attempt = 0;
+    let lastError = '';
 
     while (attempt < maxRetries) {
         attempt++;
-        outputChannel.appendLine(`[Runtime] Attempt ${attempt}/${maxRetries}`);
+        outputChannel.appendLine(`[Runtime] Attempt ${attempt}/${maxRetries} (${src.host})`);
 
         const result = await vscode.window.withProgress(
             {
@@ -159,16 +279,12 @@ async function pullWithProgress(
                 const startMs = Date.now();
                 let completedLayers = 0;
                 let totalLayers = 0;
-                let heartbeatTimer: any;
-
                 const render = (): void => {
                     progress.report({
                         message: formatPullMessage(completedLayers, totalLayers, Date.now() - startMs),
                     });
                 };
-
-                heartbeatTimer = setInterval(render, 1000);
-
+                const heartbeatTimer = setInterval(render, 1000);
                 try {
                     await runtime.pullImage(tag, (p) => {
                         completedLayers = p.completedLayers;
@@ -176,85 +292,156 @@ async function pullWithProgress(
                         render();
                     });
                     outputChannel.appendLine(`[Runtime] Pull complete: ${ref}`);
-                    void vscode.window.showInformationMessage(
-                        `Runtime image downloaded. You can now open a sample preview.`,
-                    );
-                    return { success: true };
+                    return { success: true as const };
                 } catch (err: any) {
                     const msg = err?.message ?? String(err);
-                    outputChannel.appendLine(`[Runtime] Pull failed (attempt ${attempt}): ${msg}`);
-                    return { success: false, error: msg };
+                    outputChannel.appendLine(`[Runtime] Pull failed (attempt ${attempt}, ${src.host}): ${msg}`);
+                    return { success: false as const, error: msg };
                 } finally {
-                    if (heartbeatTimer) clearInterval(heartbeatTimer);
+                    clearInterval(heartbeatTimer);
                 }
             },
         );
 
         if (result.success) {
-            return true;
+            return { success: true, error: '' };
         }
-
+        lastError = result.error;
         const analysis = analyzePullError(result.error);
         outputChannel.appendLine(
-            `[Runtime] Error category: ${analysis.category}. Details: ${analysis.details}`,
+            `[Runtime] Error category: ${analysis.category} (${src.host}). ${analysis.details}`,
         );
-
         if (!analysis.shouldRetry || attempt >= maxRetries) {
-            // A MUTABLE tag (`latest` / moving `dali_X.Y.Z`) can fail to pull through a caching
-            // proxy (corp BART/Artifactory) even when the SAME image is available under an
-            // immutable tag: the proxy must revalidate a mutable tag against ghcr.io on each pull
-            // (to see if it moved) and that upstream call fails over the restricted egress, while
-            // an immutable `dali_X.Y.Z-<sha>` is served straight from cache. This is the exact
-            // case where a user gives up on `latest` and manually picks `dali_X.Y.Z-<sha>`.
-            // Automate it: resolve the newest immutable tag, pull it, pin it, and tell the user.
-            // Only for a rolling tag, and the fallback tag is concrete so this recurses at most once.
-            if (isRollingTag(tag)) {
-                let fallback: string | undefined;
-                try { fallback = pickFallbackTag(await listRemoteTags(runtime.getImageName()), tag); }
-                catch (e) { outputChannel.appendLine(`[Runtime] Could not list tags for fallback: ${String(e).slice(0, 120)}`); }
-                if (fallback) {
-                    outputChannel.appendLine(`[Runtime] '${tag}' unavailable — falling back to the pinned version '${fallback}'…`);
-                    if (await pullWithProgress(runtime, fallback, outputChannel)) {
-                        await ConfigurationService.getInstance().update('daliVersionTag', fallback, vscode.ConfigurationTarget.Global);
-                        void vscode.window.showInformationMessage(
-                            `'${tag}' couldn't be downloaded from your registry/proxy, so DALi Preview pinned the available version '${fallback}'. ` +
-                            'Change it any time via "Select Runtime Version".',
-                        );
-                        return true;
-                    }
-                }
-            }
-            // Final attempt failed or not retryable
-            const items: string[] = ['View Logs'];
-            if (analysis.shouldRetry) {
-                items.unshift('Retry');
-            }
-
-            const action = await vscode.window.showErrorMessage(
-                `${analysis.userMessage}\n\nFull error: ${result.error.slice(0, 150)}`,
-                ...items,
-            );
-
-            if (action === 'Retry') {
-                outputChannel.appendLine(`[Runtime] User requested retry`);
-                continue;
-            } else if (action === 'View Logs') {
-                outputChannel.show();
-                return false;
-            } else {
-                return false;
-            }
+            break;
         }
-
-        // Auto-retry with backoff
         const delaySecs = Math.min(2 ** (attempt - 1), 16);
-        outputChannel.appendLine(
-            `[Runtime] Retrying in ${delaySecs}s (${analysis.category} error detected)...`,
-        );
-
+        outputChannel.appendLine(`[Runtime] Retrying ${src.host} in ${delaySecs}s (${analysis.category})...`);
         await new Promise((r) => setTimeout(r, delaySecs * 1000));
     }
+    return { success: false, error: lastError };
+}
 
+/**
+ * Pull `tag` from ONE registry, and if it is a ROLLING tag the registry/proxy
+ * can't serve, fall back to the newest CONCRETE tag from that registry's tag list
+ * (see {@link pickFallbackTag}). Returns which tag actually landed (`pulledTag`)
+ * so the caller can pin it. No dialog, no config write — the caller owns those.
+ */
+async function pullHostWithTagFallback(
+    runtime: DockerRuntime,
+    tag: string,
+    outputChannel: vscode.OutputChannel,
+): Promise<{ success: boolean; error: string; pulledTag: string }> {
+    const first = await attemptPull(runtime, tag, outputChannel);
+    if (first.success) {
+        return { success: true, error: '', pulledTag: tag };
+    }
+    // Same-registry TAG fallback: a mutable tag (latest / moving dali_X.Y.Z) may be
+    // unservable from a caching proxy even when an immutable dali_X.Y.Z-<sha> is.
+    if (isRollingTag(tag)) {
+        let fallback: string | undefined;
+        try {
+            fallback = pickFallbackTag(await listRemoteTags(runtime.getImageName()), tag);
+        } catch (e) {
+            outputChannel.appendLine(`[Runtime] Could not list tags for fallback: ${String(e).slice(0, 120)}`);
+        }
+        if (fallback) {
+            outputChannel.appendLine(
+                `[Runtime] '${tag}' unavailable on ${describeRegistry(runtime.getImageName()).host} — trying the pinned version '${fallback}'…`,
+            );
+            const fb = await attemptPull(runtime, fallback, outputChannel);
+            if (fb.success) {
+                return { success: true, error: '', pulledTag: fallback };
+            }
+        }
+    }
+    return { success: false, error: first.error, pulledTag: tag };
+}
+
+/**
+ * Pull `tag`, composing TWO fallbacks:
+ *   1. same-registry TAG fallback (rolling → newest immutable — {@link pullHostWithTagFallback});
+ *   2. cross-REGISTRY fallback (auto-detected host fails entirely → its BART⇄GHCR counterpart).
+ * On a cross-registry success the fallback image is `docker tag`ed to the primary
+ * name so the rest of the extension finds it with no second download. If a TAG
+ * fallback landed a different tag, it is pinned (`daliVersionTag`). On total
+ * failure, shows ONE consolidated notification naming every server tried, why each
+ * failed, and how to fix it (Retry re-runs the whole flow). Never throws.
+ *
+ * Shared by `pullRuntimeImageCommand` (explicit command) and `ensureRuntimeImage*`.
+ */
+async function pullWithFallback(
+    runtime: DockerRuntime,
+    tag: string,
+    outputChannel: vscode.OutputChannel,
+): Promise<boolean> {
+    const attempts: { label: string; host: string; error: string }[] = [];
+
+    const finish = async (pulledTag: string, label: string, viaFallbackRegistry: boolean): Promise<void> => {
+        if (pulledTag !== tag) {
+            // A tag fallback landed a different (pinned) version — persist + explain.
+            await ConfigurationService.getInstance().update('daliVersionTag', pulledTag, vscode.ConfigurationTarget.Global);
+            void vscode.window.showInformationMessage(
+                `'${tag}' couldn't be downloaded from your registry/proxy, so DALi Preview pinned the available version '${pulledTag}'. ` +
+                'Change it any time via "Select Runtime Version".',
+            );
+        } else {
+            void vscode.window.showInformationMessage(
+                `DALi runtime image downloaded from ${label}${viaFallbackRegistry ? ' (fallback registry)' : ''}. You can now open a sample preview.`,
+            );
+        }
+    };
+
+    // 1. Primary (auto-detected) registry — with same-registry tag fallback.
+    const primaryDesc = describeRegistry(runtime.getImageName());
+    const primary = await pullHostWithTagFallback(runtime, tag, outputChannel);
+    if (primary.success) {
+        await finish(primary.pulledTag, primaryDesc.label, false);
+        return true;
+    }
+    attempts.push({ label: primaryDesc.label, host: primaryDesc.host, error: primary.error });
+
+    // 2. Cross-registry fallback (only if this image has a known counterpart).
+    const alt = runtime.alternateRuntime?.();
+    if (alt) {
+        const altDesc = describeRegistry(alt.getImageName());
+        outputChannel.appendLine(
+            `[Runtime] ${primaryDesc.label} failed — falling back to ${altDesc.label} (${altDesc.host}).`,
+        );
+        void vscode.window.showWarningMessage(
+            `Download from ${primaryDesc.label} failed — trying ${altDesc.label} instead…`,
+        );
+        const fb = await pullHostWithTagFallback(alt, tag, outputChannel);
+        if (fb.success) {
+            try {
+                // Alias the fallback-registry image to the primary name so hasImage/run find it.
+                await runtime.tagImage(alt.imageRef(fb.pulledTag), runtime.imageRef(fb.pulledTag));
+                outputChannel.appendLine(`[Runtime] Aliased ${alt.imageRef(fb.pulledTag)} → ${runtime.imageRef(fb.pulledTag)}.`);
+                await finish(fb.pulledTag, altDesc.label, true);
+                return true;
+            } catch (err: any) {
+                const msg = String(err?.message ?? err);
+                outputChannel.appendLine(`[Runtime] ${msg}`);
+                attempts.push({ label: altDesc.label, host: altDesc.host, error: msg });
+            }
+        } else {
+            attempts.push({ label: altDesc.label, host: altDesc.host, error: fb.error });
+        }
+    }
+
+    // 3. Everything failed → consolidated, actionable guidance.
+    const guidance = buildDownloadFailureGuidance(attempts);
+    outputChannel.appendLine(`[Runtime] Download failed.\n${guidance}`);
+    const anyRetryable = attempts.some((a) => analyzePullError(a.error).shouldRetry);
+    const items = anyRetryable ? ['Retry', 'View Logs'] : ['View Logs'];
+    const action = await vscode.window.showErrorMessage(guidance, ...items);
+    if (action === 'Retry') {
+        outputChannel.appendLine('[Runtime] User requested retry.');
+        return pullWithFallback(runtime, tag, outputChannel);
+    }
+    if (action === 'View Logs') {
+        outputChannel.show();
+    }
     return false;
 }
 
@@ -296,7 +483,7 @@ export async function pullRuntimeImageCommand(
         return true;
     }
 
-    return pullWithProgress(runtime, tag, outputChannel);
+    return pullWithFallback(runtime, tag, outputChannel);
 }
 
 /**
@@ -368,7 +555,7 @@ export async function ensureRuntimeImageForTag(
         return existing;
     }
 
-    const pull = pullWithProgress(runtime, tag, outputChannel);
+    const pull = pullWithFallback(runtime, tag, outputChannel);
     inFlightPulls.set(tag, pull);
     try {
         return await pull;
