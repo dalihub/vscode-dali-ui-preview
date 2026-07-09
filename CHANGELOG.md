@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-07-09
+
+### Added
+
+- **Cross-registry download fallback for the runtime image.** The image host is
+  auto-detected once (the BART GHCR proxy on the Samsung corporate network, else
+  GHCR). Previously, if a `docker pull` from that host failed, the extension only
+  retried the SAME host and — beyond the existing same-registry *tag* fallback
+  (rolling → newest immutable) — never tried the OTHER registry. Now, when the
+  auto-detected registry fails outright (e.g. the daemon can't reach or trust the
+  BART host), the pull falls back to its counterpart (BART⇄GHCR, identical repo
+  path/digests) and, on success, `docker tag`s the fallback image to the primary
+  name so the rest of the extension finds it with no second download
+  (`registry.alternateImage`, `DockerRuntime.alternateRuntime`/`tagImage`). The two
+  fallbacks compose: each registry is tried with the rolling→immutable tag
+  fallback before moving to the other registry.
+- **Detailed, per-registry download-failure guidance.** The failure notification
+  now names every server that was tried, why each failed, and how to fix it —
+  host-aware (the internal BART proxy must be reached DIRECTLY, bypassing the
+  corporate web proxy; ghcr.io must be reached THROUGH it). New error categories
+  `cert` (daemon does not trust a MITM proxy CA) and `dns` (host does not resolve —
+  off the corp network/VPN) join `network`/`auth`/`notfound` (`describeFailure`,
+  `buildDownloadFailureGuidance`). The progress notification states which server
+  the ~290 MB download is coming from.
+
+### Fixed
+
+- The "Retry" action on the final download-failure notification did nothing (the
+  retry loop had already exhausted its counter); it now re-runs the full
+  primary→fallback download flow.
+
 ## [0.56.6] - 2026-07-07
 
 ### Fixed

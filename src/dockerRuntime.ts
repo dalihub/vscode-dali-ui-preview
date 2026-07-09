@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { getLogger } from './logger';
-import { GHCR_IMAGE } from './registry';
+import { GHCR_IMAGE, alternateImage } from './registry';
 
 const execFileAsync = promisify(execFile);
 
@@ -282,6 +282,36 @@ export class DockerRuntime {
     /** Returns full image reference for a tag (e.g. `<image>:<tag>`). */
     imageRef(tag: string): string {
         return `${this.imageName}:${tag}`;
+    }
+
+    /**
+     * A runtime for the OTHER registry serving the same repo path (BART⇄GHCR),
+     * or undefined when this image has no known counterpart (a custom image).
+     * Used by the pull flow to fall back to the alternate registry when the
+     * primary host's pull fails. See {@link alternateImage}.
+     */
+    alternateRuntime(): DockerRuntime | undefined {
+        const alt = alternateImage(this.imageName);
+        return alt ? new DockerRuntime(alt) : undefined;
+    }
+
+    /**
+     * Create a local tag alias (`docker tag <source> <target>`). After a
+     * cross-registry fallback pulls `<altHost>/…:tag`, alias it to the primary
+     * `<host>/…:tag` so the rest of the extension — which references the runtime
+     * by its primary image name (hasImage/run) — finds the image without a
+     * second download. Both refs point at the identical image id. Rejects with
+     * docker's stderr on failure.
+     */
+    async tagImage(sourceRef: string, targetRef: string): Promise<void> {
+        const log = getLogger();
+        try {
+            await execFileAsync('docker', ['tag', sourceRef, targetRef]);
+            log.debug('Docker', 'tagImage', { sourceRef, targetRef });
+        } catch (err: any) {
+            const detail = (err?.stderr || err?.message || String(err)).toString().trim();
+            throw new Error(`docker tag ${sourceRef} ${targetRef} failed: ${detail}`);
+        }
     }
 
     /**

@@ -1,12 +1,13 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as dockerAccessCheck from '../../src/dockerAccessCheck';
-import { ensureRuntimeImage, ensureRuntimeImageForTag, pullRuntimeImageCommand, formatPullMessage, analyzePullError } from '../../src/pullImageCommand';
+import { ensureRuntimeImage, ensureRuntimeImageForTag, pullRuntimeImageCommand, formatPullMessage, analyzePullError, describeFailure, buildDownloadFailureGuidance } from '../../src/pullImageCommand';
 
 const fakeOut = { appendLine: () => {}, append: () => {}, show: () => {}, dispose: () => {} } as any;
 
 function makeRuntime(over: Record<string, any> = {}) {
     return {
+        getImageName: () => 'ghcr.io/test/dali-preview-runtime',
         imageRef: (tag: string) => `ghcr.io/test/dali-preview-runtime:${tag}`,
         hasImage: sinon.stub().resolves(false),
         pullImage: sinon.stub().resolves(undefined),
@@ -259,5 +260,154 @@ describe('pickFallbackTag / isRollingTag (corp-proxy ":latest unavailable" fallb
     it('returns undefined when there is no usable concrete tag', () => {
         expect(pickFallbackTag(['latest'], 'latest')).to.equal(undefined);
         expect(pickFallbackTag([], 'latest')).to.equal(undefined);
+    });
+});
+
+const BART = 'ghcr-docker-remote.bart.sec.samsung.net';
+
+describe('analyzePullError — cert / dns categories', () => {
+    it('classifies a TLS-trust failure as a non-retryable cert error', () => {
+        for (const msg of [
+            'x509: certificate signed by unknown authority',
+            'tls: failed to verify certificate',
+            'certificate has expired',
+        ]) {
+            const a = analyzePullError(msg);
+            expect(a.category, msg).to.equal('cert');
+            expect(a.shouldRetry, msg).to.equal(false);
+        }
+    });
+
+    it('classifies a DNS-resolution failure as a non-retryable dns error', () => {
+        for (const msg of ['dial tcp: lookup ghcr.io: no such host', 'server misbehaving']) {
+            const a = analyzePullError(msg);
+            expect(a.category, msg).to.equal('dns');
+            expect(a.shouldRetry, msg).to.equal(false);
+        }
+    });
+
+    it('keeps the existing categories stable (auth beats network; notfound; unknown)', () => {
+        expect(analyzePullError('failed to authorize').category).to.equal('auth');
+        expect(analyzePullError('httpReadSeeker: failed open: failed to authorize').category).to.equal('auth');
+        expect(analyzePullError('i/o timeout').category).to.equal('network');
+        expect(analyzePullError('manifest unknown').category).to.equal('notfound');
+        expect(analyzePullError('totally novel').category).to.equal('unknown');
+    });
+});
+
+describe('describeFailure — host-aware WHY/FIX', () => {
+    it('tells a BART-host cert failure to bypass the corporate proxy for .samsung.net', () => {
+        const g = describeFailure('cert', BART);
+        expect(g.fix).to.match(/\.samsung\.net/);
+        expect(g.fix.toLowerCase()).to.match(/no_proxy|directly|proxy/);
+    });
+
+    it('tells a GHCR-host cert failure to install the proxy CA into the system store', () => {
+        expect(describeFailure('cert', 'ghcr.io').fix.toLowerCase()).to.match(/ca|trust store|update-ca-certificates/);
+    });
+
+    it('tells a BART-host dns failure it is off the corp network/VPN', () => {
+        expect(describeFailure('dns', BART).fix.toLowerCase()).to.match(/vpn|corporate network/);
+    });
+
+    it('advises picking another tag on notfound', () => {
+        expect(describeFailure('notfound', 'ghcr.io').fix.toLowerCase()).to.match(/version|select runtime/);
+    });
+});
+
+describe('buildDownloadFailureGuidance — names every server tried', () => {
+    it('lists each registry with a WHY and a FIX, and mentions the local runtime', () => {
+        const text = buildDownloadFailureGuidance([
+            { label: 'BART proxy (Samsung internal)', host: BART, error: 'x509: certificate signed by unknown authority' },
+            { label: 'GHCR (GitHub)', host: 'ghcr.io', error: 'dial tcp: i/o timeout' },
+        ]);
+        expect(text).to.match(/BART proxy \(Samsung internal\)/);
+        expect(text).to.match(/GHCR \(GitHub\)/);
+        expect(text).to.match(/Why:/);
+        expect(text).to.match(/Fix:/);
+        expect(text).to.match(/all failed/);
+        expect(text.toLowerCase()).to.match(/local.*runtime/);
+    });
+
+    it('uses the singular "Tried:" header for a single attempt', () => {
+        const text = buildDownloadFailureGuidance([
+            { label: 'GHCR (GitHub)', host: 'ghcr.io', error: 'manifest unknown' },
+        ]);
+        expect(text).to.match(/Tried:/);
+        expect(text).to.not.match(/registries/);
+    });
+});
+
+describe('pullWithFallback — cross-registry fallback (via ensureRuntimeImageForTag)', () => {
+    afterEach(() => sinon.restore());
+
+    // Immutable tag → isRollingTag is false → no listRemoteTags (network) in the path;
+    // only the cross-REGISTRY fallback is exercised.
+    const IMMUTABLE = 'dali_2.5.28-9d55242';
+
+    it('falls back to the alternate registry and aliases it to the primary name', async function () {
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const altPull = sinon.stub().resolves(undefined);
+        const alt = {
+            getImageName: () => 'ghcr.io/test/dali-preview-runtime',
+            imageRef: (t: string) => `ghcr.io/test/dali-preview-runtime:${t}`,
+            pullImage: altPull,
+        };
+        const tagImage = sinon.stub().resolves(undefined);
+        const primaryPull = sinon.stub().rejects(new Error('x509: certificate signed by unknown authority'));
+        const rt = makeRuntime({
+            getImageName: () => `${BART}/test/dali-preview-runtime`,
+            imageRef: (t: string) => `${BART}/test/dali-preview-runtime:${t}`,
+            hasImage: sinon.stub().resolves(false),
+            pullImage: primaryPull,
+            alternateRuntime: () => alt,
+            tagImage,
+        });
+
+        const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
+
+        expect(ok).to.equal(true);
+        expect(primaryPull.called).to.equal(true);
+        expect(altPull.calledOnce).to.equal(true);
+        expect(tagImage.calledOnce).to.equal(true);
+        expect(tagImage.firstCall.args).to.deep.equal([
+            `ghcr.io/test/dali-preview-runtime:${IMMUTABLE}`,
+            `${BART}/test/dali-preview-runtime:${IMMUTABLE}`,
+        ]);
+    });
+
+    it('returns false when BOTH registries fail (no alias attempted)', async function () {
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const alt = {
+            getImageName: () => 'ghcr.io/test/dali-preview-runtime',
+            imageRef: (t: string) => `ghcr.io/test/dali-preview-runtime:${t}`,
+            pullImage: sinon.stub().rejects(new Error('dial tcp: lookup ghcr.io: no such host')),
+        };
+        const tagImage = sinon.stub().resolves(undefined);
+        const rt = makeRuntime({
+            getImageName: () => `${BART}/test/dali-preview-runtime`,
+            imageRef: (t: string) => `${BART}/test/dali-preview-runtime:${t}`,
+            hasImage: sinon.stub().resolves(false),
+            pullImage: sinon.stub().rejects(new Error('x509: certificate signed by unknown authority')),
+            alternateRuntime: () => alt,
+            tagImage,
+        });
+
+        const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
+
+        expect(ok).to.equal(false);
+        expect(tagImage.called).to.equal(false);
+    });
+
+    it('does not attempt fallback when the runtime has no alternate registry', async function () {
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const rt = makeRuntime({
+            pullImage: sinon.stub().rejects(new Error('x509: certificate signed by unknown authority')),
+        });
+        const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
+        expect(ok).to.equal(false);
     });
 });
