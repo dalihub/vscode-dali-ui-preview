@@ -433,4 +433,57 @@ describe('pullWithFallback — cross-registry fallback (via ensureRuntimeImageFo
         const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
         expect(ok).to.equal(false);
     });
+
+    it('tries the BART mirror FIRST when configured is ghcr.io (no wasted ghcr.io attempt)', async function () {
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const ghcrPull = sinon.stub().resolves(undefined); // would work, but must NOT be reached first
+        const bartPull = sinon.stub().resolves(undefined); // BART succeeds
+        const bart = {
+            getImageName: () => `${BART}/test/dali-preview-runtime`,
+            imageRef: (t: string) => `${BART}/test/dali-preview-runtime:${t}`,
+            pullImage: bartPull,
+        };
+        const tagImage = sinon.stub().resolves(undefined);
+        const rt = makeRuntime({
+            getImageName: () => 'ghcr.io/test/dali-preview-runtime',
+            imageRef: (t: string) => `ghcr.io/test/dali-preview-runtime:${t}`,
+            hasImage: sinon.stub().resolves(false),
+            pullImage: ghcrPull,
+            alternateRuntime: () => bart,
+            tagImage,
+        });
+        const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
+        expect(ok).to.equal(true);
+        expect(bartPull.calledOnce).to.equal(true);   // BART tried first and won
+        expect(ghcrPull.called).to.equal(false);      // ghcr.io never reached
+        expect(tagImage.firstCall.args).to.deep.equal([
+            `${BART}/test/dali-preview-runtime:${IMMUTABLE}`,
+            `ghcr.io/test/dali-preview-runtime:${IMMUTABLE}`,
+        ]);
+    });
+
+    it('does ONE attempt per host then immediately falls back (no 3x same-host retry)', async function () {
+        this.timeout(8000);
+        sinon.stub(dockerAccessCheck, 'checkDockerAccess').resolves({ state: 'ok' } as any);
+        const bartPull = sinon.stub().rejects(new Error('read: connection reset by peer')); // transient
+        const ghcrPull = sinon.stub().resolves(undefined);
+        const ghcr = {
+            getImageName: () => 'ghcr.io/test/dali-preview-runtime',
+            imageRef: (t: string) => `ghcr.io/test/dali-preview-runtime:${t}`,
+            pullImage: ghcrPull,
+        };
+        const rt = makeRuntime({
+            getImageName: () => `${BART}/test/dali-preview-runtime`,
+            imageRef: (t: string) => `${BART}/test/dali-preview-runtime:${t}`,
+            hasImage: sinon.stub().resolves(false),
+            pullImage: bartPull,
+            alternateRuntime: () => ghcr,
+            tagImage: sinon.stub().resolves(undefined),
+        });
+        const ok = await ensureRuntimeImageForTag(rt, IMMUTABLE, fakeOut);
+        expect(ok).to.equal(true);
+        expect(bartPull.calledOnce).to.equal(true);   // ONE BART attempt (not 3)
+        expect(ghcrPull.calledOnce).to.equal(true);   // immediate fallback to ghcr.io
+    });
 });

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-07-10
+
+### Changed
+- **Runtime download now tries the internal BART mirror FIRST, and rotates registries fast.**
+  Diagnosed from a colleague whose first preview took ~5 min: the registry *selection* is a
+  2s reachability probe run inside VS Code (not the Docker daemon) and cached 24h, so a
+  stale/misprobed result made it pick ghcr.io — which the proxy-less daemon then hit **6 times**
+  (3× same-host retry × the tag fallback) before falling back to the (reliable, internal) BART
+  mirror. Now:
+  - **BART-first:** the pull tries the internal BART mirror before ghcr.io regardless of what the
+    probe cached (external users with no BART just fail it fast).
+  - **One attempt per host, then immediate cross-registry fallback** — the old 3× same-host retry
+    is gone; the whole BART→GHCR cycle repeats up to 3 rounds for *transient* failures, and a round
+    of only hard errors (cert/dns) stops early.
+  - **Self-correcting detection:** the registry a pull actually succeeded from is persisted, so the
+    next session resolves straight to it (no repeat of the doomed ghcr.io attempts).
+
 ## [0.59.0] - 2026-07-10
 
 ### Added

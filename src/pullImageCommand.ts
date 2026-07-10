@@ -268,13 +268,13 @@ async function attemptPull(
     runtime: DockerRuntime,
     tag: string,
     outputChannel: vscode.OutputChannel,
+    maxRetries = 3,
 ): Promise<{ success: boolean; error: string }> {
     const ref = runtime.imageRef(tag);
     // describeRegistry only reads the host (first path segment), so the tagged ref works.
     const src = describeRegistry(ref);
     outputChannel.appendLine(`[Runtime] Pulling ${ref} from ${src.label} — ${src.host}`);
 
-    const maxRetries = 3;
     let attempt = 0;
     let lastError = '';
 
@@ -335,54 +335,27 @@ async function attemptPull(
 }
 
 /**
- * Pull `tag` from ONE registry, and if it is a ROLLING tag the registry/proxy
- * can't serve, fall back to the newest CONCRETE tag from that registry's tag list
- * (see {@link pickFallbackTag}). Returns which tag actually landed (`pulledTag`)
- * so the caller can pin it. No dialog, no config write — the caller owns those.
- */
-async function pullHostWithTagFallback(
-    runtime: DockerRuntime,
-    tag: string,
-    outputChannel: vscode.OutputChannel,
-): Promise<{ success: boolean; error: string; pulledTag: string }> {
-    const first = await attemptPull(runtime, tag, outputChannel);
-    if (first.success) {
-        return { success: true, error: '', pulledTag: tag };
-    }
-    // Same-registry TAG fallback: a mutable tag (latest / moving dali_X.Y.Z) may be
-    // unservable from a caching proxy even when an immutable dali_X.Y.Z-<sha> is.
-    if (isRollingTag(tag)) {
-        let fallback: string | undefined;
-        try {
-            fallback = pickFallbackTag(await listRemoteTags(runtime.getImageName()), tag);
-        } catch (e) {
-            outputChannel.appendLine(`[Runtime] Could not list tags for fallback: ${String(e).slice(0, 120)}`);
-        }
-        if (fallback) {
-            outputChannel.appendLine(
-                `[Runtime] '${tag}' unavailable on ${describeRegistry(runtime.getImageName()).host} — trying the pinned version '${fallback}'…`,
-            );
-            const fb = await attemptPull(runtime, fallback, outputChannel);
-            if (fb.success) {
-                return { success: true, error: '', pulledTag: fallback };
-            }
-        }
-    }
-    return { success: false, error: first.error, pulledTag: tag };
-}
-
-/**
- * Pull `tag`, composing TWO fallbacks:
- *   1. same-registry TAG fallback (rolling → newest immutable — {@link pullHostWithTagFallback});
- *   2. cross-REGISTRY fallback (auto-detected host fails entirely → its BART⇄GHCR counterpart).
- * On a cross-registry success the fallback image is `docker tag`ed to the primary
- * name so the rest of the extension finds it with no second download. If a TAG
- * fallback landed a different tag, it is pinned (`daliVersionTag`). On total
- * failure, shows ONE consolidated notification naming every server tried, why each
- * failed, and how to fix it (Retry re-runs the whole flow). Never throws.
+ * Pull `tag`, preferring the internal BART mirror and rotating registries fast.
  *
- * Shared by `pullRuntimeImageCommand` (explicit command) and `ensureRuntimeImage*`.
+ * Strategy (redesigned per the corp-network reality — see the runtime-download diagnosis):
+ *   • **BART first.** The internal BART GHCR mirror is the reliable path (no proxy needed);
+ *     ghcr.io needs the daemon to have a corporate proxy it often lacks. So we try the BART
+ *     variant of this repo BEFORE ghcr.io, regardless of what the (VS-Code-side, possibly
+ *     stale/misprobed) auto-detection cached. External users with no BART just fail it fast.
+ *   • **One attempt per host, then immediately fall back** to the other registry — no slow
+ *     3× same-host retry. The whole primary→fallback cycle repeats up to `MAX_ROUNDS` for
+ *     transient failures (a round with only hard/config errors stops early).
+ *   • **Self-correcting detection.** On success we record the working host
+ *     ({@link ConfigurationService.noteWorkingImage}) so the NEXT session resolves straight
+ *     to it — no repeat of the doomed ghcr.io attempts.
+ *   • A cross-registry win is `docker tag`ed to the configured name (so hasImage/run find it).
+ *   • Rolling tag the proxy can't serve → newest immutable, tried ONCE per host as a last
+ *     resort after the rounds (kept out of the per-round loop so host fallback stays fast).
+ *
+ * Shared by `pullRuntimeImageCommand` (explicit command) and `ensureRuntimeImage*`. Never throws.
  */
+const MAX_PULL_ROUNDS = 3;
+
 async function pullWithFallback(
     runtime: DockerRuntime,
     tag: string,
@@ -390,59 +363,96 @@ async function pullWithFallback(
 ): Promise<boolean> {
     const attempts: { label: string; host: string; error: string }[] = [];
 
-    const finish = async (pulledTag: string, label: string, viaFallbackRegistry: boolean): Promise<void> => {
+    // BART-first host order. `runtime` is the configured (auto-detected) image; `alt` is the
+    // BART⇄GHCR counterpart. Put whichever is the BART host first.
+    const alt = runtime.alternateRuntime?.();
+    let hosts: DockerRuntime[];
+    if (!alt) {
+        hosts = [runtime]; // custom/pinned image with no known counterpart
+    } else if (describeRegistry(runtime.getImageName()).host === BART_PROXY_HOST) {
+        hosts = [runtime, alt];
+    } else {
+        hosts = [alt, runtime]; // configured is ghcr.io → try the BART mirror (alt) first
+    }
+
+    // Success handler: alias to the configured name if we won on a different host, persist the
+    // working host so future sessions try it first, pin a fallback tag, and notify the user.
+    const succeed = async (rt: DockerRuntime, pulledTag: string): Promise<boolean> => {
+        const desc = describeRegistry(rt.getImageName());
+        if (rt.getImageName() !== runtime.getImageName()) {
+            try {
+                await runtime.tagImage(rt.imageRef(pulledTag), runtime.imageRef(pulledTag));
+                outputChannel.appendLine(`[Runtime] Aliased ${rt.imageRef(pulledTag)} → ${runtime.imageRef(pulledTag)}.`);
+            } catch (err: any) {
+                outputChannel.appendLine(`[Runtime] Alias failed (non-fatal): ${String(err?.message ?? err)}`);
+            }
+        }
+        await ConfigurationService.noteWorkingImage(rt.getImageName());
         if (pulledTag !== tag) {
-            // A tag fallback landed a different (pinned) version — persist + explain.
             await ConfigurationService.getInstance().update('daliVersionTag', pulledTag, vscode.ConfigurationTarget.Global);
             void vscode.window.showInformationMessage(
-                `'${tag}' couldn't be downloaded from your registry/proxy, so DALi Preview pinned the available version '${pulledTag}'. ` +
-                'Change it any time via "Select Runtime Version".',
+                `'${tag}' couldn't be served, so DALi Preview pinned the available version '${pulledTag}'. Change it any time via "Select Runtime Version".`,
             );
         } else {
             void vscode.window.showInformationMessage(
-                `DALi runtime image downloaded from ${label}${viaFallbackRegistry ? ' (fallback registry)' : ''}. You can now open a sample preview.`,
+                `DALi runtime image downloaded from ${desc.label}. You can now open a sample preview.`,
             );
         }
+        return true;
     };
 
-    // 1. Primary (auto-detected) registry — with same-registry tag fallback.
-    const primaryDesc = describeRegistry(runtime.getImageName());
-    const primary = await pullHostWithTagFallback(runtime, tag, outputChannel);
-    if (primary.success) {
-        await finish(primary.pulledTag, primaryDesc.label, false);
-        return true;
-    }
-    attempts.push({ label: primaryDesc.label, host: primaryDesc.host, error: primary.error });
-
-    // 2. Cross-registry fallback (only if this image has a known counterpart).
-    const alt = runtime.alternateRuntime?.();
-    if (alt) {
-        const altDesc = describeRegistry(alt.getImageName());
-        outputChannel.appendLine(
-            `[Runtime] ${primaryDesc.label} failed — falling back to ${altDesc.label} (${altDesc.host}).`,
-        );
-        void vscode.window.showWarningMessage(
-            `Download from ${primaryDesc.label} failed — trying ${altDesc.label} instead…`,
-        );
-        const fb = await pullHostWithTagFallback(alt, tag, outputChannel);
-        if (fb.success) {
-            try {
-                // Alias the fallback-registry image to the primary name so hasImage/run find it.
-                await runtime.tagImage(alt.imageRef(fb.pulledTag), runtime.imageRef(fb.pulledTag));
-                outputChannel.appendLine(`[Runtime] Aliased ${alt.imageRef(fb.pulledTag)} → ${runtime.imageRef(fb.pulledTag)}.`);
-                await finish(fb.pulledTag, altDesc.label, true);
-                return true;
-            } catch (err: any) {
-                const msg = String(err?.message ?? err);
-                outputChannel.appendLine(`[Runtime] ${msg}`);
-                attempts.push({ label: altDesc.label, host: altDesc.host, error: msg });
+    // Rounds: one attempt per host with the requested tag, BART first, immediate host fallback.
+    for (let round = 1; round <= MAX_PULL_ROUNDS; round++) {
+        let anyRetryableThisRound = false;
+        for (const rt of hosts) {
+            const desc = describeRegistry(rt.getImageName());
+            outputChannel.appendLine(`[Runtime] Round ${round}/${MAX_PULL_ROUNDS}: ${rt.imageRef(tag)} — ${desc.label}`);
+            const res = await attemptPull(rt, tag, outputChannel, 1); // ONE attempt, no same-host retry
+            if (res.success) {
+                return succeed(rt, tag);
             }
-        } else {
-            attempts.push({ label: altDesc.label, host: altDesc.host, error: fb.error });
+            attempts.push({ label: desc.label, host: desc.host, error: res.error });
+            if (analyzePullError(res.error).shouldRetry) {
+                anyRetryableThisRound = true;
+            }
+        }
+        // Stop early if this round hit only hard/config errors (cert/dns/notfound) — repeating
+        // them can't help; the last-resort tag fallback + guidance below still run.
+        if (!anyRetryableThisRound) {
+            break;
+        }
+        if (round < MAX_PULL_ROUNDS) {
+            const delaySecs = round; // 1s, 2s between full rounds
+            outputChannel.appendLine(`[Runtime] All registries failed round ${round} — retrying in ${delaySecs}s…`);
+            await new Promise((r) => setTimeout(r, delaySecs * 1000));
         }
     }
 
-    // 3. Everything failed → consolidated, actionable guidance.
+    // Last resort: a ROLLING tag a caching proxy can't serve → newest IMMUTABLE build, once per host.
+    if (isRollingTag(tag)) {
+        let immTag: string | undefined;
+        for (const rt of hosts) {
+            try {
+                immTag = pickFallbackTag(await listRemoteTags(rt.getImageName()), tag);
+            } catch (e) {
+                outputChannel.appendLine(`[Runtime] Could not list tags for fallback: ${String(e).slice(0, 120)}`);
+            }
+            if (immTag) { break; }
+        }
+        if (immTag) {
+            outputChannel.appendLine(`[Runtime] '${tag}' unavailable on all registries — trying the pinned version '${immTag}'…`);
+            for (const rt of hosts) {
+                const desc = describeRegistry(rt.getImageName());
+                const res = await attemptPull(rt, immTag, outputChannel, 1);
+                if (res.success) {
+                    return succeed(rt, immTag);
+                }
+                attempts.push({ label: desc.label, host: desc.host, error: res.error });
+            }
+        }
+    }
+
+    // Everything failed → consolidated, actionable guidance.
     const guidance = buildDownloadFailureGuidance(attempts);
     outputChannel.appendLine(`[Runtime] Download failed.\n${guidance}`);
     const anyRetryable = attempts.some((a) => analyzePullError(a.error).shouldRetry);
