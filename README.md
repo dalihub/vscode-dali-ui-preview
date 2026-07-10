@@ -12,6 +12,11 @@ You write DALi UI code in a `.preview.dali.cpp` file (or mark a region in any `.
 The extension renders one frame against a real DALi runtime and shows it in a side
 panel. After the first render, text edits update in **~100 ms**.
 
+> **Where this fits:** this is the *human* half of DALi's preview — a fast eyeball loop, not a
+> replacement for on-device validation. The sibling `dali-ui-preview-cli` is the *agent* half (PNG +
+> structured scene tree + verify loop). Both are a first-pass filter; the real device/emulator remains
+> the final check. Full rationale: [`docs/value-and-positioning.md`](docs/value-and-positioning.md).
+
 ---
 
 ## Contents
