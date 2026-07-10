@@ -17,6 +17,9 @@ export class ConfigurationService {
     private static _instance: ConfigurationService | undefined;
     /** Auto-detected runtime image (BART proxy on the corp network, else GHCR). */
     private static _autoImage: string | undefined;
+    /** Extension context (for persisting the auto-image cache across reloads). Set by
+     *  {@link ensureAutoImage} at activation; used by {@link noteWorkingImage}. */
+    private static _context: vscode.ExtensionContext | undefined;
     /** Bridges the read-after-write lag on `daliVersionTag` (see the getter). */
     private static _versionTagOverride: string | undefined;
 
@@ -83,6 +86,7 @@ export class ConfigurationService {
      * early in activate(), before constructing DockerRuntime.
      */
     static async ensureAutoImage(context: vscode.ExtensionContext): Promise<void> {
+        ConfigurationService._context = context;
         const svc = ConfigurationService.getInstance();
         if (svc.explicitDockerImage()) {
             return; // user chose a registry — nothing to detect
@@ -95,6 +99,35 @@ export class ConfigurationService {
         const image = await detectDefaultImage();
         ConfigurationService._autoImage = image;
         await context.globalState.update(AUTO_IMAGE_KEY, { image, ts: Date.now() });
+    }
+
+    /**
+     * Record the registry image a pull ACTUALLY succeeded from, so future activations
+     * resolve straight to it. This self-corrects a stale/misprobed auto-detection — e.g.
+     * the reachability probe (run inside VS Code, possibly via the web proxy or a 2s
+     * timeout) wrongly concluded the internal BART mirror was unreachable and cached GHCR,
+     * yet the Docker daemon then pulled from BART fine via the cross-registry fallback.
+     * Persisting the working host means the next session tries it FIRST (no repeat of the
+     * doomed GHCR attempts). No-op when the user pinned `daliPreview.dockerImage`, or when
+     * the cache already matches. Best-effort + never throws.
+     */
+    static async noteWorkingImage(image: string): Promise<void> {
+        try {
+            const svc = ConfigurationService.getInstance();
+            if (svc.explicitDockerImage()) {
+                return; // user chose a registry — don't override their choice
+            }
+            if (ConfigurationService._autoImage === image) {
+                return; // already the detected image
+            }
+            ConfigurationService._autoImage = image;
+            await ConfigurationService._context?.globalState.update(AUTO_IMAGE_KEY, {
+                image,
+                ts: Date.now(),
+            });
+        } catch {
+            /* best-effort: a persistence failure must never break a successful pull */
+        }
     }
 
     /**
