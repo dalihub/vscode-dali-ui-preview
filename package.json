@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.60.0",
+  "version": "0.61.0",
   "publisher": "dalihub",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
@@ -294,10 +294,16 @@
           "type": "string",
           "enum": [
             "off",
-            "notify"
+            "notify",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Never check for a newer extension release.",
+            "Notify when a newer release is available; 'Update now' downloads + installs the .vsix in-editor (one click), then offers a reload.",
+            "Automatically download + install a newer release in-editor on the daily check, then offer a reload."
           ],
           "default": "notify",
-          "description": "How to handle a newer *extension* release on GitHub. Because DALi Preview is installed from a .vsix (not the Marketplace), VS Code never auto-updates it — this check fills that gap (once per day, via github.com so no API rate-limit). 'off': never check. 'notify' (default): show a notification when a newer release is available; clicking 'Update now' re-runs the installer in a terminal. (No 'auto' — a running extension can't hot-swap itself.)"
+          "description": "How to handle a newer *extension* release on GitHub. Because DALi Preview is installed from a .vsix (not the Marketplace), VS Code never auto-updates it — this check fills that gap (once per day, via github.com so no API rate-limit). 'off': never check. 'notify' (default): notify when a newer release exists; 'Update now' downloads the release .vsix and installs it in-editor (falling back to the terminal installer if needed), then offers a window reload. 'auto': do that download+install automatically on the daily check, then offer the reload (the running extension is replaced on reload — never forced)."
         },
         "daliPreview.previewWidth": {
           "type": "number",

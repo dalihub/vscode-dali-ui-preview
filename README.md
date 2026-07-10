@@ -140,17 +140,26 @@ code --install-extension dali-preview-*.vsix
 
 Because DALi Preview is installed from a `.vsix` (not the VS Code Marketplace), VS Code
 does **not** auto-update it. Instead the extension checks GitHub for a newer release **once
-a day** and shows a notification when one is available — click **Update now** and it re-runs
-the installer in a terminal (you press Enter; nothing installs silently).
+a day**; when one is available it shows a notification with **Update now**, which
+**downloads the new `.vsix` and installs it right inside VS Code** — one click, no terminal —
+then offers a window reload to finish. (If the in-editor install can't run in your setup, it
+falls back to running the installer in a terminal, where you press Enter.)
 
+Control it with **`daliPreview.extensionUpdatePolicy`**:
+
+- **`auto`** — fully automatic: the daily check downloads + installs a newer release itself,
+  then just offers you the reload.
+- **`notify`** *(default)* — notify with the one-click **Update now** described above.
+- **`off`** — never check.
+
+Also:
 - **Check right now:** Command Palette → **DALi Preview: Check for Extension Updates**.
-- **Update manually any time** (same command the button runs):
+- **Update manually any time:**
   ```bash
   curl -fsSL https://raw.githubusercontent.com/dalihub/vscode-dali-ui-preview/main/install.sh | bash
   ```
   It always installs the latest release (`--force`-overwrites the current one). Reload VS
   Code afterwards.
-- **Turn the notification off:** set `daliPreview.extensionUpdatePolicy` to `off`.
 
 The check goes through `github.com` (not the rate-limited GitHub API), so it needs no token
 and works behind a shared corporate proxy or VPN.
