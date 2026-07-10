@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import * as https from 'https';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { ConfigurationService } from './configurationService';
 import { getLogger } from './logger';
 
@@ -34,6 +37,80 @@ const RELEASES_LATEST_URL = `https://github.com/${RELEASE_REPO}/releases/latest`
  */
 export function buildUpdateCommand(): string {
     return `curl -fsSL https://raw.githubusercontent.com/${RELEASE_REPO}/main/install.sh | bash`;
+}
+
+/**
+ * The `.vsix` asset URL for a release. The release CI publishes exactly one asset named
+ * `dali-preview-v<version>.vsix` (see `.github/workflows/release.yml`), so the URL is
+ * derivable from the version with no GitHub API call (which is rate-limited behind the
+ * shared corp proxy — same reasoning as {@link fetchLatestVersion}). Pure/exported for testing.
+ */
+export function vsixDownloadUrl(version: string): string {
+    const v = version.replace(/^v/i, '');
+    return `https://github.com/${RELEASE_REPO}/releases/download/v${v}/dali-preview-v${v}.vsix`;
+}
+
+/** Download `url` to `dest`, following redirects (GitHub release assets 302 → a CDN URL).
+ *  Resolves true on a 200 fully written, false on any error/timeout/non-200. Never throws. */
+function downloadTo(url: string, dest: string, timeoutMs = 120000, redirects = 5): Promise<boolean> {
+    return new Promise((resolve) => {
+        const req = https.get(url, { headers: { 'User-Agent': 'dali-ui-preview-vscode' } }, (res) => {
+            const code = res.statusCode ?? 0;
+            if (code >= 300 && code < 400 && res.headers.location) {
+                res.resume();
+                if (redirects <= 0) { resolve(false); return; }
+                resolve(downloadTo(res.headers.location, dest, timeoutMs, redirects - 1));
+                return;
+            }
+            if (code !== 200) { res.resume(); resolve(false); return; }
+            const file = fs.createWriteStream(dest);
+            res.pipe(file);
+            file.on('finish', () => file.close(() => resolve(true)));
+            file.on('error', () => resolve(false));
+        });
+        req.setTimeout(timeoutMs, () => { req.destroy(); resolve(false); });
+        req.on('error', () => resolve(false));
+    });
+}
+
+/**
+ * Download the release `.vsix` and install it IN-EDITOR via the built-in
+ * `workbench.extensions.installExtension` (which accepts a local `.vsix` Uri) — no
+ * terminal, no Marketplace. Returns true when installed (a window reload then activates
+ * the new version — see {@link offerReload}). Fully fail-safe: any failure returns false
+ * so the caller can fall back to the terminal installer.
+ */
+async function installVsix(version: string, outputChannel: vscode.OutputChannel): Promise<boolean> {
+    const asset = `dali-preview-v${version.replace(/^v/i, '')}.vsix`;
+    const dest = path.join(os.tmpdir(), asset);
+    outputChannel.appendLine(`[Update] Downloading ${asset} …`);
+    if (!(await downloadTo(vsixDownloadUrl(version), dest))) {
+        outputChannel.appendLine(`[Update] Download failed: ${vsixDownloadUrl(version)}`);
+        return false;
+    }
+    try {
+        outputChannel.appendLine(`[Update] Installing ${asset} in-editor …`);
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', vscode.Uri.file(dest));
+        outputChannel.appendLine('[Update] Installed — a window reload finishes the update.');
+        return true;
+    } catch (err) {
+        outputChannel.appendLine(`[Update] In-editor install failed (${String(err)}) — will offer the terminal installer.`);
+        return false;
+    } finally {
+        void fs.promises.unlink(dest).catch(() => { /* temp cleanup best-effort */ });
+    }
+}
+
+/** After a successful in-editor install, offer the reload that activates the new version. */
+async function offerReload(version: string): Promise<void> {
+    const choice = await vscode.window.showInformationMessage(
+        `DALi Preview updated to ${version}. Reload the window to finish.`,
+        'Reload Window',
+        'Later',
+    );
+    if (choice === 'Reload Window') {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }
 }
 
 /**
@@ -126,13 +203,22 @@ export interface ExtUpdateDeps {
     currentVersion: string;
     /** Version resolver; defaults to the real github.com probe. */
     fetchLatest?: () => Promise<string | null>;
+    /** In-editor .vsix installer; defaults to the real {@link installVsix}. Injectable so
+     *  the orchestration is unit-tested without network or `installExtension`. Returns true
+     *  when installed (caller then offers a reload), false to fall back to the terminal. */
+    installUpdate?: (version: string, outputChannel: vscode.OutputChannel) => Promise<boolean>;
 }
 
 /**
  * Show the "update available" prompt and act on the choice. Shared by the manual
  * command and the activation auto-check.
  */
-async function promptUpdate(latest: string, current: string): Promise<void> {
+async function promptUpdate(
+    latest: string,
+    current: string,
+    outputChannel: vscode.OutputChannel,
+    install: (version: string, out: vscode.OutputChannel) => Promise<boolean> = installVsix,
+): Promise<void> {
     const choice = await vscode.window.showInformationMessage(
         `DALi Preview ${latest} is available (you have ${current}).`,
         'Update now',
@@ -140,13 +226,19 @@ async function promptUpdate(latest: string, current: string): Promise<void> {
         'Later',
     );
     if (choice === 'Update now') {
+        // Preferred: download the release .vsix and install it IN-EDITOR (one click, no terminal).
+        if (await install(latest, outputChannel)) {
+            await offerReload(latest);
+            return;
+        }
+        // Fallback (e.g. installExtension unavailable / download blocked): the terminal
+        // installer. addNewLine=false leaves the command on the prompt so the user reviews
+        // it and presses Enter.
         const terminal = vscode.window.createTerminal({
             name: 'DALi Preview · Update',
             message: 'Press Enter to re-run the installer and update to the latest release.',
         });
         terminal.show(false);
-        // addNewLine=false: leave the command on the prompt so the user reviews
-        // it and presses Enter — we never install silently.
         terminal.sendText(buildUpdateCommand(), false);
     } else if (choice === 'View release') {
         await vscode.env.openExternal(vscode.Uri.parse(RELEASES_LATEST_URL));
@@ -182,7 +274,7 @@ export async function checkExtensionUpdateCommand(
         return;
     }
 
-    await promptUpdate(latest, currentVersion);
+    await promptUpdate(latest, currentVersion, outputChannel, deps.installUpdate);
 }
 
 /**
@@ -190,10 +282,12 @@ export async function checkExtensionUpdateCommand(
  * once-a-day globalState throttle. Fully silent on no-update / offline / error.
  *
  *   policy 'off'    → never checks
- *   policy 'notify' → notification when a newer release is available
+ *   policy 'notify' → notification with a one-click in-editor install (default)
+ *   policy 'auto'   → download + install the new .vsix in-editor, then offer a reload
  *
- * There is deliberately no 'auto' policy: a running extension cannot be swapped
- * out from under itself, and approach C requires the user to run a terminal step.
+ * 'auto' is possible because we install via `workbench.extensions.installExtension`
+ * (a local .vsix Uri); the running extension is replaced on the next window reload,
+ * which we OFFER rather than force (so we never yank the window out from under work).
  */
 export async function maybeAutoCheckExtensionUpdate(
     context: vscode.ExtensionContext,
@@ -222,7 +316,16 @@ export async function maybeAutoCheckExtensionUpdate(
         }
 
         outputChannel.appendLine(`[Update] Newer extension release ${latest} available (current ${deps.currentVersion}).`);
-        await promptUpdate(latest, deps.currentVersion);
+        const install = deps.installUpdate ?? installVsix;
+        if (policy === 'auto') {
+            outputChannel.appendLine(`[Update] extensionUpdatePolicy=auto — installing ${latest} in-editor …`);
+            if (await install(latest, outputChannel)) {
+                await offerReload(latest);
+                return;
+            }
+            // Auto-install couldn't complete (download blocked / API unavailable) → fall back to notify.
+        }
+        await promptUpdate(latest, deps.currentVersion, outputChannel, deps.installUpdate);
     } catch (err) {
         getLogger().trace('Extension', 'auto extension-update check failed (ignored)', { error: String(err) });
     }

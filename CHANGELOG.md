@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-07-10
+
+### Added
+- **One-click / automatic extension updates.** Since DALi Preview ships as a `.vsix` (not the
+  Marketplace), VS Code never auto-updates it. The daily update check now:
+  - **`Update now`** downloads the new release `.vsix` and installs it **in-editor** via
+    `workbench.extensions.installExtension` (one click, no terminal), then offers a window reload
+    — falling back to the terminal installer only if the in-editor install can't run.
+  - **`daliPreview.extensionUpdatePolicy: "auto"`** (new value) does that download+install
+    automatically on the daily check, then offers the reload. `notify` (default) and `off` unchanged.
+
 ## [0.60.0] - 2026-07-10
 
 ### Changed

@@ -175,11 +175,14 @@ export class ConfigurationService {
 
     /**
      * How to handle a newer *extension* release on GitHub (checked once per day).
-     * No 'auto': a running extension can't hot-swap itself and the installer runs
-     * in a terminal the user confirms. See extensionUpdateChecker.ts.
+     *   'off'    → never check
+     *   'notify' → notify with a one-click in-editor install (default)
+     *   'auto'   → download + install the new .vsix in-editor, then offer a reload
+     * See extensionUpdateChecker.ts.
      */
-    get extensionUpdatePolicy(): 'off' | 'notify' {
-        return this.getConfig().get<string>('extensionUpdatePolicy', 'notify') === 'off' ? 'off' : 'notify';
+    get extensionUpdatePolicy(): 'off' | 'notify' | 'auto' {
+        const v = this.getConfig().get<string>('extensionUpdatePolicy', 'notify');
+        return v === 'off' || v === 'auto' ? v : 'notify';
     }
 
     get previewWidth(): number {

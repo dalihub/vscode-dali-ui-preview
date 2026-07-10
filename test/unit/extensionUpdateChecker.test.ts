@@ -5,6 +5,7 @@ import {
     buildUpdateCommand,
     parseTagFromLocation,
     isNewerVersion,
+    vsixDownloadUrl,
     checkExtensionUpdateCommand,
     maybeAutoCheckExtensionUpdate,
     LAST_EXT_UPDATE_CHECK_KEY,
@@ -32,6 +33,19 @@ describe('extensionUpdateChecker', () => {
             expect(cmd).to.include('dalihub/vscode-dali-ui-preview');
             expect(cmd).to.include('install.sh');
             expect(cmd).to.match(/\|\s*bash\s*$/);
+        });
+    });
+
+    describe('vsixDownloadUrl()', () => {
+        it('derives the release .vsix asset URL from a version (no GitHub API needed)', () => {
+            expect(vsixDownloadUrl('0.61.0')).to.equal(
+                'https://github.com/dalihub/vscode-dali-ui-preview/releases/download/v0.61.0/dali-preview-v0.61.0.vsix',
+            );
+        });
+        it("tolerates a leading 'v' on the input", () => {
+            expect(vsixDownloadUrl('v0.61.0')).to.equal(
+                'https://github.com/dalihub/vscode-dali-ui-preview/releases/download/v0.61.0/dali-preview-v0.61.0.vsix',
+            );
         });
     });
 
@@ -98,7 +112,24 @@ describe('extensionUpdateChecker', () => {
             expect(String(info.firstCall.args[0])).to.match(/up to date/i);
         });
 
-        it('offers the update and runs the installer in a terminal on "Update now"', async () => {
+        it('installs in-editor (no terminal) and offers a reload on "Update now" when the install succeeds', async () => {
+            const showInfo = sinon.stub(vscode.window, 'showInformationMessage');
+            showInfo.onFirstCall().resolves('Update now' as any); // the update prompt
+            showInfo.onSecondCall().resolves('Later' as any);      // the reload offer (declined)
+            const createTerminal = sinon.spy(vscode.window, 'createTerminal');
+            const installUpdate = sinon.stub().resolves(true);
+
+            await checkExtensionUpdateCommand({
+                currentVersion: '0.51.1',
+                fetchLatest: async () => '0.52.0',
+                installUpdate,
+            }, fakeOut);
+
+            expect(installUpdate.calledOnce).to.equal(true);
+            expect(createTerminal.called).to.equal(false); // in-editor install → no terminal
+        });
+
+        it('falls back to the terminal installer on "Update now" when the in-editor install fails', async () => {
             sinon.stub(vscode.window, 'showInformationMessage').resolves('Update now' as any);
             const sendText = sinon.stub();
             const term = { show: sinon.stub(), sendText, dispose: sinon.stub() };
@@ -107,10 +138,10 @@ describe('extensionUpdateChecker', () => {
             await checkExtensionUpdateCommand({
                 currentVersion: '0.51.1',
                 fetchLatest: async () => '0.52.0',
+                installUpdate: async () => false, // in-editor install unavailable → terminal fallback
             }, fakeOut);
 
             expect(createTerminal.calledOnce).to.equal(true);
-            expect(sendText.calledOnce).to.equal(true);
             expect(sendText.firstCall.args[0]).to.equal(buildUpdateCommand());
         });
 
@@ -179,6 +210,22 @@ describe('extensionUpdateChecker', () => {
             const fetchLatest = sinon.stub().rejects(new Error('network down'));
             // Should resolve without throwing.
             await maybeAutoCheckExtensionUpdate(makeContext(0), { currentVersion: '0.51.1', fetchLatest }, fakeOut);
+        });
+
+        it("policy 'auto' installs in-editor and offers a reload (no update prompt)", async () => {
+            sinon.stub(ConfigurationService.prototype, 'extensionUpdatePolicy').get(() => 'auto');
+            const showInfo = sinon.stub(vscode.window, 'showInformationMessage').resolves('Later' as any); // reload offer
+            const installUpdate = sinon.stub().resolves(true);
+            const fetchLatest = sinon.stub().resolves('0.52.0');
+
+            await maybeAutoCheckExtensionUpdate(
+                makeContext(0),
+                { currentVersion: '0.51.1', fetchLatest, installUpdate },
+                fakeOut,
+            );
+
+            expect(installUpdate.calledOnce).to.equal(true);      // auto-installed
+            expect(showInfo.calledOnce).to.equal(true);           // only the reload offer, no "Update now" prompt
         });
     });
 });
