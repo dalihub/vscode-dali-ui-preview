@@ -24,6 +24,9 @@ const PALETTE_VISIBLE = [
     // Disk hygiene: users must be able to reclaim accumulated ~1.2 GB runtime images
     // (the README points here). Kept visible on purpose — see dockerMaintenance.
     'dali.cleanRuntimeImages',
+    // Runtime download/install/connectivity status — a user-facing diagnostic they must
+    // be able to invoke directly (esp. when a pull fails). Kept visible on purpose.
+    'dali.runtimeStatus',
 ];
 
 // Hidden from the palette: CodeLens-only (previewFunction needs args), the

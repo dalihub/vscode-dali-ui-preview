@@ -15,6 +15,7 @@ import { cleanRuntimeImagesCommand, resetExtensionCommand } from './dockerMainte
 import { installDockerCommand } from './installDocker';
 import { installXvfbCommand, promptInstallXvfb } from './installXvfb';
 import { pullRuntimeImageCommand, ensureRuntimeImage, ensureRuntimeImageForTag } from './pullImageCommand';
+import { runtimeStatusCommand } from './runtimeStatus';
 import { openExamplesCommand, showReadmeCommand, maybeShowExamplesReadme } from './sampleCommand';
 import { openWalkthrough } from './walkthroughController';
 import { maybeRunFirstRunDockerSetup, DOCKER_ONBOARDING_KEY } from './dockerOnboarding';
@@ -663,6 +664,15 @@ async function activateImpl(context: vscode.ExtensionContext): Promise<void> {
             dockerRuntime
                 ? pullRuntimeImageCommand(dockerRuntime, outputChannel)
                 : Promise.resolve(false),
+        ),
+        // Runtime Status: shows download/install state + which registry + whether the
+        // Docker DAEMON can actually reach it (daemon-proxy aware), with a plain
+        // failure reason + fix. Works in local mode too (builds a runtime from config).
+        vscode.commands.registerCommand('dali.runtimeStatus', () =>
+            runtimeStatusCommand(
+                dockerRuntime ?? new DockerRuntime(ConfigurationService.getInstance().dockerImage),
+                outputChannel,
+            ),
         ),
         vscode.commands.registerCommand('dali.checkRuntimeUpdate', () =>
             dockerRuntime

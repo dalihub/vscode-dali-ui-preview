@@ -9,7 +9,11 @@ import { listRemoteTags } from './registryClient';
  *  on a caching proxy even when a concrete immutable build is available. An immutable
  *  `dali_X.Y.Z-<sha>` tag never moves. */
 export function isRollingTag(tag: string): boolean {
-    return tag === 'latest' || /^dali_\d+\.\d+\.\d+$/.test(tag);
+    // A tag WITHOUT a trailing `-<sha>` can move on the registry — `latest`, the moving
+    // minor `dali_X.Y.Z`, and the per-build pin `dali_X.Y.Z.BUILD` (re-tagged on each
+    // ext-sha rebuild) — so a caching proxy may need an upstream round-trip to revalidate
+    // it. Only a `dali_..-<sha>` tag is truly immutable. (4-part X.Y.Z.BUILD supported.)
+    return tag === 'latest' || /^dali_\d+\.\d+\.\d+(\.\d+)?$/.test(tag);
 }
 
 /**
@@ -28,18 +32,25 @@ export function isRollingTag(tag: string): boolean {
  * list has no usable concrete tag. Pure + exported for unit testing.
  */
 export function pickFallbackTag(tags: string[], failedTag: string): string | undefined {
-    const ver = (t: string): [number, number, number] | undefined => {
-        const m = /^dali_(\d+)\.(\d+)\.(\d+)/.exec(t);
-        return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+    // Parse the numeric version, supporting BOTH the 3-part `dali_X.Y.Z` and the current
+    // 4-part `dali_X.Y.Z.BUILD` forms. The 4th (build) component is included so two builds
+    // of the same minor (e.g. dali_2.5.29.10863 vs dali_2.5.29.10708) sort correctly —
+    // WITHOUT it the newest-selection ties on [2,5,29] and can pin an older build.
+    const ver = (t: string): [number, number, number, number] | undefined => {
+        const m = /^dali_(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?/.exec(t);
+        return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] ? Number(m[4]) : 0] : undefined;
     };
     const newest = (arr: string[]): string | undefined =>
         arr.length === 0 ? undefined : [...arr].sort((a, b) => {
             const [av, bv] = [ver(a)!, ver(b)!];
-            return bv[0] - av[0] || bv[1] - av[1] || bv[2] - av[2];
+            return bv[0] - av[0] || bv[1] - av[1] || bv[2] - av[2] || bv[3] - av[3];
         })[0];
     const usable = tags.filter((t) => t !== failedTag && ver(t));
-    const immutable = usable.filter((t) => /^dali_\d+\.\d+\.\d+-[0-9a-f]{7,}$/.test(t));
-    const moving = usable.filter((t) => /^dali_\d+\.\d+\.\d+$/.test(t)); // dali_X.Y.Z (also mutable)
+    // Immutable = a trailing `-<sha>` (never moves → served straight from a proxy cache).
+    // Accepts 3- and 4-part versions: dali_X.Y.Z-<sha> and dali_X.Y.Z.BUILD-<sha>.
+    const immutable = usable.filter((t) => /^dali_\d+\.\d+\.\d+(\.\d+)?-[0-9a-f]{7,}$/.test(t));
+    // Moving/pin = no sha: dali_X.Y.Z (minor) or dali_X.Y.Z.BUILD (per-build pin).
+    const moving = usable.filter((t) => /^dali_\d+\.\d+\.\d+(\.\d+)?$/.test(t));
     return newest(immutable) ?? newest(moving);
 }
 
@@ -200,10 +211,12 @@ export function describeFailure(
             };
         case 'network':
             return {
-                reason: `Network connection to ${host} was refused/reset/timed out.`,
+                reason: isBart
+                    ? `Network connection to ${host} (internal BART mirror) was refused/reset/timed out.`
+                    : `Network connection to ${host} timed out — the Docker daemon could not reach ghcr.io directly.`,
                 fix: isBart
                     ? 'Ensure you are on the corp network and the daemon routes ".samsung.net" DIRECTLY (not via the web proxy): add ".samsung.net" to the daemon NO_PROXY and restart docker.'
-                    : 'The daemon may need the corporate HTTP proxy configured (systemd drop-in) to reach the public internet — or ghcr.io is throttling the shared egress IP; retry.',
+                    : 'The image is pulled by the Docker DAEMON (not VS Code), and the daemon most likely has NO corporate HTTP proxy configured — so direct egress to ghcr.io is throttled/blocked (intermittent i/o timeout). Fix: give the daemon the proxy via a systemd drop-in "/etc/systemd/system/docker.service.d/http-proxy.conf" with HTTP_PROXY/HTTPS_PROXY set to your corporate proxy and NO_PROXY=".samsung.net,localhost,127.0.0.1" (keeps the internal BART mirror direct), then `sudo systemctl daemon-reload && sudo systemctl restart docker`. On the corp network the internal BART mirror is the reliable source and needs no proxy — connecting to the corp network alone usually resolves this.',
             };
         case 'auth':
             return {

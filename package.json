@@ -2,7 +2,7 @@
   "name": "dali-preview",
   "displayName": "DALi UI Preview",
   "description": "Live UI preview for Tizen DALi applications. Preview your dali-ui C++ code in real-time within VS Code.",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "publisher": "dalihub",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
@@ -111,6 +111,11 @@
         "category": "DALi Preview"
       },
       {
+        "command": "dali.runtimeStatus",
+        "title": "Runtime Status (download / install / connectivity)",
+        "category": "DALi Preview"
+      },
+      {
         "command": "dali.checkRuntimeUpdate",
         "title": "Check for Runtime Image Update",
         "category": "DALi Preview"
@@ -175,6 +180,10 @@
         {
           "command": "dali.pullRuntimeImage",
           "when": "false"
+        },
+        {
+          "command": "dali.runtimeStatus",
+          "when": "true"
         },
         {
           "command": "dali.checkRuntimeUpdate",

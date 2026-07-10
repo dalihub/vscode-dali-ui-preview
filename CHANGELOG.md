@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-07-10
+
+### Added
+- **"Runtime Status" command** (`DALi Preview: Runtime Status`) — shows, at a glance,
+  whether the runtime image is **downloaded/installed**, which **registry** it comes
+  from (internal BART mirror vs GHCR), and — crucially — whether the **Docker daemon**
+  (which actually does the pull, not VS Code) can reach it. It reads the DAEMON's own
+  proxy config, so it gives a truthful verdict + fix instead of a false "reachable" that
+  a VS-Code-side probe (which has the proxy the daemon may lack) would report.
+
+### Fixed
+- **Clearer download-failure reason.** When a `ghcr.io` pull times out, the guidance now
+  names the real cause — the Docker daemon has no corporate proxy configured, so direct
+  egress to ghcr.io is throttled/blocked — with the exact systemd drop-in fix and the
+  note that the internal BART mirror needs no proxy (connecting to the corp network alone
+  usually resolves it).
+- **Version-tag fallback for the current 4-part tag scheme.** The rolling→immutable
+  fallback regex only matched 3-part `dali_X.Y.Z[-sha]` tags, so with the current
+  4-part `dali_X.Y.Z.BUILD[-sha]` tags it silently pinned an OLDER minor. It now parses
+  and sorts the 4-part form (build number included), picking the newest immutable build.
+
 ## [0.58.0] - 2026-07-09
 
 ### Added
