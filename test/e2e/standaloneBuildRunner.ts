@@ -175,7 +175,10 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
     }
 
     const userCode = codegen.injectFocusName(opts.userCode, opts.focusId);
-    const harness = templateContent
+    // Migrate removed/renamed dali-ui APIs (2.5.30: AddChildren→Add,
+    // SetVisibility→SetVisible, SetMarkupEnabled dropped) so this golden/sweep
+    // harness compiles against the current runtime image — mirrors BuildRunner.
+    const harness = codegen.transformDaliUiApisForCompile(templateContent
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
         .replace(/\{\{PALETTE_DEFS\}\}/g, codegen.buildPaletteDefs(opts.theme, opts.locale))
@@ -189,7 +192,7 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
         .replace(/\{\{METADATA_PATH\}\}/g, escapeCppString(opts.metadataPath))
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
         .replace(/\{\{POST_BUILD_FOCUS\}\}/g, codegen.buildPostBuild(opts.locale, opts.focusId))
-        .replace(/\{\{FONT_SETUP\}\}/g, '');
+        .replace(/\{\{FONT_SETUP\}\}/g, ''));
 
     try {
         fs.writeFileSync(harnessPath, harness);
@@ -240,7 +243,9 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
     }
 
     const userCode = codegen.injectFocusName(opts.userCode, opts.focusId);
-    const harness = template
+    // Migrate removed/renamed dali-ui APIs (2.5.30) for the docker golden/sweep
+    // harness — mirrors BuildRunner (compile-path only, see harnessCodegen).
+    const harness = codegen.transformDaliUiApisForCompile(template
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')
         .replace(/\{\{PALETTE_DEFS\}\}/g, codegen.buildPaletteDefs(opts.theme, opts.locale))
@@ -253,7 +258,7 @@ export async function buildAndCaptureDocker(opts: StandaloneBuildOptions, image:
         .replace(/\{\{METADATA_PATH\}\}/g, '/work/meta.json')
         .replace(/\{\{BACKGROUND_COLOR\}\}/g, bgColorLiteral(opts.theme))
         .replace(/\{\{POST_BUILD_FOCUS\}\}/g, codegen.buildPostBuild(opts.locale, opts.focusId))
-        .replace(/\{\{FONT_SETUP\}\}/g, '');
+        .replace(/\{\{FONT_SETUP\}\}/g, ''));
 
     try {
         fs.writeFileSync(path.join(WORK, 'harness.cpp'), harness);
