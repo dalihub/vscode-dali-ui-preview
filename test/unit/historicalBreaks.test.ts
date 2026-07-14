@@ -85,6 +85,33 @@ const HISTORICAL_BREAKS: ReadonlyArray<{
         skewClassified: true,
         note: 'SKEW: dali-ADAPTOR member (Dali::Window) — likewise needs the broadened Dali:: match.',
     },
+    {
+        event: '#7 fluent-removal sequel — AddChildren batch child-add removed (2.5.30)',
+        date: '2026-07-14',
+        daliUi: '2.5.30',
+        // Sequel to #3: 2.5.28 had AddChildren(initializer_list); 2.5.30 dropped it,
+        // leaving only per-child Actor::Add. harnessCodegen.transformDaliUiApisForCompile
+        // rewrites `recv.AddChildren({a,b})` → `recv.Add(a); recv.Add(b);`.
+        stderr: "‘class Dali::Ui::FlexLayout’ has no member named ‘AddChildren’",
+        skewClassified: true,
+        note: 'SKEW: batch child-add removed; per-child Actor::Add is the survivor.',
+    },
+    {
+        event: '#8 View::SetVisibility renamed to SetVisible (2.5.30)',
+        date: '2026-07-14',
+        daliUi: '2.5.30',
+        stderr: "‘class Dali::Ui::View’ has no member named ‘SetVisibility’; did you mean ‘SetVisible’?",
+        skewClassified: true,
+        note: 'SKEW: Dali::Ui::View member renamed; compile-path codegen rewrites SetVisibility→SetVisible (confirmed by the runtime-release server migration).',
+    },
+    {
+        event: '#9 Label::SetMarkupEnabled removed — markup toggle gone (2.5.30)',
+        date: '2026-07-14',
+        daliUi: '2.5.30',
+        stderr: "‘class Dali::Ui::Label’ has no member named ‘SetMarkupEnabled’; did you mean ‘SetEnabled’?",
+        skewClassified: true,
+        note: 'SKEW: explicit markup enabler removed (g++ only offers the unrelated SetEnabled); the compile-path codegen drops the call (markup implicit).',
+    },
 ];
 
 describe('historical dali-ui breaks — detection coverage (regression guard)', () => {
@@ -98,8 +125,8 @@ describe('historical dali-ui breaks — detection coverage (regression guard)', 
         });
     }
 
-    it('covers all 6 documented historical events', () => {
-        assert.strictEqual(HISTORICAL_BREAKS.length, 6);
+    it('covers all 9 documented historical events', () => {
+        assert.strictEqual(HISTORICAL_BREAKS.length, 9);
     });
 
     it('the "has no member" class (rename/removed) is always skew-classified — incl. dali-core/adaptor types', () => {

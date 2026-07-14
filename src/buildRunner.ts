@@ -362,7 +362,11 @@ export class BuildRunner {
                 out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
             }
         }
-        return out;
+        // Migrate removed/renamed dali-ui APIs (2.5.30: AddChildren→Add,
+        // SetVisibility→SetVisible, SetMarkupEnabled dropped) so the g++ harness
+        // compiles against the current runtime image. Compile-path only — the
+        // parser/renderJson fast-path never sees this (harnessCodegen).
+        return codegen.transformDaliUiApisForCompile(out);
     }
 
     /**
@@ -443,7 +447,7 @@ export class BuildRunner {
         // sliceGlobals/sliceIncludes are '' on the self-contained (Rung3) path →
         // byte-identical to before. Non-empty only when SliceBuilder collected
         // same-file defs / stubs for the Rung2 heuristic path.
-        const pluginCode = this.pluginTemplateContent
+        const pluginCode = codegen.transformDaliUiApisForCompile(this.pluginTemplateContent
             .replace(/\{\{USER_INCLUDES\}\}/g, sliceIncludes)
             .replace(/\{\{USER_GLOBALS\}\}/g, sliceGlobals)
             // {{PALETTE_DEFS}}/{{PRE_BUILD_INSTALL}} are the ADR-004 install slots
@@ -456,7 +460,7 @@ export class BuildRunner {
             // yet plumb focus into the dlopen path. RTL (locale) does apply here —
             // __ApplyPreviewFocus(root) is the warm post-build site where `root` is
             // in scope, so a ROW mirrors in the gallery's RTL variant. '' when LTR.
-            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuild(config?.locale, undefined));
+            .replace(/\{\{POST_BUILD_FOCUS\}\}/g, BuildRunner.buildPostBuild(config?.locale, undefined)));
 
         if (!this.backend.compilePlugin) {
             return { success: false, error: `Plugin (dlopen) compile is not supported by the ${this.backend.kind} runtime backend.` };

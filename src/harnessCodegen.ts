@@ -312,6 +312,158 @@ export function instrumentAnimations(userCode: string): string {
     );
 }
 
+// ---------------------------------------------------------------------------
+// dali-ui 2.5.30 API migration (COMPILE PATHS ONLY)
+// ---------------------------------------------------------------------------
+
+/** True for C++ insignificant whitespace. */
+function isCppSpace(ch: string): boolean {
+    return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+}
+
+/**
+ * Index of the delimiter matching the opener at `openIdx`, tracking nesting of
+ * that ONE delimiter pair and skipping "..."/'...' literals (with backslash
+ * escapes). Returns -1 if unbalanced.
+ */
+function matchDelimiter(code: string, openIdx: number, open: string, close: string): number {
+    let depth = 0;
+    let inStr = false;
+    let strCh = '';
+    for (let i = openIdx; i < code.length; i++) {
+        const ch = code[i];
+        if (inStr) {
+            if (ch === '\\') { i++; }
+            else if (ch === strCh) { inStr = false; }
+            continue;
+        }
+        if (ch === '"' || ch === '\'') { inStr = true; strCh = ch; continue; }
+        if (ch === open) { depth++; }
+        else if (ch === close) { depth--; if (depth === 0) { return i; } }
+    }
+    return -1;
+}
+
+/**
+ * Split a child/argument list on TOP-LEVEL commas, honoring nested ()/{}/[] and
+ * string/char literals — so a child like `__tag(Label::New("a, b"), "__L5")`
+ * (commas inside its parens and its string) stays one element. Empty elements
+ * (e.g. from a trailing comma) are preserved; the caller filters them.
+ */
+function splitTopLevelCommas(s: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let inStr = false;
+    let strCh = '';
+    let start = 0;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (ch === '\\') { i++; }
+            else if (ch === strCh) { inStr = false; }
+            continue;
+        }
+        if (ch === '"' || ch === '\'') { inStr = true; strCh = ch; continue; }
+        if (ch === '(' || ch === '{' || ch === '[') { depth++; }
+        else if (ch === ')' || ch === '}' || ch === ']') { depth--; }
+        else if (ch === ',' && depth === 0) { parts.push(s.slice(start, i)); start = i + 1; }
+    }
+    parts.push(s.slice(start));
+    return parts;
+}
+
+/**
+ * Rewrite the removed batch child-adder to the surviving per-child add:
+ *   `recv.AddChildren({ a, b, c });`  ->  `recv.Add(a); recv.Add(b); recv.Add(c);`
+ * dali-ui 2.5.30 dropped `View::AddChildren(std::initializer_list<...>)`; only
+ * `Actor::Add(child)` remains (the same call the runtime-release build-ctx server
+ * uses per-child). The legacy fluent-era `Children({...})` name is matched too. A
+ * bare `std::vector` argument (non-`{` form) becomes an `.Add()` range-for,
+ * mirroring codeExtractor.transformVectorChildren. Balanced-scanner based (not a
+ * flat regex) so nested calls/strings/multi-line lists inside the braces survive.
+ */
+function transformChildAddersToAdd(code: string): string {
+    const CALL_RE = /([A-Za-z_]\w*(?:\s*(?:\.|->)\s*[A-Za-z_]\w*)*)\s*\.\s*(?:Add)?Children\s*\(/g;
+    let out = '';
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = CALL_RE.exec(code)) !== null) {
+        const recv = m[1].replace(/\s+/g, '');
+        const openParen = m.index + m[0].length - 1; // index of '('
+        let i = openParen + 1;
+        while (i < code.length && isCppSpace(code[i])) { i++; }
+
+        if (code[i] === '{') {
+            const braceEnd = matchDelimiter(code, i, '{', '}');
+            if (braceEnd < 0) { continue; }
+            let j = braceEnd + 1;
+            while (j < code.length && isCppSpace(code[j])) { j++; }
+            if (code[j] !== ')') { continue; }
+            const kids = splitTopLevelCommas(code.slice(i + 1, braceEnd))
+                .map((c) => c.trim())
+                .filter((c) => c.length > 0);
+            const replacement = kids.length
+                ? kids.map((c) => `${recv}.Add(${c});`).join(' ')
+                : '(void)0;';
+            let end = j + 1;
+            if (code[end] === ';') { end++; }
+            out += code.slice(last, m.index) + replacement;
+            last = end;
+            CALL_RE.lastIndex = end;
+        } else {
+            // Bare-vector form: recv.(Add)Children(vec); -> range-for .Add loop.
+            const closeParen = matchDelimiter(code, openParen, '(', ')');
+            if (closeParen < 0) { continue; }
+            const arg = code.slice(openParen + 1, closeParen).trim();
+            if (!/^[A-Za-z_]\w*$/.test(arg)) { continue; } // not a bare identifier — leave as-is
+            let end = closeParen + 1;
+            if (code[end] === ';') { end++; }
+            out += code.slice(last, m.index) + `for (auto& __ce : ${arg}) { ${recv}.Add(__ce); }`;
+            last = end;
+            CALL_RE.lastIndex = end;
+        }
+    }
+    out += code.slice(last);
+    return out;
+}
+
+/**
+ * Migrate removed/renamed dali-ui APIs in fully-assembled harness/plugin C++ so it
+ * COMPILES against the current runtime image (dali-ui 2.5.30+). Applied in the
+ * COMPILE paths ONLY (BuildRunner harness + dlopen plugin, and the e2e
+ * standaloneBuildRunner) — deliberately NOT to the code the cppParser/renderJson
+ * fast-path consumes. The parser turns setters into SceneNode property KEYS that
+ * the frozen, image-baked preview_server maps by name (it maps the "SetVisibility"
+ * key onto SetVisible, etc.); rewriting the shared pre-parser transform instead
+ * would desync the parser from that server. Running on the assembled source is
+ * safe because neither template uses any of these three symbols (only user/sliced
+ * code does), so the boilerplate is untouched.
+ *
+ * 2.5.30 breaks handled (derived from the runtime headers + the compile errors,
+ * cross-checked against the runtime-release build-ctx server migration):
+ *   1. View::AddChildren(std::initializer_list) REMOVED — see transformChildAddersToAdd.
+ *   2. View::SetVisibility(bool) RENAMED to SetVisible(bool) — the build-ctx
+ *      preview_server.cpp migrated the identical call (n=="SetVisibility" ->
+ *      view.SetVisible(...)), and g++ points at SetVisible as the surviving member.
+ *   3. Label::SetMarkupEnabled(bool) REMOVED — the explicit markup toggle is gone
+ *      and no replacement symbol exists in the headers (g++ only offers the
+ *      unrelated SetEnabled), so the call is dropped to a no-op. Markup-tagged text
+ *      still lays out; the golden gate asserts on-screen geometry, not glyph
+ *      content, so this stays green. If a future runtime exposes an explicit markup
+ *      enabler, replace the drop here (one place).
+ *
+ * Single-sourced so BuildRunner and standaloneBuildRunner can never drift.
+ */
+export function transformDaliUiApisForCompile(code: string): string {
+    let out = transformChildAddersToAdd(code);
+    // SetVisibility(x) -> SetVisible(x)
+    out = out.replace(/\.SetVisibility(\s*\()/g, '.SetVisible$1');
+    // SetMarkupEnabled(x) -> dropped (removed toggle; markup implicit). The source's
+    // own trailing ';' terminates the resulting `(void)0` no-op statement.
+    out = out.replace(/[A-Za-z_][\w.]*\.SetMarkupEnabled\s*\([^;()]*\)/g, '(void)0');
+    return out;
+}
+
 /**
  * Returns the DALi Vector4 background color literal for the given theme.
  */
