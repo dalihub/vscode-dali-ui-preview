@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **dali-ui 2.5.32 API skew: previews compile and render again.** Two symbols the preview
+  path used were removed upstream, which broke the whole 2.5.32 runtime (the runtime-release
+  agent correctly held publishing since 2.5.30):
+  - `Label::SetMarkupEnabled(bool)` — the feature moved to a text-**source** conversion
+    (`Text::StyledText::FromMarkup()` + `Label::SetStyledText()`). The baked renderer
+    (`docker/preview_server.cpp`) and the compile-path transform
+    (`harnessCodegen.transformDaliUiApisForCompile`) now re-parse the label's current text
+    through that pair. The previous transform rewrote the call to `(void)0`, which silently
+    rendered markup tags as literal glyphs — samples set markup in the **constructor**
+    (`Label::New("<font size='420'>68</font>°")`), so the drop was a visible pixel change on
+    `weather-forecast`, `crypto-portfolio`, `fitness-dashboard`, `flow-banking/*`.
+  - `Integration::View::SetState(view, ViewState::FOCUS_INDICATED, true)` — removed with no
+    replacement (`ViewState` is read-only via `View::GetState()`, and focus indication is
+    device-driven: `FocusDevice::PROGRAMMATIC` draws no ring by design). The focus slot now
+    **emulates keyboard navigation** (one synthetic key pair through
+    `EventFeeder::FeedKeyEvent`), which leaves focus on the target with `device=KEYBOARD` so
+    the ring is drawn in a static render. `focus-grid`'s pixel golden is unchanged.
+- `docker/preview_server.cpp`: `View::SetVisibility` → `SetVisible` (renamed in 2.5.30). The
+  runtime-release agent was patching this at build time via its safe-rename table; that
+  band-aid is now a no-op.
+- Regenerated `test/golden/red-box.harness.cpp` (template gained the key-event includes).
+
+Verified against a runtime image built from this tree (dali-ui 2.5.32.10995):
+`test:e2e` 26/26, `verify:previews:docker` 50 pass / 0 skew, `test:unit` 912 passing.
+
+
 ## [0.61.0] - 2026-07-10
 
 ### Added

@@ -439,7 +439,13 @@ static void SBApplyCommonProps(View& view,
         else if (n == "SetMargin"  || n == "SetViewMargin")  view.SetMargin(SBParseExtents(a0));
         else if (n == "SetCornerRadius")    view.SetCornerRadius(SBParseFloat(a0));
         else if (n == "SetOpacity")         view.SetOpacity(SBParseFloat(a0));
-        else if (n == "SetVisibility")      view.SetVisibility(a0.find("true") != std::string::npos);
+        // dali-ui 2.5.30 RENAMED View::SetVisibility(bool) to SetVisible(bool) (the
+        // inherited Actor::SetVisible, identical bool). The scene JSON key stays
+        // "SetVisibility" (that is what the sample source wrote); only the call is
+        // renamed. Until now the runtime-release agent patched this at build time
+        // (its verified safe-rename table), so the source kept a symbol that no
+        // longer exists — the band-aid is a no-op once this lands.
+        else if (n == "SetVisibility")      view.SetVisible(a0.find("true") != std::string::npos);
         else if (n == "SetBorderlineWidth") view.SetBorderlineWidth(SBParseFloat(a0));
         else if (n == "SetBorderlineColor") view.SetBorderlineColor(SBParseUiColor(a0));
     }
@@ -515,10 +521,19 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
 
         // Method-form text/markup: a `.SetText("...")` or `.SetMarkupEnabled(true)`
         // chained after `Label::New()` lands in properties, not the constructor arg.
-        // Enable markup BEFORE assigning method-form text so tags are parsed.
+        //
+        // dali-ui 2.5.32 REMOVED Label::SetMarkupEnabled(bool), but the feature moved
+        // rather than disappearing: markup is now a text-SOURCE conversion —
+        // Text::StyledText::FromMarkup() (styled-text.h) fed through
+        // Label::SetStyledText() (label.h). Because that new surface consumes the
+        // finished text, the toggle is remembered here and the text is re-parsed AFTER
+        // the method-form SetText below (the old flag re-parsed the already-set text,
+        // so this preserves the rendering). Dropping the call instead is NOT equivalent:
+        // samples put markup in the constructor arg, so a no-op renders literal tags.
+        bool markupEnabled = false;
         auto itMarkup = node.properties.find("SetMarkupEnabled");
         if (itMarkup != node.properties.end() && !itMarkup->second.empty())
-            lbl.SetMarkupEnabled(itMarkup->second[0].find("true") != std::string::npos);
+            markupEnabled = itMarkup->second[0].find("true") != std::string::npos;
 
         auto itText = node.properties.find("SetText");
         if (itText != node.properties.end() && !itText->second.empty())
@@ -528,6 +543,12 @@ static View SBBuildNodeRaw(const SceneNodeJson& node)
                 mt = mt.substr(1, mt.size() - 2);
             lbl.SetText(mt.c_str());
         }
+
+        // Re-parse the label's CURRENT text (constructor arg, or the method-form
+        // SetText above when present) as markup. A `false` toggle stays a no-op —
+        // plain text is the default, exactly as SetMarkupEnabled(false) was.
+        if (markupEnabled)
+            lbl.SetStyledText(Dali::Ui::Text::StyledText::FromMarkup(lbl.GetText()));
 
         for (const auto& kv : node.properties)
         {

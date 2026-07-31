@@ -219,15 +219,40 @@ export function buildPostBuildFocus(focusId?: string): string {
         '        Dali::Ui::View __fv = Dali::Ui::View::DownCast(__ft);',
         '        if(!__fv) { __fv = __FindFirstFocusable(root); }',
         '        if(__fv) {',
-        '            Dali::Ui::FocusManager::Get().SetCurrentFocusView(__fv);',
         '            // dali-ui v2.5.28 made the focus ring device-driven: a programmatic',
-        '            // SetCurrentFocusView no longer flags the view as focus-indicated, so',
-        '            // no ring is drawn in a static render. Force the FOCUS_INDICATED state',
-        "            // (integration-api; there is no public setter), then re-enable the",
-        '            // default indicator so FocusManager re-attaches its ring to the current',
-        '            // focus view (empirically verified: focus child count 0 -> 1).',
-        '            Dali::Ui::Integration::View::SetState(__fv, Dali::Ui::ViewState::FOCUS_INDICATED, true);',
-        '            Dali::Ui::FocusManager::Get().SetDefaultFocusIndicatorEnabled(true);',
+        '            // SetCurrentFocusView does not by itself draw a ring in a static render,',
+        '            // so the default indicator is enabled FIRST and the focus is set after —',
+        '            // FocusManager attaches its ring to the view it focuses.',
+        '            //',
+        '            // v2.5.32 REMOVED Dali::Ui::Integration::View::SetState(), which this',
+        '            // harness used to force ViewState::FOCUS_INDICATED. There is no setter in',
+        '            // 2.5.32 (ViewState is read-only via View::GetState(); the indicator',
+        '            // suppression internals were reworked — RefreshDefaultFocusIndicator*',
+        '            // / IsDefaultFocusIndicatorSuppressedByStateEffect are gone), so focus',
+        '            // indication is now left to FocusManager. The golden semantic check',
+        '            // (focus-grid: ring must be present) is the arbiter for this.',
+        '            auto __fm = Dali::Ui::FocusManager::Get();',
+        '            __fm.SetDefaultFocusIndicatorEnabled(true);',
+        '            __fm.SetCurrentFocusView(__fv);',
+        '            // Focus indication is DEVICE-driven: v2.5.32 removed the only setter',
+        '            // (Integration::View::SetState) and FocusDevice::PROGRAMMATIC focus draws',
+        '            // no ring by design (view-focus-enums.h). So the harness EMULATES keyboard',
+        '            // navigation: step off the target and back with real key events, which',
+        '            // leaves the focus on __fv with device=KEYBOARD → the ring is drawn.',
+        '            // Requires the target to have a navigable neighbour; the golden semantic',
+        '            // check (focus-grid) is the arbiter that this held.',
+        '            {',
+        '                auto __feedKey = [](const char* name) {',
+        '                    for (auto st : {Dali::KeyEvent::DOWN, Dali::KeyEvent::UP}) {',
+        '                        Dali::KeyEvent __ke = Dali::DevelKeyEvent::New(',
+        '                            name, "", "", 0, 0, 0u, st, "",',
+        '                            "synthetic-preview-keyboard",',
+        '                            Dali::Device::Class::KEYBOARD, Dali::Device::Subclass::NONE);',
+        '                        Dali::EventFeeder::FeedKeyEvent(__ke);',
+        '                    }',
+        '                };',
+        '                __feedKey("Right"); __feedKey("Left");',
+        '            }',
         '        }',
         '    }',
     ].join('\n');
@@ -445,12 +470,15 @@ function transformChildAddersToAdd(code: string): string {
  *   2. View::SetVisibility(bool) RENAMED to SetVisible(bool) — the build-ctx
  *      preview_server.cpp migrated the identical call (n=="SetVisibility" ->
  *      view.SetVisible(...)), and g++ points at SetVisible as the surviving member.
- *   3. Label::SetMarkupEnabled(bool) REMOVED — the explicit markup toggle is gone
- *      and no replacement symbol exists in the headers (g++ only offers the
- *      unrelated SetEnabled), so the call is dropped to a no-op. Markup-tagged text
- *      still lays out; the golden gate asserts on-screen geometry, not glyph
- *      content, so this stays green. If a future runtime exposes an explicit markup
- *      enabler, replace the drop here (one place).
+ *   3. Label::SetMarkupEnabled(bool) REMOVED — the explicit toggle is gone, but the
+ *      FEATURE moved to a text-source conversion: Text::StyledText::FromMarkup()
+ *      (styled-text.h:84) + Label::SetStyledText() (label.h:207). The call is
+ *      rewritten to re-apply the label's CURRENT text through that pair, which is
+ *      exactly what the old toggle did (it re-parsed the already-set text). Dropping
+ *      it to a no-op instead is NOT equivalent: samples set markup via the
+ *      constructor (`Label::New("<font size='420'>68</font>°")`), so a no-op renders
+ *      the tags as literal glyphs at the default font size — a pixel change the
+ *      golden gate rejects.
  *
  * Single-sourced so BuildRunner and standaloneBuildRunner can never drift.
  */
@@ -458,9 +486,20 @@ export function transformDaliUiApisForCompile(code: string): string {
     let out = transformChildAddersToAdd(code);
     // SetVisibility(x) -> SetVisible(x)
     out = out.replace(/\.SetVisibility(\s*\()/g, '.SetVisible$1');
-    // SetMarkupEnabled(x) -> dropped (removed toggle; markup implicit). The source's
-    // own trailing ';' terminates the resulting `(void)0` no-op statement.
-    out = out.replace(/[A-Za-z_][\w.]*\.SetMarkupEnabled\s*\([^;()]*\)/g, '(void)0');
+    // SetMarkupEnabled(x) -> re-apply the label's current text through the markup
+    // parser: SetStyledText(StyledText::FromMarkup(GetText())). The receiver pattern
+    // is a plain dotted path (no calls), so evaluating it twice is side-effect free.
+    // Wrapped in do/while(0) so the source's own trailing ';' terminates the
+    // statement and a false argument stays a no-op, like the old toggle.
+    out = out.replace(
+        /([A-Za-z_][\w.]*)\.SetMarkupEnabled\s*\(([^;()]*)\)/g,
+        (_match: string, recv: string, arg: string) => {
+            const cond = arg.trim();
+            if (!cond) { return '(void)0'; }
+            return `do { if ((${cond})) { ${recv}.SetStyledText(`
+                + `::Dali::Ui::Text::StyledText::FromMarkup(${recv}.GetText())); } } while (0)`;
+        },
+    );
     return out;
 }
 
