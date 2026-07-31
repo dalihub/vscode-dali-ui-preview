@@ -363,7 +363,7 @@ export class BuildRunner {
             }
         }
         // Migrate removed/renamed dali-ui APIs (2.5.30: AddChildren→Add,
-        // SetVisibility→SetVisible, SetMarkupEnabled dropped) so the g++ harness
+        // SetVisibility→SetVisible, SetMarkupEnabled→SetStyledText/FromMarkup) so the g++ harness
         // compiles against the current runtime image. Compile-path only — the
         // parser/renderJson fast-path never sees this (harnessCodegen).
         return codegen.transformDaliUiApisForCompile(out);

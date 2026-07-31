@@ -176,8 +176,9 @@ export async function buildAndCapture(opts: StandaloneBuildOptions): Promise<Sta
 
     const userCode = codegen.injectFocusName(opts.userCode, opts.focusId);
     // Migrate removed/renamed dali-ui APIs (2.5.30: AddChildren→Add,
-    // SetVisibility→SetVisible, SetMarkupEnabled dropped) so this golden/sweep
-    // harness compiles against the current runtime image — mirrors BuildRunner.
+    // SetVisibility→SetVisible; 2.5.32: SetMarkupEnabled→SetStyledText/FromMarkup) so
+    // this golden/sweep harness compiles against the current runtime image — mirrors
+    // BuildRunner (single-sourced in codegen.transformDaliUiApisForCompile).
     const harness = codegen.transformDaliUiApisForCompile(templateContent
         .replace(/\{\{USER_INCLUDES\}\}/g, opts.userIncludes ?? '')
         .replace(/\{\{USER_GLOBALS\}\}/g, opts.userGlobals ?? '')

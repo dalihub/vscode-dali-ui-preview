@@ -6,10 +6,17 @@
 #include <dali/public-api/adaptor-framework/capture.h>
 #include <dali-ui-foundation/dali-ui-foundation.h>
 // dali-ui v2.5.28+: the focus ring is device-driven, so the POST_BUILD_FOCUS slot
-// force-flags the target's FOCUS_INDICATED state — the only setter for it lives in
-// integration-api (no public equivalent). Unused when no focus directive is present.
+// used to force-flag the target's FOCUS_INDICATED state via integration-api. dali-ui
+// 2.5.32 REMOVED that setter (Integration::View::SetState), so the focus slot now
+// emulates keyboard navigation instead (see the key-event includes below). The
+// integration include stays for the other integration-api helpers the slots use.
 #include <dali-ui-foundation/integration-api/view-integ.h>
 #include <dali/devel-api/text-abstraction/font-client.h>
+// dali-ui 2.5.32 removed Integration::View::SetState(), so the focus ring can no
+// longer be forced by writing ViewState::FOCUS_INDICATED. Focus indication is
+// device-driven, so the focus slot feeds one synthetic key event instead.
+#include <dali/devel-api/events/key-event-devel.h>
+#include <dali/devel-api/adaptor-framework/event-feeder.h>
 
 #include <iostream>
 #include <fstream>
